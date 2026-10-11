@@ -1,0 +1,22 @@
+name: weekly backtest
+on:
+  schedule:
+    - cron: "30 2 * * 6"   # Saturday 08:00 IST
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python run_backtest.py
+      - run: |
+          git config user.name "paper-trader-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add reports/backtest.md reports/backtest_equity.csv
+          git diff --cached --quiet || git commit -m "backtest: $(date +%F)"
+          git pull --rebase --autostash && git push

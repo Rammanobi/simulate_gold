@@ -1,0 +1,55 @@
+name: market-hours paper trading
+
+# NSE is open 09:15–15:30 IST = 03:45–10:00 UTC, Mon–Fri.
+# GitHub jobs are capped at 6h, so the session is split into two runs.
+# Inside each run the Python loop ticks every 60 seconds.
+on:
+  schedule:
+    - cron: "40 3 * * 1-5"   # 09:10 IST → morning half (loops until ~12:20 IST)
+    - cron: "45 6 * * 1-5"   # 12:15 IST → afternoon half (loops until close, writes daily report)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run one tick even if the market is closed"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: paper-trader
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional; rules-only if unset
+      TZ: Asia/Kolkata
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q tests
+      - name: Run paper-trading loop
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            python run_live.py --once --force
+          elif [ "${{ github.event.schedule }}" = "40 3 * * 1-5" ]; then
+            python run_live.py --max-minutes 190
+          else
+            python run_live.py --max-minutes 300
+          fi
+      - name: Commit state, logs and reports
+        if: always()
+        run: |
+          git config user.name "paper-trader-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state logs reports
+          git diff --cached --quiet || git commit -m "paper-trade: $(date +'%Y-%m-%d %H:%M IST')"
+          git pull --rebase --autostash && git push
