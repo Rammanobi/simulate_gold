@@ -1,0 +1,13 @@
+{
+ "cash": 100000.0,
+ "positions": {},
+ "peak_equity": 100000.0,
+ "month": "2026-10",
+ "month_start_equity": 100000.0,
+ "stop_until": {},
+ "last_trade_at": {},
+ "flat_until": "",
+ "realised_pnl": 0.0,
+ "total_costs": 0.0,
+ "trades": []
+}
