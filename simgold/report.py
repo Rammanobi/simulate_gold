@@ -688,8 +688,13 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False)
         headline = 'You\'re flat today: <span style="white-space:nowrap;">₹0</span>'
     extra = ""
     if r < 0:
-        extra = (f'<div style="font-size:14px;line-height:21px;color:#4b5563;padding-top:8px;">'
-                 f'{"The safety floor is " + inr(p["distance_to_floor"]) + " below today\'s value and the rules are unchanged." if p["distance_to_floor"] > 0 else "Value is at or below the safety floor, so the engine is protecting cash."}</div>')
+        if p["distance_to_floor"] > 0:
+            note = ("The safety floor is " + inr(p["distance_to_floor"])
+                    + " below today's value and the rules are unchanged.")
+        else:
+            note = "Value is at or below the safety floor, so the engine is protecting cash."
+        extra = ('<div style="font-size:14px;line-height:21px;color:#4b5563;padding-top:8px;">'
+                 + note + '</div>')
     for w in day["warnings"]:
         extra += f'<div style="font-size:13px;line-height:19px;color:#8a6d12;padding-top:8px;">Note: {esc(w)}</div>'
     hero = (f'<tr><td style="padding:14px 20px 4px 20px;font-family:{FONT};"><div style="font-size:30px;line-height:36px;font-weight:800;color:{color};">{headline}</div>'
