@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1600">
+<title>One decision every 60 seconds</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{width:1600px;position:relative;background:#f7f4ec;background-image:radial-gradient(#ddd6c4 1.2px,transparent 1.3px);background-size:26px 26px;
+ font-family:Inter,"Segoe UI","Helvetica Neue",Arial,sans-serif;color:#13202b;font-size:15px;line-height:1.35;-webkit-font-smoothing:antialiased}
+h1{position:absolute;left:40px;top:26px;margin:0;font-size:44px;line-height:1.1;letter-spacing:-.5px;font-weight:800}
+.sub{position:absolute;left:42px;top:84px;width:1400px;font-size:20px;color:#3a4a58;line-height:1.35}
+.badge{position:absolute;right:40px;top:34px;background:#13202b;color:#fff;font-weight:700;font-size:16px;padding:8px 16px;border-radius:999px}
+.lane{position:absolute;border-radius:20px;border:2px solid var(--c);background:var(--t);opacity:1}
+.lane>.ll{position:absolute;left:0;top:0;bottom:0;width:40px;background:var(--c);border-radius:17px 0 0 17px;color:#fff;font-weight:800;font-size:15px;letter-spacing:1.5px;
+ writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;text-transform:uppercase;white-space:nowrap}
+.card{position:absolute;background:#fff;border-radius:14px;padding:12px 15px;border-top:5px solid var(--c);
+ box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.09)}
+.card h3{margin:0 0 4px;font-size:18px;line-height:1.2;font-weight:750}
+.card p{margin:0 0 3px;font-size:15px}
+.card .m{font-family:"DejaVu Sans Mono","Liberation Mono",monospace;font-size:14px}
+.card ul{margin:2px 0 0;padding-left:19px;font-size:15px}
+.card li{margin:1px 0}
+.c-gold{--c:#a8790f;--t:#fbf3df}.c-green{--c:#1a7f4b;--t:#e6f4ec}.c-red{--c:#b23a30;--t:#f9e8e5}.c-blue{--c:#2f6690;--t:#e5eef6}.c-slate{--c:#5b7083;--t:#eceff2}.c-ink{--c:#13202b;--t:#eceff2}
+.card.tint{background:var(--t)}
+.card.dash{border:2px dashed var(--c);border-top:5px solid var(--c)}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:13.5px;font-weight:700;color:#fff;background:var(--c,#5b7083);white-space:nowrap;vertical-align:1px}
+.pill.gold{background:#a8790f}.pill.green{background:#1a7f4b}.pill.red{background:#b23a30}.pill.blue{background:#2f6690}.pill.slate{background:#5b7083}.pill.ink{background:#13202b}
+.pill.out{background:#fff;color:#13202b;border:1.5px solid #13202b}
+.num{display:inline-flex;width:28px;height:28px;border-radius:50%;background:#13202b;color:#fff;font-weight:800;font-size:15px;align-items:center;justify-content:center;margin-right:8px;flex:none}
+.abs{position:absolute}
+.txt{position:absolute;font-size:15px}
+.note{position:absolute;font-size:16px;color:#3a4a58}
+svg.ov{position:absolute;left:0;top:0;pointer-events:none}
+.legend{position:absolute;left:40px;display:flex;gap:26px;align-items:center;background:#fff;border-radius:12px;padding:10px 18px;font-size:15px;box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.07)}
+.legend span.sw{display:inline-block;width:16px;height:16px;border-radius:5px;margin-right:7px;vertical-align:-3px}
+.legend b{font-weight:800;margin-right:4px}
+.foot{position:absolute;left:40px;font-size:14px;color:#5b6b78}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
+table.t th{text-align:left;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:#fff;padding:8px 10px;background:#13202b}
+table.t th:first-child{border-radius:10px 0 0 0}table.t th:last-child{border-radius:0 10px 0 0}
+table.t td{padding:8px 10px;border-bottom:1px solid #e3dfd2;vertical-align:top}
+b.g{color:#1a7f4b}b.r{color:#b23a30}b.y{color:#a8790f}
+</style></head>
+<body style="height:965px">
+<h1>One decision every 60 seconds</h1>
+<div class="sub">The engine runs these 8 steps in order. No AI is involved. If a safety step fires, later steps do not run.</div>
+<div class="badge">Paper trading only · no real money</div>
+<div class="card c-blue " style="left:40px;top:150px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">1</span>Read</h3><p>Latest prices (must be under 3 minutes old), guidance.json, fast-lane orders, events, safe mode.</p></div><div class="card c-blue " style="left:420px;top:150px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">2</span>Value and floor</h3><p>Value = cash + LIQUIDBEES + positions, minus the cost to sell. If best profit grew, the floor ratchets up. It never goes down.</p></div><div class="card c-red " style="left:800px;top:150px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">3</span>Tripwire?</h3><p>Value within ₹100 of the floor: sell everything into LIQUIDBEES. No buys until the next trading day.</p></div><div class="card c-blue " style="left:1180px;top:150px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">4</span>Exits</h3><p>Stop-loss, sell half at +1.5% / +2.5% / +4.0%, trailing stop, 15:15 time and score exits, event and month-end exits.</p></div><div class="card c-gold " style="left:40px;top:325px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">5</span>Triggers</h3><p>Fast price move or urgent headline: block new buys for 30 minutes and wake the fast lane. No waiting for AI.</p></div><div class="card c-green " style="left:420px;top:325px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">6</span>Maybe buy</h3><p>Only if every condition in the box below passes. Paper fill with costs and slippage.</p></div><div class="card c-blue " style="left:800px;top:325px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">7</span>Log one line</h3><p>BUY, SELL, SKIP, BLOCK or HOLD, with a plain-English reason.</p></div><div class="card c-blue " style="left:1180px;top:325px;width:350px;height:140px"><h3 style="display:flex;align-items:center;font-size:21px"><span class="num">8</span>Save</h3><p>portfolio.json and the tick row. Pushed to GitHub about every 5 minutes.</p></div><div class="card c-green tint" style="left:40px;top:505px;width:1000px;height:330px"><h3 style="font-size:22px">Step 6: a buy needs ALL of these (any one "no" = SKIP or BLOCK, with the reason logged)</h3>
+<div style="display:flex;gap:30px;margin-top:6px"><ul style="flex:1">
+<li><b>Score</b> above the threshold for <b>3 minutes in a row</b>: gold 0.65 / silver 0.70 / copper 0.75 if "favour"; 0.70 / 0.75 / 0.80 if "neutral"; no buys on "block"</li>
+<li><b>Price</b> no more than 3 minutes old</li>
+<li><b>Time</b> 09:30 to 15:00 only; not in an event window (CPI, FOMC, RBI, results)</li>
+<li><b>Not</b> in the last 3 trading days of the month, safe mode, after a tripwire, or paused by a shock or fast-lane block</li>
+<li><b>Cushion</b>: value more than ₹300 above the floor</li></ul>
+<ul style="flex:1">
+<li><b>Risk budget</b>: worst-case gap loss of all positions fits above the floor (3% gold, 5% silver, 7% copper)</li>
+<li><b>Caps</b>: gold 60%, silver 30%, copper 15% of value; at least 30% stays in LIQUIDBEES; at most 3 open positions</li>
+<li><b>Limits</b>: 3 buys a day, 1 per instrument a day, 3 per instrument a week, 30 minutes between buys</li>
+<li><b>Calm</b>: no re-buy after a stop-out the same day; no buys after 2 losing trades in a day</li></ul></div></div><div class="card c-slate " style="left:1070px;top:505px;width:490px;height:200px"><h3>What a log line looks like</h3>
+<p class="m" style="font-size:13.5px;line-height:1.5">09:36 <b class="g">BUY</b> GOLDBEES 40 @ ₹121.10<br>"The buy score for GOLDBEES stayed at 0.72 or higher (needs 0.65) for 3 minutes, and the risk budget allows 40 shares."</p>
+<p class="m" style="font-size:13.5px;line-height:1.5;margin-top:8px">09:51 <b class="y">SKIP</b> SILVERBEES<br>"The last buy was 15 minutes ago and at least 30 minutes must pass between buys."</p></div><div class="card c-red tint" style="left:1070px;top:725px;width:490px;height:110px"><h3>Safety lines</h3><p><b>Caution</b>: floor + ₹300, no new buys. <b>Tripwire</b>: floor + ₹100, sell all.</p></div><div class="legend" style="top:870px"><div><span class="sw" style="background:#2f6690"></span><b>Engine step</b></div><div><span class="sw" style="background:#b23a30"></span><b>Safety stop</b></div><div><span class="sw" style="background:#a8790f"></span><b>Calls for AI help</b></div><div><span class="sw" style="background:#1a7f4b"></span><b>Buy decision</b></div></div><div class="foot" style="top:925px">About 375 of these minute checks run every trading day. Exits can fire on any check; buys are rare. Source: docs/RULEBOOK.md, simgold/engine.py.</div>
+<svg class="ov" width="1600" height="965" viewBox="0 0 1600 965"><defs><marker id="a-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#13202b"/></marker><marker id="a-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a8790f"/></marker><marker id="a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f4b"/></marker><marker id="a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b23a30"/></marker><marker id="a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/></marker><marker id="a-slate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b7083"/></marker></defs><path d="M390,220 L420,220" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M390,395 L420,395" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M770,220 L800,220" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M770,395 L800,395" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M1150,220 L1180,220" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M1150,395 L1180,395" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M1355,290 L1355,307 L230,307 L230,325" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><text x="300" y="301" text-anchor="middle" font-size="14" font-weight="700" fill="#13202b" stroke="#f7f4ec" stroke-width="5" paint-order="stroke" stroke-linejoin="round">next</text></svg>
+</body></html>
