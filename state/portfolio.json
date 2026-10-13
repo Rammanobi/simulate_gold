@@ -13,9 +13,32 @@
  "floor": 99500.0,
  "best_profit": 0.0,
  "liquidbees": 100000.0,
- "last_accrual": "",
- "counters": {},
+ "last_accrual": "2026-10-13",
+ "counters": {
+  "date": "2026-10-13",
+  "buys_today": 0,
+  "buys_sym_today": {},
+  "losses_today": 0,
+  "buys_week": {
+   "key": "2026-W42",
+   "month": "2026-10",
+   "n": {}
+  }
+ },
  "cooldowns": {},
- "runtime": {},
+ "runtime": {
+  "shock_close_done": {},
+  "value_hist": [
+   [
+    "2026-10-13T15:08:04+05:30",
+    100000.0
+   ]
+  ],
+  "streaks": {}
+ },
+ "day_costs": 0.0,
+ "day_costs_date": "2026-10-13",
+ "liquidbees_income_today": 0.0,
+ "day_open_value": 100000.0,
  "schema": 1
 }
