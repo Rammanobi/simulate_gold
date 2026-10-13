@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+import statistics
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -34,6 +36,11 @@ except Exception:   # pragma: no cover - import guard
 
 DECISION_FIELDS = ["ts", "time", "action", "symbol", "qty", "price", "amount", "pnl", "reason", "trigger",
                    "stop", "risk", "value_after", "floor"]
+# Data hygiene (not a trading rule): a minute close this far from the median of the previous few closes is treated as
+# a bad print and ignored for this tick. A real move that big keeps printing, so it is accepted once it dominates the
+# recent closes (after about 3 minutes). NSE ETF price bands are 20% a day, so 25% inside a few minutes is a glitch.
+MAX_TICK_JUMP = 0.25
+FUTURE_SLACK = timedelta(minutes=5)     # state files dated further ahead than this are not trusted
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
             "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode"}
 
@@ -68,6 +75,42 @@ def _load_json(path: Path):
         return None
 
 
+def _good_px(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) and x > 0
+
+
+def _as_ist(d: datetime) -> datetime:
+    """The engine's day and clock are IST. A UTC (or naive) timestamp is converted, never reinterpreted."""
+    return d.astimezone(market.IST) if d.tzinfo else d.replace(tzinfo=market.IST)
+
+
+def clean_market(mkt: Market) -> list[tuple[str, str]]:
+    """Drop prices that cannot be real (NaN, inf, zero, negative) and single-minute spikes (MAX_TICK_JUMP).
+    Mutates mkt; returns [(symbol, plain reason)] for what was dropped."""
+    dropped: list[tuple[str, str]] = []
+    mkt.now = _as_ist(mkt.now)
+    for s, ser in list(mkt.series.items()):
+        mkt.series[s] = [(t, float(v)) for t, v in (ser or []) if _good_px(v)]
+    for d in (mkt.prev_close, mkt.scores):
+        for s, v in list(d.items()):
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)) or (d is mkt.prev_close and v <= 0):
+                d.pop(s)
+    for s, px in list(mkt.prices.items()):
+        if not _good_px(px):
+            mkt.prices.pop(s)
+            dropped.append((s, f"The {s} price feed returned an impossible value ({px!r}), so it was ignored this minute."))
+            continue
+        ser = mkt.series.get(s) or []
+        prev = [v for _, v in (ser[:-1] if ser and ser[-1][1] == px else ser)][-5:]
+        if len(prev) >= 3:
+            med = statistics.median(prev)
+            if abs(px / med - 1) > MAX_TICK_JUMP:
+                mkt.prices.pop(s)
+                dropped.append((s, f"The {s} price {px:.2f} is {(px / med - 1) * 100:+.0f}% away from the last few minutes "
+                                   f"({med:.2f}), which looks like a bad print, so it was ignored this minute."))
+    return dropped
+
+
 def _dt(s, tz) -> datetime | None:
     try:
         d = datetime.fromisoformat(str(s))
@@ -79,6 +122,7 @@ def _dt(s, tz) -> datetime | None:
 class Engine:
     def __init__(self, pf: Portfolio, mkt: Market, env: Env):
         self.pf, self.mkt, self.env, self.p = pf, mkt, env, env.params
+        self.bad_prices = clean_market(mkt)
         self.now = mkt.now
         self.day = self.now.date()
         self.syms = list(self.p["instruments"])
@@ -345,6 +389,13 @@ class Engine:
             except OSError:
                 return []
         last = _dt(self.rt.get("fl_applied_updated"), self.now.tzinfo)
+        if last and last > self.now + FUTURE_SLACK:      # poisoned by an earlier future-dated file: forget it
+            last = None
+        if upd > self.now + FUTURE_SLACK:
+            if self.rt.get("fl_future_logged") != upd.isoformat():
+                self.rt["fl_future_logged"] = upd.isoformat()
+                self._log_rejected([f"updated {upd.isoformat()} is in the future; the whole file is ignored"])
+            return []
         if last and upd <= last:
             return []
         if (self.now - upd) > timedelta(minutes=self.p["engine"]["fastlane_max_age_min"]):
@@ -354,13 +405,7 @@ class Engine:
                for s, p in self.pf.positions.items()}
         acc, rej = guard.sanitize_fastlane(raw, self.now, pos, self.p)
         if rej:
-            log.warning("fast-lane advice ignored: %s", "; ".join(rej))
-            try:
-                with open(self.env.logs_dir / f"advice-rejected-{self.day.isoformat()}.jsonl", "a", encoding="utf-8") as fh:
-                    fh.write(json.dumps({"ts": self.now.isoformat(timespec="seconds"), "source": "fastlane.json",
-                                         "rejected": rej}, ensure_ascii=False) + "\n")
-            except OSError:
-                pass
+            self._log_rejected(rej)
         keep = []
         for a in acc:
             t = a["type"]
@@ -380,6 +425,16 @@ class Engine:
             else:
                 keep.append(a)
         return keep
+
+    def _log_rejected(self, rej: list[str]) -> None:
+        log.warning("fast-lane advice ignored: %s", "; ".join(rej))
+        try:
+            self.env.logs_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.env.logs_dir / f"advice-rejected-{self.day.isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"ts": self.now.isoformat(timespec="seconds"), "source": "fastlane.json",
+                                     "rejected": rej}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------ 3. exits
     def exits(self, advice: list[dict]):
@@ -474,7 +529,8 @@ class Engine:
         upd = _dt(g.get("updated"), self.now.tzinfo)
         fresh = bool(upd) and (self.now - upd) <= timedelta(minutes=self.p["entry"]["stale_guidance_minutes"]) \
             and (upd - self.now) <= timedelta(minutes=5)
-        bias = {config.symbol_of(k): guard.normalise_bias(v) for k, v in (g.get("bias") or {}).items()}
+        raw = g.get("bias")
+        bias = {config.symbol_of(k): guard.normalise_bias(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
         return bias, fresh, upd
 
     def effective_bias(self, sym: str, bias: dict, fresh: bool, upd: datetime | None) -> str:
@@ -639,6 +695,8 @@ class Engine:
         self.env.logs_dir.mkdir(parents=True, exist_ok=True)
         self.env.state_dir.mkdir(parents=True, exist_ok=True)
         self.housekeeping()
+        for sym, why in self.bad_prices:
+            self._noisy_skip("SKIP", sym, why, "Minute check", None)
         self.triggers()
         advice = self.fastlane_advice()
         self.exits(advice)

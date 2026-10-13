@@ -375,8 +375,18 @@ _EVENT_ALIASES = {
 }
 
 
+def _clock_or_none(v) -> str | None:
+    """'18:00' (or '18:00:00') -> '18:00'; anything else (bad text, numbers, '25:99') -> None."""
+    try:
+        h, m = str(v).strip().split(":")[:2]
+        return time(int(h), int(m)).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
 def normalise_events(raw) -> list[dict]:
-    """events.json is a list of {date, type}; tolerate {"events": [...]}; drop malformed rows."""
+    """events.json is a list of {date, type}; tolerate {"events": [...]}; drop malformed rows.
+    A malformed time is dropped (not the row): for Hindustan Copper results that means the safer 'sell the day before'."""
     if isinstance(raw, dict):
         raw = raw.get("events", [])
     out = []
@@ -386,7 +396,7 @@ def normalise_events(raw) -> list[dict]:
             d = date.fromisoformat(str(e["date"])[:10])
         except (KeyError, ValueError, TypeError):
             continue
-        out.append({"date": d, "type": typ, "time": e.get("time")})
+        out.append({"date": d, "type": typ, "time": _clock_or_none(e.get("time")) if e.get("time") else None})
     return out
 
 

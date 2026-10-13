@@ -19,6 +19,9 @@ def build_market(now: datetime, bars: dict[str, pd.DataFrame], daily: dict[str, 
         b = bars.get(tk)
         if b is None or b.empty:
             continue
+        if "close" in b:                           # NaN closes, duplicate or out-of-order bars: last print wins
+            b = b.dropna(subset=["close"])
+        b = b[~b.index.duplicated(keep="last")].sort_index()
         b = b[b.index <= now]
         if b.empty:
             continue
