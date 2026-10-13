@@ -59,6 +59,7 @@ unless the playbook says so.
 | `python tools/context.py` | brief, lessons, last 3 daily notes, latest weekly note |
 | `python tools/should_think.py [--force]` | exit 0 "THINK: …", exit 3 "SKIP: …" |
 | `python tools/guidance.py set --bias GOLD=… SILVER=… COPPER=… --note "…"` | bias: favour, neutral or block |
+| `python tools/guidance.py touch --note "…"` | keep the bias, refresh `updated`, append the note |
 | `python tools/guidance.py fastlane --symbol SYM …` | defensive fast-lane action (refuses buys) |
 | `python tools/guidance.py events add --date D --type T [--time HH:MM]` | T: CPI, FOMC, JOBS, RBI, HINDCOPPER_RESULTS, BUDGET |
 | `python tools/guidance.py market-today …` / `tomorrow "text"` | report notes |
