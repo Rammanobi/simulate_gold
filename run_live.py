@@ -17,7 +17,9 @@ import time
 from datetime import datetime, time as dtime
 from pathlib import Path
 
-from simgold import config, market
+import os
+
+from simgold import config, gitsync, market
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
 from simgold.engine import Env, run_tick
@@ -79,6 +81,16 @@ class Live:
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
 
+    def sync(self):
+        """Commit and push live state, pull routine output. The engine re-reads guidance.json, fastlane.json and
+        events.json from disk on every tick, so pulled changes are picked up on the next tick."""
+        if not gitsync.enabled(os.environ):
+            return
+        if gitsync.sync(ROOT):
+            log.info("git sync ok")
+        # a pull may have changed files the engine owns the schema of; nothing is cached, so just note it
+        log.info("guidance/fastlane/events will be re-read on the next tick")
+
     def close_day(self):
         """One 'date,value' line per day in state/equity.csv (the equity curve)."""
         day = (self.last_tick_day or now_ist().date()).isoformat()
@@ -103,6 +115,8 @@ def main():
     ap.add_argument("--force", action="store_true", help="ignore market hours and holidays (testing)")
     ap.add_argument("--max-minutes", type=float, default=400, help="stop after this many minutes")
     ap.add_argument("--tick-seconds", type=int, default=60, help="seconds between ticks (default 60)")
+    ap.add_argument("--sync-every", type=float, default=5, metavar="MIN",
+                    help="git sync interval in minutes (only if SIMGOLD_GIT_SYNC=1; default 5)")
     ap.add_argument("--until", metavar="HH:MM", help="keep looping until this IST clock time")
     args = ap.parse_args()
 
@@ -116,7 +130,7 @@ def main():
         return
 
     live = Live(force=args.force, tick_seconds=args.tick_seconds)
-    started = time.time()
+    started = last_sync = time.time()
     while True:
         t0 = time.time()
         now = now_ist()
@@ -127,11 +141,15 @@ def main():
                 log.exception("tick failed; will retry next tick")
         elif now.time() > CLOSE:
             break                                   # the session is over
+        if args.sync_every > 0 and time.time() - last_sync >= args.sync_every * 60:
+            live.sync()
+            last_sync = time.time()
         if args.once or now_ist() >= end or (time.time() - started) / 60 >= args.max_minutes:
             break
         time.sleep(max(1.0, args.tick_seconds - (time.time() - t0)))
     if live.last_tick_day and (args.once or now_ist().time() >= dtime(15, 25)):
         live.close_day()
+    live.sync()                                    # final push of whatever is left
 
 
 if __name__ == "__main__":

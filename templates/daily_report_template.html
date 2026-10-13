@@ -378,7 +378,7 @@ $('mkt').innerHTML=D.market.map(m=>{const c=(m.move_pct>=0?'up':'down')+(m.neutr
 const B0=D.pnl_breakdown;
 $('h-wf').textContent='Where today’s '+rs(day)+(day<0?' loss':'')+' came from';
 const heldNames=(D.holdings_close||[]).map(h=>h.symbol).join(', ');
-const items=[['Realized trades','closed trades',B0.realized_trades],['Unrealized',heldNames?'open '+heldNames:'no open positions',B0.unrealized_open],['LIQUIDBEES income','on idle cash',B0.liquidbees_income],['Costs','brokerage and charges',B0.costs]];
+const items=[['Realized trades','closed trades',B0.realized_trades],['Unrealized',heldNames?'open '+heldNames:'no open positions',B0.unrealized_open],['LIQUIDBEES income','on idle cash',B0.liquidbees_income]];
 let run=0;const segs=items.map(it=>{const a=run;run+=it[2];return {l:it[0],sub:it[1],v:it[2],a:a,b:run}});
 const allv=segs.map(g=>g.a).concat(segs.map(g=>g.b),[day,0]);
 const whi=Math.max.apply(null,allv),wlo=Math.min.apply(null,allv);

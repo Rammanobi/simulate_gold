@@ -664,3 +664,45 @@ def test_holiday_calendar_has_the_requested_dates():
     assert not market.is_trading_day(date(2026, 11, 24)) and not market.is_trading_day(date(2026, 12, 25))
     assert not market.is_trading_day(date(2026, 11, 8))              # a Sunday (Laxmi Pujan Muhurat day, no regular session)
     assert not market.is_trading_day(date(2026, 11, 10)) and market.is_trading_day(date(2026, 11, 9))
+
+
+def test_git_sync_order_and_failure_handling(tmp_path):
+    from types import SimpleNamespace
+    from simgold import gitsync
+    calls = []
+
+    def runner(cmd, **kw):
+        calls.append(cmd[1:])
+        rc = 1 if cmd[1:3] == ["diff", "--cached"] else 0
+        return SimpleNamespace(returncode=rc, stdout="", stderr="")
+    assert gitsync.sync(tmp_path, runner=runner, now=at(11, 5))
+    assert [c[0] for c in calls] == ["add", "diff", "commit", "pull", "push"]
+    assert calls[2][-1] == "paper-trade: 11:05 IST" and calls[3] == ["pull", "--rebase", "--autostash", "-X", "theirs"]
+    # failing rebase is aborted and does not raise
+    calls.clear()
+    bad = lambda cmd, **kw: (calls.append(cmd[1:]) or SimpleNamespace(returncode=1 if cmd[1] == "pull" else 0, stdout="", stderr="x"))
+    assert gitsync.sync(tmp_path, runner=bad) is False and ["rebase", "--abort"] in calls
+    # push retried 3 times
+    calls.clear()
+    nopush = lambda cmd, **kw: (calls.append(cmd[1:]) or SimpleNamespace(returncode=1 if cmd[1] == "push" else 0, stdout="", stderr="x"))
+    assert gitsync.sync(tmp_path, runner=nopush) is False and [c[0] for c in calls].count("push") == 3
+    assert not gitsync.enabled({}) and gitsync.enabled({"SIMGOLD_GIT_SYNC": "1"})
+
+
+def test_engine_writes_day_fields(tmp_path):
+    pf = newpf()
+    pf.liquidbees, pf.last_accrual = 100000.0, "2026-10-13"
+    env = Env(tmp_path / "s", tmp_path / "l", P, environ={}, match_headline=None)
+    run_tick(pf, Market(at(10, 0), {}, {}, {}), env)
+    assert pf.day_costs_date == D_MID.isoformat() and pf.day_open_value == 100000.0
+    assert pf.liquidbees_income_today == pytest.approx(17.26, abs=0.01) and pf.day_costs == 0
+    run_tick(pf, Market(at(10, 1), {}, {}, {}), env)
+    assert pf.day_open_value == 100000.0                        # fixed at the day's first tick
+    pf.counters.clear()
+    bar = at(11, 0)
+    pf.floor, pf.best_profit = 101000.0, 2500.0
+    pf.liquidbees = 103000.0
+    for k in range(5):
+        t = bar + timedelta(minutes=k)
+        run_tick(pf, Market(t, {"GOLDBEES": 100.0}, {"GOLDBEES": t}, {"GOLDBEES": 0.95}), env)
+    assert pf.positions and pf.day_costs > 0

@@ -53,6 +53,10 @@ class Portfolio:
     counters: dict = field(default_factory=dict)  # day / week trade counts and the 2-loss counter
     cooldowns: dict = field(default_factory=dict) # buy spacing, blocks, stop-outs, tripwire day, skip log times
     runtime: dict = field(default_factory=dict)   # score streaks, price shocks seen, value history, fast-lane runs
+    day_costs: float = 0.0                        # fees and taxes paid today (buys and sells)
+    day_costs_date: str = ""                      # the date the four day_* / income fields belong to
+    liquidbees_income_today: float = 0.0
+    day_open_value: float = 0.0                   # value at the first tick of the day
     schema: int = 1
 
     # ---- persistence -------------------------------------------------------------

@@ -109,7 +109,8 @@ def _mins(hhmm: str) -> int:
 
 
 def _norm_symbol(s) -> str:
-    return re.sub(r"\.(NS|BO)$", "", str(s or "").strip().upper())
+    s = re.sub(r"\.(NS|BO)$", "", str(s or "").strip().upper())
+    return "All metals" if s == "ALL" else s
 
 
 # ------------------------------------------------------------------ loading
@@ -318,7 +319,7 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
                           "month_pnl_pct": 0, "floor": floor, "floor_next_step": "",
                           "distance_to_floor": close - floor, "cash_in_liquidbees": 0,
                           "liquidbees_income": 0, "costs_paid": 0, "next_value": 0},
-            "pnl_breakdown": {"realized_trades": 0, "costs": 0, "unrealized_open": 0, "liquidbees_income": 0},
+            "pnl_breakdown": {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 0},
             "market": [], "holdings_close": [], "decisions": [],
             "counts": {"buys": 0, "sells": 0, "skips": 0, "blocks": 0, "holds": 0, "fast_lane_runs": 0},
             "intraday": [["09:15", round(close)], ["15:30", round(close)]],
@@ -356,6 +357,9 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         open_ = START_CAPITAL if close == START_CAPITAL else min(close, START_CAPITAL)
         if not ticks and raw is not None and not raw:
             open_ = close
+    pf_open = _num(portfolio.get("day_open_value"))
+    if pf_open and portfolio.get("day_costs_date") == date:
+        open_ = pf_open                       # engine-recorded value at the day's first tick
     day_pnl = close - open_
 
     # --- floor
@@ -429,12 +433,13 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         lb_estimated = bool(lb_income)
 
     unrealized_open = unrealized
-    parts = realized - costs + unrealized_open + lb_income
+    # SELL pnl is already NET of fees and taxes, so costs are NOT subtracted again.
+    parts = realized + unrealized_open + lb_income
     residual = day_pnl - parts
     if abs(residual) >= 0.5:
         # Overnight moves on carried positions and fill slippage land here, so the rows add up.
         unrealized_open += residual
-    breakdown = {"realized_trades": round(realized, 2), "costs": -round(costs, 2),
+    breakdown = {"realized_trades": round(realized, 2),
                  "unrealized_open": round(unrealized_open, 2), "liquidbees_income": round(lb_income, 2)}
 
     # --- cash
@@ -751,8 +756,9 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False)
     if day["holdings_close"] or _round(b["unrealized_open"]) != 0:
         brows += _money_row(_holding_label(day), b["unrealized_open"])
     brows += _money_row("LIQUIDBEES income", b["liquidbees_income"])
-    brows += _money_row("Costs (fees and taxes)", b["costs"])
     brows += _money_row("Total today", pnl, border=True, bold=True)
+    brows += (f'<tr><td colspan="2" style="padding:6px 0 0;font-family:{FONT};font-size:13px;color:#6b7280;">'
+              f'Costs (fees and taxes): {inr(p["costs_paid"])} paid today, already included above.</td></tr>')
     pnlsec = _section(title) + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">\n{brows}</table></td></tr>\n'
 
     tom = _section("Tomorrow") + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n'
@@ -811,7 +817,7 @@ def render_text(day: dict, sample: bool = False) -> str:
     b = day["pnl_breakdown"]
     L += ["", "WHERE TODAY'S P&L CAME FROM", f"Trades closed (realized): {sg(b['realized_trades'])}",
           f"Open positions (unrealised): {sg(b['unrealized_open'])}", f"LIQUIDBEES income: {sg(b['liquidbees_income'])}",
-          f"Costs: {sg(b['costs'])}", f"Total: {sg(p['day_pnl'])}", "", "TOMORROW", day["tomorrow"], "",
+          f"Total: {sg(p['day_pnl'])}", f"(Costs of {inr(p['costs_paid'])} are already included above.)", "", "TOMORROW", day["tomorrow"], "",
           "This is a paper simulation. No real money or orders were placed."]
     return "\n".join(L) + "\n"
 

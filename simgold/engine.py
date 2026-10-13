@@ -167,6 +167,7 @@ class Engine:
             pos.buy_costs += cost
             pos.last_price = px
             pf.total_costs += cost
+            pf.day_costs += cost
             pf.trades.append({"ts": self.now.isoformat(timespec="seconds"), "asset": sym, "side": "BUY", "qty": qty,
                               "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 2), "pnl": 0.0,
                               "reason": reason})
@@ -183,6 +184,7 @@ class Engine:
         pf.liquidbees += amount - cost
         pf.realised_pnl += pnl
         pf.total_costs += cost
+        pf.day_costs += cost
         pos.buy_costs *= 1 - share
         pos.qty -= qty
         pf.trades.append({"ts": self.now.isoformat(timespec="seconds"), "asset": sym, "side": "SELL", "qty": qty,
@@ -219,6 +221,15 @@ class Engine:
             self.rt["shock_close_done"] = {}
             self.rt["value_hist"] = []
             self.rt.pop("overnight_done", None)
+        for sym, pos in pf.positions.items():
+            px = self.mkt.prices.get(sym)
+            if px:
+                pos.last_price = px
+                pos.high_water = max(pos.high_water, px)
+        if pf.day_costs_date != self.day.isoformat():     # first tick of the day: for the end-of-day report
+            pf.day_costs_date = self.day.isoformat()
+            pf.day_costs, pf.liquidbees_income_today = 0.0, 0.0
+            pf.day_open_value = round(self.value(), 2)
         # LIQUIDBEES interest: yield/365 per calendar day, credited daily (compounded)
         y = self.p["capital"]["liquid_yield_annual"] / 365.0
         if not pf.last_accrual:
@@ -226,13 +237,10 @@ class Engine:
         else:
             days = (self.day - date.fromisoformat(pf.last_accrual)).days
             if days > 0:
+                before = pf.liquidbees
                 pf.liquidbees *= (1 + y) ** days
+                pf.liquidbees_income_today += pf.liquidbees - before
                 pf.last_accrual = self.day.isoformat()
-        for sym, pos in pf.positions.items():
-            px = self.mkt.prices.get(sym)
-            if px:
-                pos.last_price = px
-                pos.high_water = max(pos.high_water, px)
         pf.floor, pf.best_profit = guard.ratchet(pf.floor, pf.best_profit, self.value(), self.p)
         pf.month = self.day.strftime("%Y-%m")
 

@@ -20,8 +20,7 @@
  },
  "pnl_breakdown": {
   "realized_trades": 41.5,
-  "costs": -26,
-  "unrealized_open": 114,
+  "unrealized_open": 88.5,
   "liquidbees_income": 17
  },
  "market": [

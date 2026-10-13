@@ -94,8 +94,9 @@ def test_totals_reconcile(green_root):
     assert p["day_pnl"] == pytest.approx(147)
     assert sum(b.values()) == pytest.approx(p["day_pnl"], abs=1.0)
     assert b["realized_trades"] == pytest.approx(41.5)
-    assert b["unrealized_open"] == pytest.approx(114, abs=1)
-    assert b["costs"] == -26 and b["liquidbees_income"] == 17
+    # pnl on SELL rows is already net of costs: costs are shown as an info line, never subtracted again
+    assert "costs" not in b and p["costs_paid"] == 26
+    assert b["unrealized_open"] == pytest.approx(147 - 41.5 - 17, abs=1) and b["liquidbees_income"] == 17
     assert p["distance_to_floor"] == pytest.approx(647)
     assert day["counts"] == {"buys": 2, "sells": 2, "skips": 1, "blocks": 0, "holds": 1, "fast_lane_runs": 1}
 
@@ -227,3 +228,19 @@ def test_sample_email_matches_approved_design():
     approved = (REPO / "templates" / "email_report.sample.html").read_text(encoding="utf-8")
     squash = lambda h: re.sub(r">\s+<", "><", h).strip()
     assert squash(mine) == squash(approved)
+
+
+def test_costs_not_double_counted_and_engine_fields_preferred(tmp_path):
+    decisions = [row("10:00", "BUY", "GOLDBEES", 100, 100.0, 10000, None, "Test buy.", "Plan", 98, 200),
+                 row("12:00", "SELL", "GOLDBEES", 100, 101.0, 10100, 80, "Test sell.", "Target"),
+                 {**row("13:00", "BLOCK", "GOLDBEES", 0, 0, 0, None, "Paused.", "Price shock"), "symbol": "ALL"}]
+    ticks = [("09:15", 100000, 99500, 0, 100000), ("15:30", 100100, 99500, 0, 100100)]
+    pf = {"positions": {}, "floor": 99500, "day_costs": 20, "day_costs_date": GREEN_DAY, "day_open_value": 99990,
+          "liquidbees_income_today": 17}
+    day = report.build_day(GREEN_DAY, make_root(tmp_path, GREEN_DAY, decisions, ticks, pf, [("2026-10-09", 100000)]))
+    p, b = day["portfolio"], day["pnl_breakdown"]
+    assert p["open"] == 99990 and p["day_pnl"] == pytest.approx(110)       # engine open value preferred
+    assert b["realized_trades"] == 80 and p["costs_paid"] == 20
+    assert sum(b.values()) == pytest.approx(110, abs=1.0)
+    assert any(d["symbol"] == "All metals" for d in day["decisions"])
+    assert "already included" in report.render_email(day)
