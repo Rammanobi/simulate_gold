@@ -1,0 +1,113 @@
+# news_triggers.yaml
+# Keyword filter for the AI "fast lane".
+# The engine checks each new headline against these lists. If a headline is
+# big enough, it wakes Opus for an immediate review. Otherwise it waits for
+# the normal schedule.
+#
+# Matching rules (engine side):
+#   - Compare case-insensitively against the headline and the first line of the summary.
+#   - Match whole words or phrases only. "fed" must not match "federal" or "feds".
+#     "war" must not match "toward" or "warning".
+#   - Ignore list is checked first. A headline that hits the ignore list never wakes the fast lane.
+
+version: 1
+
+global_rules:
+  wake_fast_lane_when:
+    any:
+      - max_category_urgency_gte: 4      # any single category at urgency 4 or 5
+      - categories_matched_gte: 2        # 2+ different categories match the same headline
+  ignore_precedence: true                # ignore list beats every keyword match
+  dedupe_window_minutes: 30              # same story from several outlets wakes the lane once
+  max_fast_lane_wakes_per_hour: 6        # safety cap on Opus calls
+
+categories:
+  monetary_policy:
+    keywords:
+      - fed
+      - fomc
+      - rate cut
+      - rate hike
+      - powell
+      - rbi
+      - repo rate
+    affects: [GOLDBEES, SILVERBEES]
+    urgency: 4
+
+  inflation_data:
+    keywords:
+      - cpi
+      - pce
+      - inflation
+    affects: [GOLDBEES, SILVERBEES]
+    urgency: 3
+
+  jobs:
+    keywords:
+      - nonfarm payrolls
+      - jobless claims
+    affects: [GOLDBEES, SILVERBEES]
+    urgency: 3
+
+  geopolitics:
+    keywords:
+      - war
+      - missile
+      - sanctions
+      - ceasefire
+    affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
+    urgency: 4
+
+  dollar:
+    keywords:
+      - dollar index
+      - dxy
+      - rupee
+    affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
+    urgency: 2
+
+  gold_specific:
+    keywords:
+      - central bank gold buying
+      - gold etf flows
+      - import duty
+    affects: [GOLDBEES]
+    urgency: 3
+
+  silver_specific:
+    keywords:
+      - solar demand
+      - silver deficit
+    affects: [SILVERBEES]
+    urgency: 2
+
+  copper_specific:
+    keywords:
+      - copper mine strike
+      - chile
+      - peru
+      - lme copper
+      - china stimulus
+      - smelter
+    affects: [HINDCOPPER]
+    urgency: 3
+
+  hindcopper:
+    keywords:
+      - hindustan copper
+      - hcl results
+      - hindcopper
+    affects: [HINDCOPPER]
+    urgency: 3
+
+ignore:
+  # Retail and promotional noise. Matching any of these drops the headline.
+  - jewellery offer
+  - jewelry offer
+  - akshaya tritiya sale
+  - gold loan
+  - horoscope
+  - gold rate today
+  - gold price today
+  - wedding jewellery
+  - sponsored

@@ -1,0 +1,162 @@
+# sources.yaml
+# Feeds and research sites.
+#
+# used_by:
+#   engine   = polled every 2 minutes by the news engine (feeds news_triggers.yaml)
+#   routine  = read by the Opus research routines, not polled
+#
+# needs_key: true means the source needs an API key or account. Store the key
+#            in the environment, never in this file.
+#
+# verify: true means the URL is not confirmed. Check it before relying on it.
+#         Google News search URLs are built from a template and are safe to use.
+
+version: 1
+poll_interval_seconds: 120
+
+sources:
+  # ---- Engine feeds (polled every 2 minutes) ----
+  - name: Google News - gold price (India)
+    url: https://news.google.com/rss/search?q=gold+price&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - silver price (India)
+    url: https://news.google.com/rss/search?q=silver+price&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - copper price
+    url: https://news.google.com/rss/search?q=copper+price&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - Federal Reserve
+    url: https://news.google.com/rss/search?q=federal+reserve+rate&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - US jobs and inflation
+    url: https://news.google.com/rss/search?q=US+jobs+inflation+CPI&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - RBI repo rate
+    url: https://news.google.com/rss/search?q=RBI+repo+rate&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - Hindustan Copper
+    url: https://news.google.com/rss/search?q=Hindustan+Copper&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  - name: Google News - geopolitics (war, sanctions)
+    url: https://news.google.com/rss/search?q=war+sanctions+ceasefire&hl=en-IN&gl=IN&ceid=IN:en
+    used_by: engine
+    needs_key: false
+    verify: false
+
+  # ---- Research sites (read by Opus routines) ----
+  - name: Reuters Commodities
+    url: https://www.reuters.com/markets/commodities/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: Kitco
+    url: https://www.kitco.com/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: World Gold Council
+    url: https://www.gold.org/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: Economic Times - Markets
+    url: https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: Moneycontrol - Latest News
+    url: https://www.moneycontrol.com/rss/latestnews.xml
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: LiveMint - Markets
+    url: https://www.livemint.com/rss/markets
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: IBJA - Gold and silver rates
+    url: https://www.ibja.co/
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: MCX
+    url: https://www.mcxindia.com/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: LME
+    url: https://www.lme.com/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: NSE - corporate announcements
+    url: https://www.nseindia.com/
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: BSE - corporate announcements
+    url: https://www.bseindia.com/
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: CME FedWatch
+    url: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: Investing.com - Economic Calendar
+    url: https://www.investing.com/economic-calendar/
+    used_by: routine
+    needs_key: false
+    verify: true
+
+  - name: RBI
+    url: https://www.rbi.org.in/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: FRED (St. Louis Fed)
+    url: https://fred.stlouisfed.org/
+    used_by: routine
+    needs_key: false
+    verify: false
+
+  - name: FRED API (data access)
+    url: https://api.stlouisfed.org/fred/
+    used_by: routine
+    needs_key: true
+    verify: true

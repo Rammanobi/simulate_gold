@@ -1,0 +1,38 @@
+GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
+Monday 12 Oct 2026 (sample data, not a real trading day)
+
+HEADLINE
+Day P&L:      +₹147 (+0.15%)
+Month P&L:    +₹147 (+0.15%)
+Portfolio:    ₹1,00,147 (opened the day at ₹1,00,000)
+
+PORTFOLIO AND FLOOR
+Floor:              ₹99,500
+Distance to floor:  ₹647
+Next step:          floor moves to ₹1,00,000 once profit reaches ₹500
+Cash in LIQUIDBEES: ₹90,134 (LIQUIDBEES income today: ₹17)
+Costs paid today:   ₹26
+
+MARKET TODAY
+Gold (global)    +0.8%  Weaker dollar after soft US jobs data
+Silver (global)  -0.4%  Rose midday, faded when the dollar bounced
+Copper (LME)     +0.3%  Steady; China demand unchanged
+Dollar index     -0.2%  A lower dollar usually helps gold
+USD/INR          +0.1%  Rupee slightly weaker
+
+DECISIONS
+09:52  BUY   GOLDBEES   190 @ ₹104.20  Dollar fell overnight; gold rose in Asia.
+11:05  SKIP  SILVERBEES   -- @ ₹141.90  Signal too weak (0.55, needs 0.65).
+12:40  SELL  GOLDBEES    95 @ ₹105.10  Hit the +0.9% target. Sold half, P&L +₹85.50.
+13:18  BUY   SILVERBEES   40 @ ₹142.50  Jobless claims jumped; Opus approved a small buy.
+14:46  SELL  SILVERBEES   40 @ ₹141.40  Rally faded as the dollar bounced. P&L -₹44.
+15:20  HOLD  GOLDBEES    95 @ ₹105.30  Stop is at the buy price, so a gap down cannot hit the floor.
+
+HOLDINGS AT CLOSE
+GOLDBEES: 95 units, avg ₹104.20, close ₹105.40, value ₹10,013, unrealised +₹114
+
+TOMORROW
+US inflation data comes out at 18:00 IST, after NSE closes.
+The 15:20 overnight check keeps positions small before it.
+
+This is a paper simulation. No real money or orders were placed.

@@ -1,0 +1,204 @@
+{
+ "_note": "SAMPLE DATA for design approval only. Not a real trading day. Prices are illustrative.",
+ "date": "2026-10-12",
+ "weekday": "Monday",
+ "day_of_month_run": 1,
+ "start_capital": 100000,
+ "portfolio": {
+  "open": 100000,
+  "close": 100147,
+  "day_pnl": 147,
+  "day_pnl_pct": 0.15,
+  "month_pnl": 147,
+  "month_pnl_pct": 0.15,
+  "floor": 99500,
+  "floor_next_step": "Floor moves to ₹1,00,000 once profit reaches ₹500",
+  "distance_to_floor": 647,
+  "cash_in_liquidbees": 90134,
+  "liquidbees_income": 17,
+  "costs_paid": 26
+ },
+ "pnl_breakdown": {
+  "realized_trades": 41.5,
+  "costs": -26,
+  "unrealized_open": 114,
+  "liquidbees_income": 17
+ },
+ "market": [
+  {
+   "name": "Gold (global)",
+   "move_pct": 0.8,
+   "note": "Weaker dollar after soft US jobs data"
+  },
+  {
+   "name": "Silver (global)",
+   "move_pct": -0.4,
+   "note": "Rose midday, faded when the dollar bounced"
+  },
+  {
+   "name": "Copper (LME)",
+   "move_pct": 0.3,
+   "note": "Steady; China demand unchanged"
+  },
+  {
+   "name": "Dollar index",
+   "move_pct": -0.2,
+   "note": "Lower dollar usually helps gold"
+  },
+  {
+   "name": "USD/INR",
+   "move_pct": 0.1,
+   "note": "Rupee slightly weaker"
+  }
+ ],
+ "holdings_close": [
+  {
+   "symbol": "GOLDBEES",
+   "qty": 95,
+   "avg": 104.2,
+   "close": 105.4,
+   "value": 10013,
+   "unrealized": 114,
+   "stop": 104.2
+  }
+ ],
+ "decisions": [
+  {
+   "time": "09:52",
+   "action": "BUY",
+   "symbol": "GOLDBEES",
+   "qty": 190,
+   "price": 104.2,
+   "amount": 19798,
+   "pnl": null,
+   "reason": "Dollar fell overnight and gold rose in Asia; price is above its 20-day average.",
+   "trigger": "Pre-market plan",
+   "stop": 102.1,
+   "risk": 399
+  },
+  {
+   "time": "11:05",
+   "action": "SKIP",
+   "symbol": "SILVERBEES",
+   "qty": 0,
+   "price": 141.9,
+   "amount": 0,
+   "pnl": null,
+   "reason": "Signal not strong enough (0.55, needs 0.65), and only ₹101 of today's risk budget was left.",
+   "trigger": "Minute check"
+  },
+  {
+   "time": "12:40",
+   "action": "SELL",
+   "symbol": "GOLDBEES",
+   "qty": 95,
+   "price": 105.1,
+   "amount": 9984.5,
+   "pnl": 85.5,
+   "reason": "Hit first target (+0.9%); sold half to lock profit and moved stop on the rest to the buy price.",
+   "trigger": "Target rule"
+  },
+  {
+   "time": "13:18",
+   "action": "BUY",
+   "symbol": "SILVERBEES",
+   "qty": 40,
+   "price": 142.5,
+   "amount": 5700,
+   "pnl": null,
+   "reason": "Fast lane: US jobless claims jumped, rate-cut odds rose; Opus approved a small silver position.",
+   "trigger": "News trigger",
+   "stop": 139.65,
+   "risk": 114
+  },
+  {
+   "time": "14:46",
+   "action": "SELL",
+   "symbol": "SILVERBEES",
+   "qty": 40,
+   "price": 141.4,
+   "amount": 5656,
+   "pnl": -44,
+   "reason": "Rally faded as the dollar bounced; Opus exited early instead of holding overnight.",
+   "trigger": "Opus review"
+  },
+  {
+   "time": "15:20",
+   "action": "HOLD",
+   "symbol": "GOLDBEES",
+   "qty": 95,
+   "price": 105.3,
+   "amount": 0,
+   "pnl": null,
+   "reason": "Overnight check passed: stop is at the buy price, so a gap down cannot touch the floor.",
+   "trigger": "Overnight check"
+  }
+ ],
+ "counts": {
+  "buys": 2,
+  "sells": 2,
+  "skips": 1,
+  "holds": 1,
+  "fast_lane_runs": 1
+ },
+ "intraday": [
+  [
+   "09:15",
+   100000
+  ],
+  [
+   "09:45",
+   100000
+  ],
+  [
+   "10:15",
+   100058
+  ],
+  [
+   "10:45",
+   100102
+  ],
+  [
+   "11:15",
+   100081
+  ],
+  [
+   "11:45",
+   100120
+  ],
+  [
+   "12:15",
+   100143
+  ],
+  [
+   "12:45",
+   100131
+  ],
+  [
+   "13:15",
+   100126
+  ],
+  [
+   "13:45",
+   100171
+  ],
+  [
+   "14:15",
+   100109
+  ],
+  [
+   "14:45",
+   100088
+  ],
+  [
+   "15:15",
+   100139
+  ],
+  [
+   "15:30",
+   100147
+  ]
+ ],
+ "tomorrow": "US inflation data comes out at 18:00 IST tomorrow, after NSE closes. The 15:20 overnight check will keep positions small before it.",
+ "one_line_summary": "Small green day: +₹147. Gold trade worked, a quick silver trade lost ₹44, and the floor is ₹647 away."
+}
