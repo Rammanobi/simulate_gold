@@ -31,7 +31,7 @@ def incident_record():
                      log=["ERR a"], paused="yes", portfolio="₹1,00,412", floor="₹99,500", missed="14", tier="COMPLEX", handled="Sonnet -> Opus")
     r["status"] = "needs-approval"; r["issue_url"] = "https://github.com/o/r/issues/7"
     r["actions"] = [{"text": "re-ran", "kind": "safe-fix", "link": "https://c/1"}, {"text": "noted", "kind": "info"},
-                    {"text": "Add fallback", "kind": "proposal", "link": "https://github.com/o/r/pull/2", "risk": "stays broken"}]
+                    {"text": "Add fallback", "kind": "proposal", "link": "https://github.com/Rammanobi/simulate_gold/pull/2", "risk": "stays broken"}]
     return r
 
 
@@ -63,7 +63,7 @@ def test_item_from_incident(tmp_path):
     it = json.loads(out.read_text(encoding="utf-8"))
     assert it["id"] == rec["id"] and ID_OK.match(it["id"])
     assert (it["kind"], it["severity"], it["status"], it["revision"], it["sample"]) == ("incident", "high", "needs_approval", 1, False)
-    assert it["proposals"] == [{"title": "Add fallback", "pr_url": "https://github.com/o/r/pull/2", "risk": "stays broken"}]
+    assert it["proposals"] == [{"title": "Add fallback", "pr_url": "https://github.com/Rammanobi/simulate_gold/pull/2", "risk": "stays broken"}]
     assert it["actions"] == [{"text": "re-ran", "url": "https://c/1"}, {"text": "noted"}]
     assert ["Missed ticks", "14"] in it["impact"] and ["Portfolio vs floor", "₹1,00,412 vs ₹99,500"] in it["impact"]
     assert it["updated"].endswith("+05:30") and it["history"][0]["at"] == "2026-10-13T16:00:00+05:30"
@@ -130,7 +130,7 @@ def test_bump_refreshes_content_from_incident(tmp_path):
     (tmp_path / "incidents" / f"{rec['id']}.json").write_text(json.dumps(rec), encoding="utf-8")
     f = tmp_path / "item.json"
     f.write_text(json.dumps(B.item_from_incident(rec, B._now(NOW))), encoding="utf-8")
-    rec["actions"].append({"text": "Revised fallback", "kind": "proposal", "link": "https://github.com/o/r/pull/9", "risk": "r2"})
+    rec["actions"].append({"text": "Revised fallback", "kind": "proposal", "link": "https://github.com/Rammanobi/simulate_gold/pull/9", "risk": "r2"})
     (tmp_path / "incidents" / f"{rec['id']}.json").write_text(json.dumps(rec), encoding="utf-8")
     B.main(["bump", "--file", str(f), "--status", "needs_approval", "--history", "Revised after your feedback: x",
             "--from-incident", rec["id"], "--root", str(tmp_path), "--now", "2026-10-13T18:00:00"])
@@ -154,8 +154,8 @@ def test_bump_refreshes_daily_and_revise_proposal(tmp_path, capsys):
     (tmp_path / "incidents" / f"{rec['id']}.json").write_text(json.dumps(rec), encoding="utf-8")
     # revise-proposal lives in the incident tool; load it against tmp incidents
     I.DIR = tmp_path / "incidents"; I.STATE = tmp_path / "state"
-    pr = "https://github.com/o/r/pull/2"
-    I.main(["revise-proposal", "--id", rec["id"], "--link", pr, "--new-link", "https://github.com/o/r/pull/3", "--risk", "new risk"])
+    pr = "https://github.com/Rammanobi/simulate_gold/pull/2"
+    I.main(["revise-proposal", "--id", rec["id"], "--link", pr, "--new-link", "https://github.com/Rammanobi/simulate_gold/pull/3", "--risk", "new risk"])
     got = I.load(rec["id"])["actions"][-1]
     assert got["link"].endswith("/pull/3") and got["risk"] == "new risk" and got["text"] == "Add fallback"
     with pytest.raises(SystemExit):

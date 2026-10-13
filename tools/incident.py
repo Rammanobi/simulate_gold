@@ -142,7 +142,14 @@ def _section(title: str, body: str) -> str:
             f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:{INK};">{body}</td></tr>')
 
 
+def _href(h) -> str:
+    """Only https links go into an email button; anything else (javascript:, data:, relative) becomes a dead '#'."""
+    h = str(h or "")
+    return h if h.startswith("https://") and not any(c in h for c in " \t\r\n") else "#"
+
+
 def _button(href: str, label: str, kind: str = "dark") -> str:
+    href = _href(href)
     if kind == "dark":
         sty = f"background:{INK};color:#ffffff;border-bottom:3px solid {GOLD};"
     elif kind == "green":
@@ -154,7 +161,7 @@ def _button(href: str, label: str, kind: str = "dark") -> str:
 
 
 def _action_row(a: dict) -> str:
-    link = (f' &nbsp;<a href="{e(a["link"])}" style="color:#1d4ed8;text-decoration:underline;">commit</a>' if a.get("link") else "")
+    link = (f' &nbsp;<a href="{e(_href(a["link"]))}" style="color:#1d4ed8;text-decoration:underline;">commit</a>' if a.get("link") else "")
     return (f'<tr><td width="24" valign="top" style="font-family:{FONT};font-size:15px;color:{GREEN};padding:4px 0;">&#10003;</td>'
             f'<td style="font-family:{FONT};font-size:15px;line-height:22px;color:{INK};padding:4px 0;">{e(a["text"])}{link}</td></tr>')
 

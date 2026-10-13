@@ -24,7 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
-from . import alerts, config, fastlane, guard, market
+from . import alerts, budget, config, fastlane, guard, market
 from .broker import Position, Portfolio, trade_costs
 
 log = logging.getLogger(__name__)
@@ -135,6 +135,7 @@ class Engine:
         self.log: list[dict] = []
         self.rt = pf.runtime
         self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
+        self.fast_cap = budget.fastlane_cap(self.p, env.state_dir)   # thrift mode (state/budget.json) lowers it
         self.cd = pf.cooldowns
         self.er = guard.event_rules(self.day, guard.normalise_events(
             _load_json(env.state_dir / "events.json") or []), self.p)
@@ -345,7 +346,7 @@ class Engine:
         if runs.get("date") != self.day.isoformat():
             runs.clear()
             runs.update({"date": self.day.isoformat(), "n": 0, "last_ts": None})
-        mins = (self.p["fast_lane"]["auto_block_when_limit_hit_min"] if fastlane.limit_used_up(runs, now, self.p)
+        mins = (self.p["fast_lane"]["auto_block_when_limit_hit_min"] if fastlane.limit_used_up(runs, now, self.p, self.fast_cap)
                 else self.p["fast_lane"]["auto_block_on_shock_min"])
         seen = set()
         for t, src in events:
@@ -363,7 +364,7 @@ class Engine:
             else:
                 why = f"{t['detail']} New buys in {where} are paused for {mins} minutes while the AI reviews it."
             self._block(t["symbol"], mins, src, why)
-        ok, note = fastlane.can_fire(runs, now, self.p)
+        ok, note = fastlane.can_fire(runs, now, self.p, self.fast_cap)
         rec = {"ts": now.isoformat(timespec="seconds"),
                "triggers": [{"source": s, **{k: v for k, v in t.items() if k != "detail"}, "detail": t["detail"]}
                             for t, s in events],

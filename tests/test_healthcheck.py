@@ -57,7 +57,10 @@ def test_ticks_row_is_hhmm_ist(tmp_path):
 
 
 def test_outside_hours_skips_engine_checks(tmp_path):
-    assert run(setup(tmp_path, tick_age_min=500, health_age_min=900), now=CLOSED, gh=gh_idle) == []
+    root = setup(tmp_path, tick_age_min=500, health_age_min=900)
+    (root / "reports" / "daily").mkdir(parents=True)
+    (root / "reports" / "daily" / "2026-10-13.json").write_text("{}")      # Claude's report is there
+    assert run(root, now=CLOSED, gh=gh_idle) == []
 
 
 def test_gh_failure_is_low(tmp_path):

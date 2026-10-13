@@ -99,6 +99,13 @@ fast_lane:
   allowed_actions: [set_bias_neutral, set_bias_block, exit_partial, exit_full, tighten_stop, halt_buys_today]
   forbidden_actions: [buy, set_bias_favour, loosen_stop, raise_cap, change_floor, change_gap, skip_limits]
 
+# ---- thrift mode (simgold/budget.py, tools/budget.py): routines on plan limits spend less; no trading rule changes ----
+budget:
+  thrift_fastlane_max_per_day: 2     # fast-lane routine wake-ups a day in THRIFT mode (normal: fast_lane.max_runs_per_day = 4)
+  thrift_hourly_opus: false          # THRIFT: the hourly routine does not spawn an Opus subagent
+  thrift_weekly_short: true          # THRIFT: short weekly review, no rule proposals unless the evidence is strong
+  thrift_incident_opus_only_high: true   # THRIFT: the incident routine uses Opus only for HIGH / COMPLEX
+
 events:
   calendar_file: events.json
   us_cpi:   {no_metal_buys_after: "13:00", overnight_gap_mult: 1.5, next_day_no_buys_before: "09:45", applies: [GOLDBEES, SILVERBEES]}
@@ -164,6 +171,7 @@ alerts:
   high_reminder_min: 60              # HIGH is re-sent hourly until acknowledged
   high_reminder_due_min: 55          # the hourly workflow treats a HIGH as due once its last email is this old
   max_reminders_per_incident: 24
+  max_medium_reminders: 10           # MEDIUM "still broken" reminders per incident (1 h, 4 h, then daily), then silence
   tick_exceptions: 3                 # consecutive tick exceptions -> HIGH (exits and floor are not enforced)
   no_prices_min: 10                  # data source down this long during market hours -> MEDIUM
   git_push_fail_min: 15              # git sync failing this long -> HIGH
@@ -172,3 +180,17 @@ alerts:
   safe_mode_fix_window_min: 30       # a HIGH still open this long -> safe mode
   watchdog_stale_min: 30             # state/health.json older than this in market hours -> HIGH
   near_floor_inr: 100                # value this close to (or under) the floor is HIGH
+
+# ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----
+# Used ONLY when the watchdog reports routines_silent. DeepSeek is OpenAI-compatible; the key lives in the GitHub secret
+# DEEPSEEK_API_KEY (never in the repo). Each model list is a preference order; the first ID the account really has is used.
+fallback:
+  base_url: https://api.deepseek.com
+  models:
+    thinking: [deepseek-v4-pro, deepseek-reasoner]
+    fast: [deepseek-flash, deepseek-v4-flash, deepseek-chat]
+  temperature: 0.2
+  timeout_s: 60
+  retries: 2
+  max_tokens: {thinking: 2000, fast: 600}
+  min_minutes_between_brain_runs: 55

@@ -41,6 +41,7 @@ SEVERITY = {
     "git_push_failing": HIGH,         # git push failing for more than 15 min
     "watchdog_stale": HIGH,           # the watchdog itself stopped running (dead-man's switch)
     "system_unstable": HIGH,          # safe mode switched on
+    "routines_silent": HIGH,          # the Claude routines have stopped (usage limit or credits?)
     # MEDIUM
     "data_source_down": MEDIUM,       # a data source down for more than 10 min
     "workflow_failed": MEDIUM,        # a failed workflow run
@@ -54,7 +55,7 @@ SEVERITY = {
 }
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
-    "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "tick_exceptions": 3,
+    "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,
     "no_prices_min": 10, "git_push_fail_min": 15, "stale_guidance_hours": 3, "safe_mode_incidents": 5,
     "safe_mode_fix_window_min": 30, "watchdog_stale_min": 30, "near_floor_inr": 100,
 }
@@ -354,6 +355,8 @@ def reminder_due_at(e: dict, cfg: dict) -> float | None:
         if len(sent) - 1 >= cfg["max_reminders_per_incident"]:
             return None
         return sent[-1] + cfg["high_reminder_min"] * 60
+    if len(sent) - 1 >= cfg.get("max_medium_reminders", 10):
+        return None
     hrs = cfg["medium_reminder_hours"]
     n = len(sent)
     if n <= len(hrs):

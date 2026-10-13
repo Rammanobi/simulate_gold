@@ -60,10 +60,12 @@ def detect_portfolio_trigger(value_hist: list[tuple[datetime, float]], value: fl
     return None
 
 
-def can_fire(runs: dict, now: datetime, p: dict | None = None) -> tuple[bool, str]:
+def can_fire(runs: dict, now: datetime, p: dict | None = None, cap: int | None = None) -> tuple[bool, str]:
+    """`cap` overrides fast_lane.max_runs_per_day (thrift mode passes its lower daily cap, see simgold/budget.py)."""
     fl = (p or config.load_params())["fast_lane"]
+    cap = fl["max_runs_per_day"] if cap is None else cap
     if runs.get("date") == now.date().isoformat():
-        if runs.get("n", 0) >= fl["max_runs_per_day"]:
+        if runs.get("n", 0) >= cap:
             return False, "daily limit of fast-lane runs used up"
         if runs.get("last_ts"):
             gap = (now - datetime.fromisoformat(runs["last_ts"])).total_seconds() / 60
@@ -72,9 +74,10 @@ def can_fire(runs: dict, now: datetime, p: dict | None = None) -> tuple[bool, st
     return True, ""
 
 
-def limit_used_up(runs: dict, now: datetime, p: dict | None = None) -> bool:
+def limit_used_up(runs: dict, now: datetime, p: dict | None = None, cap: int | None = None) -> bool:
     fl = (p or config.load_params())["fast_lane"]
-    return runs.get("date") == now.date().isoformat() and runs.get("n", 0) >= fl["max_runs_per_day"]
+    cap = fl["max_runs_per_day"] if cap is None else cap
+    return runs.get("date") == now.date().isoformat() and runs.get("n", 0) >= cap
 
 
 def append_request(path: Path, record: dict) -> None:

@@ -33,6 +33,7 @@ ROOT = Path(__file__).parent
 STATE, LOGS = ROOT / "state", ROOT / "logs"
 PF_PATH, NEWS_PATH, EQUITY_PATH = STATE / "portfolio.json", STATE / "news.json", STATE / "equity.csv"
 PF_BACKUP = STATE / "portfolio.backup.json"
+TRADES_ARCHIVE = LOGS / "trades-archive.jsonl"
 PROTECTIVE_FROM = dtime(15, 15)       # time stop / score exit (15:15), overnight and month-end checks (15:20)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -85,7 +86,7 @@ class Live:
             log.exception("news refresh failed")
         mkt = build_market(ts, bars, self._daily(), headlines=self.news.last_new, params=self.p)
         decisions = run_tick(self.pf, mkt, self.env)
-        self.pf.save(PF_PATH)
+        self._save_pf()
         self._backup_state()
         self.last_tick_day = ts.date()
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
@@ -97,7 +98,7 @@ class Live:
         if ts.time() < PROTECTIVE_FROM:
             return
         decisions = run_tick(self.pf, Market(now=ts, prices={}, price_ts={}, scores={}), self.env)
-        self.pf.save(PF_PATH)
+        self._save_pf()
         self._backup_state()
         self.last_tick_day = ts.date()
         log.info("protective tick on last known prices (feed stale): %d decisions", len(decisions))
@@ -106,6 +107,13 @@ class Live:
         """memory/brief.md for the Claude routines (cheap, no AI). Never raises."""
         if brief.safe_write(ROOT, params=self.p):
             log.info("memory/brief.md updated")
+
+    def _save_pf(self):
+        """Move trades beyond the last 200 to logs/trades-archive.jsonl (appended first), then save atomically."""
+        moved = self.pf.trim_trades(TRADES_ARCHIVE)
+        if moved:
+            log.info("moved %d old trade(s) to %s", moved, TRADES_ARCHIVE.name)
+        self.pf.save(PF_PATH)
 
     def _backup_state(self):
         try:
@@ -169,6 +177,8 @@ def main():
     ap.add_argument("--sync-every", type=float, default=5, metavar="MIN",
                     help="git sync interval in minutes (only if SIMGOLD_GIT_SYNC=1; default 5)")
     ap.add_argument("--until", metavar="HH:MM", help="keep looping until this IST clock time")
+    ap.add_argument("--safe-mode", metavar="REASON", nargs="?", const="tests failing", default=None,
+                    help="turn safe mode on first (exits, stops and the floor only; no buys), e.g. when the test suite failed")
     args = ap.parse_args()
 
     now = now_ist()
@@ -184,6 +194,9 @@ def main():
     if lock is None:
         log.error("another engine run holds state/.engine.lock - not starting a second one")
         return
+    if args.safe_mode:
+        alerts.set_safe_mode(STATE, args.safe_mode, notify=False)    # idempotent; the incident pipeline alerts separately
+        log.error("SAFE MODE requested on the command line (%s): no new buys this session", args.safe_mode)
     live = Live(force=args.force, tick_seconds=args.tick_seconds)
     started = last_sync = time.time()
     while True:

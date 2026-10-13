@@ -35,8 +35,9 @@ HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: green (≥ ₹1,00,000) a
 | Owner | Paths |
 |---|---|
 | Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` |
-| Routines (via tools) | `state/guidance.json`, `state/fastlane.json`, `state/events.json`, `state/market_today.json`, `state/tomorrow.txt` |
+| Routines (via tools) | `state/guidance.json`, `state/fastlane.json`, `state/events.json`, `state/market_today.json`, `state/tomorrow.txt`, `state/budget.json` |
 | Routines (direct writes) | `memory/**`, `reports/daily/**`, `reports/weekly/**` (weekly review only) |
+| Fallback workflow (`fallback.yml`, DeepSeek, only when Claude is silent) | `state/guidance.json` (via `tools/guidance.py set` only), `state/fallback.json`, `reports/daily/**` of a fallback report |
 | Owner only | everything else, incl. `config/`, `docs/`, code, `tools/`, `routines/`, this file |
 
 Commit only routine-owned paths. Push to `main`: `git pull --rebase --autostash` (tools such as
@@ -62,6 +63,7 @@ unless the playbook says so.
 | Command | Purpose |
 |---|---|
 | `python tools/context.py` | brief, lessons, last 3 daily notes, latest weekly note |
+| `python tools/budget.py mode --rate-limit-type T` / `show` | step 0 of every playbook: NORMAL or THRIFT (writes `state/budget.json`) |
 | `python tools/should_think.py [--force]` | exit 0 "THINK: …", exit 3 "SKIP: …" |
 | `python tools/guidance.py set --bias GOLD=… SILVER=… COPPER=… --note "…"` | bias: favour, neutral or block |
 | `python tools/guidance.py touch --note "…"` | keep the bias, refresh `updated`, append the note |

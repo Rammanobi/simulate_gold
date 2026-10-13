@@ -9,6 +9,8 @@ from pathlib import Path
 
 from . import config
 
+TRADES_KEEP = 200      # trades kept in portfolio.json; older ones go to logs/trades-archive.jsonl
+
 
 def trade_costs(value: float, side: str, kind: str, c=config.COSTS) -> float:
     brokerage = min(value * c.brokerage_pct, c.brokerage_cap)
@@ -143,6 +145,25 @@ class Portfolio:
         tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(asdict(self), default=str, separators=(",", ":")) + "\n")
         os.replace(tmp, path)
+
+    def trim_trades(self, archive: Path, keep: int = TRADES_KEEP) -> int:
+        """Keep the last `keep` trades in portfolio.json; append the older ones to `archive` (JSON lines) FIRST, then
+        drop them from memory, so a crash in between can only duplicate, never lose, a trade. Lines already in the
+        archive are not written twice. Returns how many trades were moved. Never raises: on an I/O error the trades stay."""
+        if len(self.trades) <= keep:
+            return 0
+        old = self.trades[:len(self.trades) - keep]
+        try:
+            archive = Path(archive)
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            have = set(archive.read_text(encoding="utf-8").splitlines()) if archive.exists() else set()
+            lines = [json.dumps(t, ensure_ascii=False, separators=(",", ":"), default=str) for t in old]
+            with open(archive, "a", encoding="utf-8") as fh:
+                fh.write("".join(x + "\n" for x in lines if x not in have))
+        except OSError:
+            return 0
+        self.trades = self.trades[len(old):]
+        return len(old)
 
     # ---- accounting --------------------------------------------------------------
     def qty(self, asset: str) -> int:

@@ -161,6 +161,47 @@ See [`routines/README.md`](routines/README.md) for the schedule table and stored
 | weekly | Saturday 09:50 | Opus |
 | incident | API, from incident/watchdog/reminders/engine | Sonnet triage, Opus if complex |
 
+## Fallback when Claude is unavailable
+
+If the Claude routines cannot run (cloud-session credits and plan limits both used up), the engine keeps trading by its
+fixed rules (it never needed Claude), but guidance goes stale and no daily report would arrive. Three free pieces cover this:
+
+1. **Alarm, no AI.** `tools/healthcheck.py` reports `routines_silent` (HIGH) on a trading day when `state/guidance.json` is
+   older than 3 h after 11:30 IST, or when there is no Claude-written `reports/daily/<today>.json` after 16:30 IST. The watchdog
+   (`watchdog.yml`, also run at 16:45 IST) opens, or comments on, a GitHub issue **"Claude routines not running (usage limit or
+   credits?)"** (label `routines-silent`); GitHub emails you about new issues in your own repo. It closes the issue when the
+   check passes again.
+2. **Guidance fallback.** `fallback.yml` runs `tools/fallback_brain.py`: DeepSeek reads `tools/context.py` (at most 25 KB, headlines
+   treated as untrusted) and returns strict JSON with a bias per metal. Invalid answers become neutral, "favour" is downgraded to
+   neutral when an event is today or tomorrow, and the result is applied only through `tools/guidance.py set` (note starts
+   "[fallback: DeepSeek]"). It cannot touch the fast lane, events, sizes or limits. The next Claude run overwrites it.
+3. **Report fallback.** At 16:50 IST, if there is no Claude report, `tools/fallback_report.py` builds the normal report files with
+   Python (numbers come from the logs), adds a short DeepSeek paragraph (plain text, numbers checked against the facts), commits
+   them and opens/updates the issue **"Daily report <date> (fallback mode)"**. If the secrets `SMTP_HOST`, `SMTP_USER`,
+   `SMTP_PASS` (and optionally `SMTP_PORT`) exist, the same email is also sent with the subject "Metals Daybook · (fallback) ...".
+   The Daybook Inbox needs Claude, so no Inbox item is created in fallback mode. Incidents get alerts only, never AI code fixes.
+
+**Setup (one step).** Add the secret **`DEEPSEEK_API_KEY`**: GitHub, Settings, Secrets and variables, Actions, New repository
+secret. Never put the key in a file in the repo (it is public). For local testing copy `.env.example` to `.env` (git-ignored); real
+environment variables always win over `.env`. Without the secret the fallback does nothing.
+
+**Models.** `fallback:` in `config/params.yaml` lists preferred model IDs per tier (`thinking` for the bias decision, `fast` for
+report text). At run time the code calls `GET /models` once and uses the first listed ID the account really has; if that call
+fails it tries the list in order and moves on after a 400/404 "model not found". The chosen model is recorded in
+`state/fallback.json`. Only the reply `content` is used; `reasoning_content` is never logged or stored.
+
+**Cost.** DeepSeek reportedly charges about double in its peak hours (06:00-10:00 UTC on weekdays, which overlaps NSE hours).
+The fallback makes only a few calls a day (at most one bias call an hour while Claude is down, plus one short summary), so the cost
+is negligible.
+
+## Thrift mode
+
+Routines check their billing source first (`python tools/budget.py mode`, step 0 of every playbook). On the promotional cloud
+credits the mode is NORMAL; on plan limits, or when unknown, it is THRIFT: no Opus subagent in the hourly routine, no Haiku
+fan-out in premarket, a short weekly review, Opus in incidents only for HIGH/COMPLEX, and the engine allows 2 fast-lane
+wake-ups a day instead of 4 (`budget:` in `config/params.yaml`). The daily report says "Thrift mode: running on plan limits".
+No trading rule changes.
+
 ## Setup
 
 1. GitHub secrets (Settings → Secrets and variables → Actions):

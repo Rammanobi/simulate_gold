@@ -1,0 +1,70 @@
+name: fallback
+
+# DeepSeek fallback for when the Claude routines cannot run (usage limit / credits used up). It does nothing unless
+# the watchdog says so. Two jobs of work:
+#   before 16:30 IST  tools/fallback_brain.py   sets a conservative bias in state/guidance.json (via tools/guidance.py)
+#   after 16:30 IST   tools/fallback_report.py  builds the daily report and opens/updates a GitHub issue (GitHub emails
+#                                               the owner); optional SMTP email when the SMTP_* secrets exist
+# Triggers: watchdog.yml dispatches this when routines_silent is detected; 16:50 IST on weekdays as a catch-all.
+# The key is the Actions secret DEEPSEEK_API_KEY and is never written anywhere. The Daybook Inbox needs Claude and is skipped.
+on:
+  schedule:
+    - cron: "20 11 * * 1-5"      # 16:50 IST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: fallback
+  cancel-in-progress: false
+
+jobs:
+  fallback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Kolkata
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}     # optional; without it the fallback does nothing
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}                   # optional email path
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Fallback work (only if the Claude routines are silent)
+        run: |
+          set +e
+          git config user.name "simgold-fallback"; git config user.email "actions@users.noreply.github.com"
+          git pull --rebase --autostash -q
+          TODAY=$(date +%F)
+          python tools/healthcheck.py --no-write > "$RUNNER_TEMP/hc.txt"
+          if ! grep -q routines_silent "$RUNNER_TEMP/hc.txt"; then
+            echo "Claude routines are running; fallback not needed" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          if [ "$(date +%H%M)" -lt 1630 ]; then
+            python tools/fallback_brain.py | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            python tools/fallback_report.py --date "$TODAY" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+      - name: Commit
+        if: always()
+        run: |
+          set +e
+          git add state/guidance.json state/fallback.json reports/daily 2>/dev/null
+          git diff --cached --quiet || git commit -qm "fallback: DeepSeek guidance/report $(date +%H:%M) IST"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
+          exit 0

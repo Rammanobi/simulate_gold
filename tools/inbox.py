@@ -20,16 +20,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from simgold.inboxlink import daily_item_id, safe_id  # noqa: E402
+from simgold.inboxlink import daily_item_id, is_valid_id, own_pr_url, safe_id  # noqa: E402
 from simgold.report import inr, sg  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
+MAX_REVISION = 4      # revision 1 is the first version; each owner rejection allows one more; the 4th is final (incident.md D.2)
 STATUSES = ("needs_approval", "working", "resolved", "rejected", "monitoring")
 SEVERITIES = ("high", "medium", "low")
 # incident record status (tools/incident.py) -> item status
@@ -67,9 +69,11 @@ def item_from_incident(rec: dict, now: datetime, status: str | None = None) -> d
     acts, props = [], []
     for a in rec.get("actions") or []:
         if a.get("kind") == "proposal":
-            props.append({"title": a.get("text", ""), "pr_url": a.get("link", ""), "risk": a.get("risk", "")})
+            # only this repository's own PR URLs can ever be merged by an Accept: anything else is blanked here
+            props.append({"title": a.get("text", ""), "pr_url": own_pr_url(a.get("link", "")), "risk": a.get("risk", "")})
         else:
-            acts.append({"text": a.get("text", ""), **({"url": a["link"]} if a.get("link") else {})})
+            link = str(a.get("link") or "")
+            acts.append({"text": a.get("text", ""), **({"url": link} if link.startswith("https://") else {})})
     sev = rec.get("severity") if rec.get("severity") in SEVERITIES else "medium"
     created = rec.get("opened_at") or _iso(now)
     return {
@@ -109,7 +113,13 @@ def item_from_daily(day: dict, now: datetime, report_url: str = "") -> dict:
 def bump(item: dict, status: str, history: str, now: datetime) -> dict:
     if status not in STATUSES:
         raise ValueError(f"bad status: {status} (use one of {', '.join(STATUSES)})")
-    item["revision"] = int(item.get("revision", 1)) + 1
+    if not is_valid_id(item.get("id")):
+        raise ValueError(f"bad item id: {item.get('id')!r}")
+    rev = int(item.get("revision", 1)) + 1
+    if status == "needs_approval" and rev > MAX_REVISION:
+        raise ValueError(f"revision cap: this item was already revised {MAX_REVISION - 1} times; bump it to monitoring "
+                         f"and ask the owner for a human look instead")
+    item["revision"] = rev
     item["status"] = status
     item["updated"] = _iso(now)
     item.setdefault("history", []).append({"at": _iso(now), "text": history})
@@ -152,6 +162,12 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     now = _now(a.now)
+    for flag, val in (("--id", getattr(a, "id", None)), ("--from-incident", getattr(a, "from_incident", None))):
+        if val is not None and not is_valid_id(val):
+            ap.error(f"{flag} must match [A-Za-z0-9._~-]+ and not start with a dot")
+    for flag, val in (("--date", getattr(a, "date", None)), ("--from-daily", getattr(a, "from_daily", None))):
+        if val is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", val):
+            ap.error(f"{flag} must look like 2026-10-13")
     if a.cmd == "item-from-incident":
         item = item_from_incident(_load(Path(a.root) / "incidents" / f"{a.id}.json", "incident"), now, a.status)
     elif a.cmd == "item-from-daily":
@@ -169,7 +185,10 @@ def main(argv=None) -> int:
             for k in ("title", "summary", "impact", "next"):
                 item[k] = fresh[k]
             item["report_url"] = fresh["report_url"] or item.get("report_url", "")
-        item = bump(item, a.status, a.history, now)
+        try:
+            item = bump(item, a.status, a.history, now)
+        except ValueError as exc:
+            sys.exit(str(exc))
         a.out = a.out or a.file
     _emit(item, a.out)
     return 0

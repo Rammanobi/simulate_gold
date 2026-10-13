@@ -11,6 +11,10 @@
    long-term history for Python and the weekly review. A date already in the CSV is never added twice.
 2. memory/daily/YYYY-MM-DD.md older than 60 days -> appended to archive/memory/YYYY-MM.md, then deleted.
 3. state/fastlane_requests.jsonl lines older than 35 days -> archive/YYYY-MM/fastlane_requests-YYYY-MM.jsonl.gz.
+4. logs/trades-archive.jsonl (trades the engine moved out of portfolio.json, see Portfolio.trim_trades): lines older
+   than 35 days -> archive/YYYY-MM/trades-archive-YYYY-MM.jsonl.gz.
+5. reports/daily/DATE.{html,txt,page.html,...} older than 35 days -> archive/YYYY-MM/reports/<name>.gz. The DATE.json
+   files stay where they are, uncompressed (the dashboards and the brief read them).
 An archive .gz that already exists is never overwritten with different content (a log that reappears for an old
 date is kept next to it as name.2.gz), so nothing is ever lost.
 """
@@ -167,7 +171,15 @@ def _free_dest(dest: Path, f: Path) -> Path:
 
 def archive_fastlane_requests(root: Path, today: date, dry: bool = False, days: int = LOG_AGE_DAYS) -> list[str]:
     """Move fast-lane request lines older than `days` out of state/ (the file is appended to forever otherwise)."""
-    src = root / "state" / "fastlane_requests.jsonl"
+    return _archive_jsonl_lines(root, root / "state" / "fastlane_requests.jsonl", "fastlane_requests", today, dry, days)
+
+
+def archive_trades(root: Path, today: date, dry: bool = False, days: int = LOG_AGE_DAYS) -> list[str]:
+    """logs/trades-archive.jsonl (trades trimmed out of portfolio.json) older than `days` -> archive/YYYY-MM/."""
+    return _archive_jsonl_lines(root, root / "logs" / "trades-archive.jsonl", "trades-archive", today, dry, days)
+
+
+def _archive_jsonl_lines(root: Path, src: Path, stem: str, today: date, dry: bool, days: int) -> list[str]:
     if not src.exists():
         return []
     cutoff = (today - timedelta(days=days)).isoformat()
@@ -183,11 +195,11 @@ def archive_fastlane_requests(root: Path, today: date, dry: bool = False, days: 
             keep.append(line)
     if not old:
         return []
-    said = [f"state/fastlane_requests.jsonl: {sum(map(len, old.values()))} old line(s) -> archive/"]
+    said = [f"{src.relative_to(root)}: {sum(map(len, old.values()))} old line(s) -> archive/"]
     if dry:
         return said
     for ym, lines in old.items():
-        dest = root / "archive" / ym / f"fastlane_requests-{ym}.jsonl.gz"
+        dest = root / "archive" / ym / f"{stem}-{ym}.jsonl.gz"
         dest.parent.mkdir(parents=True, exist_ok=True)
         have = gzip.decompress(dest.read_bytes()).decode("utf-8").splitlines() if dest.exists() else []
         merged = have + [x for x in lines if x not in set(have)]        # a crash before the rewrite cannot duplicate
@@ -195,6 +207,33 @@ def archive_fastlane_requests(root: Path, today: date, dry: bool = False, days: 
     tmp = src.with_name(src.name + ".tmp")
     tmp.write_text("".join(x + "\n" for x in keep), encoding="utf-8")
     tmp.replace(src)
+    return said
+
+
+REPORT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(.*)$")
+
+
+def archive_reports(root: Path, today: date, dry: bool = False, days: int = LOG_AGE_DAYS) -> list[str]:
+    """Gzip old report files (html/txt/page...) into archive/YYYY-MM/reports/. The .json stays, uncompressed."""
+    said, cutoff = [], today - timedelta(days=days)
+    for f in sorted((root / "reports" / "daily").glob("*")):
+        m = REPORT_NAME_RE.match(f.name)
+        if not m or not f.is_file() or f.suffix in (".json", ".gz", ".tmp"):
+            continue
+        try:
+            d = date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        if d >= cutoff:
+            continue
+        dest = _free_dest(root / "archive" / m.group(1)[:7] / "reports" / (f.name + ".gz"), f)
+        said.append(f"{f.relative_to(root)} -> {dest.relative_to(root)}")
+        if dry:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            _gzip_to(f.read_bytes(), dest)
+        f.unlink()
     return said
 
 
@@ -255,7 +294,8 @@ def main(argv=None) -> int:
         return 0
     today = date.fromisoformat(a.today) if a.today else date.today()
     said = (archive_logs(root, today, a.dry_run) + archive_memory(root, today, a.dry_run)
-            + archive_fastlane_requests(root, today, a.dry_run))
+            + archive_fastlane_requests(root, today, a.dry_run) + archive_trades(root, today, a.dry_run)
+            + archive_reports(root, today, a.dry_run))
     print("\n".join(said) if said else "nothing to archive")
     for x in size_warnings(root):
         print("WARNING: " + x)

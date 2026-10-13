@@ -15,6 +15,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+from simgold import budget
 from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
 
 START_CAPITAL = 100_000.0
@@ -333,15 +334,42 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     day = _build_day(date, root, holiday)
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
+    day["thrift"] = budget.is_thrift(Path(root) / "state")
+    day["fallback_dates"] = fallback_dates(root)
     return day
+
+
+THRIFT_LINE = "\U0001F4A1 Thrift mode: running on plan limits"
+
+
+def fallback_dates(root) -> list[str]:
+    """Days the DeepSeek fallback was used (state/fallback.json, written by tools/fallback_brain.py), newest last."""
+    try:
+        d = json.loads((Path(root) / "state" / "fallback.json").read_text(encoding="utf-8"))
+        return [str(x)[:10] for x in (d.get("dates") or [])][-5:] if isinstance(d, dict) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _notes(day: dict) -> list[str]:
+    out = []
+    if day.get("thrift"):
+        out.append(THRIFT_LINE)
+    if day.get("fallback_dates"):
+        out.append("Fallback was used on " + ", ".join(day["fallback_dates"]) + " (Claude routines were not running).")
+    return out
 
 
 def _ops_html(day: dict) -> str:
     """Small 'Fixed today' list and the watchdog line; empty (hidden) when there is nothing to say."""
     fixed, health = day.get("fixed_today") or [], day.get("system_health") or ""
-    if not fixed and not health:
+    notes = _notes(day)
+    if not fixed and not health and not notes:
         return ""
     h = ""
+    for n in notes:
+        h += (f'<tr><td style="padding:14px 20px 0 20px;font-family:{FONT};font-size:13px;line-height:19px;color:#6b7280;">'
+              f'{esc(n)}</td></tr>\n')
     if fixed:
         h += _section("Fixed today") + "".join(
             f'<tr><td style="padding:2px 20px;font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;">&#10003; {esc(x)}</td></tr>\n' for x in fixed)
@@ -353,6 +381,8 @@ def _ops_html(day: dict) -> str:
 
 def _ops_text(day: dict) -> list[str]:
     L = []
+    for n in _notes(day):
+        L += [n, ""]
     if day.get("fixed_today"):
         L += ["FIXED TODAY"] + [f"- {x}" for x in day["fixed_today"]] + [""]
     if day.get("system_health"):

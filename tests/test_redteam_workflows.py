@@ -35,7 +35,7 @@ def test_every_workflow_declares_least_privilege_permissions(name):
 
 def test_schedules_mean_what_the_comments_say_in_ist():
     sched = lambda n: [c["cron"] for c in _on(WF[n][1])["schedule"]]
-    assert [ist(c) for c in sched("market-hours.yml")] == ["09:10", "12:15"]
+    assert [ist(c) for c in sched("market-hours.yml")] == ["09:00", "09:10", "12:15"]
     assert all(c.endswith("* * 1-5") for c in sched("market-hours.yml"))
     assert ist(sched("backtest.yml")[0]) == "08:00"
     wd = sched("watchdog.yml")

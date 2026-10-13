@@ -2,11 +2,12 @@ name: market-hours paper trading
 
 # NSE is open 09:15-15:30 IST = 03:45-10:00 UTC, Mon-Fri. Public repo, so Actions minutes are free.
 # Two sessions per day (a job is capped at 6 h), 60-second ticks inside each:
-#   morning   starts 09:10 IST, loops until 12:20 IST
+#   morning   starts 09:00 / 09:10 IST, loops until 12:20 IST
 #   afternoon starts 12:15 IST (backup cron), loops until 15:35 IST
 # The engine skips weekends and NSE holidays itself.
 on:
   schedule:
+    - cron: "30 3 * * 1-5"   # 09:00 IST (backup for a late 09:10 run; the concurrency group + state/.engine.lock stop doubles)
     - cron: "40 3 * * 1-5"   # 09:10 IST
     - cron: "45 6 * * 1-5"   # 12:15 IST (backup / afternoon session)
   workflow_dispatch:
@@ -47,7 +48,10 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q tests
+      - name: Tests (pytest)
+        id: tests
+        continue-on-error: true      # a failing test must not stop the trading day: the engine then runs in SAFE MODE
+        run: python -m pytest -q tests
       - name: Run paper-trading loop
         run: |
           SESSION="${{ inputs.session }}"
@@ -56,10 +60,15 @@ jobs:
             if [ "$(date +%H%M)" -lt 1215 ]; then SESSION=morning; else SESSION=afternoon; fi
           fi
           echo "session: $SESSION (IST $(date +%H:%M))"
+          SAFE=""
+          if [ "${{ steps.tests.outcome }}" = "failure" ]; then
+            SAFE="--safe-mode"     # exits, stops and the floor only; no buys (reason "tests failing")
+            echo "::warning::pytest failed, so this session runs in SAFE MODE (no buys)"
+          fi
           case "$SESSION" in
-            morning)   python run_live.py --tick-seconds 60 --until 12:20 ;;
-            afternoon) python run_live.py --tick-seconds 60 --until 15:35 ;;
-            once)      python run_live.py --once --force ;;
+            morning)   python run_live.py --tick-seconds 60 --until 12:20 $SAFE ;;
+            afternoon) python run_live.py --tick-seconds 60 --until 15:35 $SAFE ;;
+            once)      python run_live.py --once --force $SAFE ;;
           esac
       - name: Final sync
         if: always()
@@ -67,3 +76,8 @@ jobs:
         # fallback when a rebase cannot finish, so the session's portfolio state always reaches main
         run: |
           python -c "import pathlib, sys; from simgold import gitsync; sys.exit(0 if gitsync.sync(pathlib.Path('.')) else 1)"
+      - name: Fail the run so the incident pipeline alerts (pytest failed on main)
+        if: always() && steps.tests.outcome == 'failure'
+        run: |
+          echo "pytest failed; trading ran in safe mode. Failing this run so the incident pipeline raises test_failure_main."
+          exit 1

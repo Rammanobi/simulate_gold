@@ -227,6 +227,47 @@ def check_guidance_age(root: Path, guidance: dict | None, now: datetime, cfg: di
     return [problem("guidance_stale", "stale_guidance", f"guidance is {age:.1f} h old (limit {lim} h)")] if age > lim else []
 
 
+SILENT_AFTER = dtime(11, 30)
+REPORT_DUE = dtime(16, 30)
+SILENT_GUIDANCE_HOURS = 3
+
+
+def check_routines_silent(root: Path, guidance: dict | None, now: datetime) -> list[dict]:
+    """The Claude routines (usage limit or credits used up?) have stopped. Free, no AI:
+    (a) trading day, 11:30-15:40 IST, a guidance.json exists and was last updated over 3 h ago; or
+    (b) trading day, after 16:30 IST, and there is no Claude-written reports/daily/<today>.json
+        (a report with "fallback": true is the DeepSeek fallback's, so Claude is still silent)."""
+    now = now.astimezone(IST)
+    if not is_trading_day(now.date()):
+        return []
+    t = now.time()
+    if SILENT_AFTER <= t <= WINDOW[1]:
+        p = root / "state" / "guidance.json"
+        if p.exists():
+            ts = _parse_ts(guidance.get("updated")) if isinstance(guidance, dict) and guidance.get("updated") else None
+            ts = ts or datetime.fromtimestamp(p.stat().st_mtime, IST)
+            age = (now - ts).total_seconds() / 3600
+            by_fallback = isinstance(guidance, dict) and str(guidance.get("note", "")).startswith("[fallback")
+            if age > SILENT_GUIDANCE_HOURS or by_fallback:     # a fallback-written guidance is not Claude's
+                return [problem("routines_silent", "routines_silent",
+                                f"guidance.json was last written {'by the fallback' if by_fallback else f'{age:.1f} h ago'} "
+                                f"(limit {SILENT_GUIDANCE_HOURS} h): the Claude routines are not running (usage limit or credits?)")]
+    if t >= REPORT_DUE:
+        rep = root / "reports" / "daily" / f"{now.date().isoformat()}.json"
+        claude_wrote = False
+        if rep.exists():
+            try:
+                d = _load_json(rep)
+                claude_wrote = not (isinstance(d, dict) and d.get("fallback"))
+            except (OSError, ValueError):
+                claude_wrote = False
+        if not claude_wrote:
+            return [problem("routines_silent", "routines_silent",
+                            f"no daily report reports/daily/{now.date().isoformat()}.json after {REPORT_DUE.strftime('%H:%M')} IST: "
+                            f"the Claude routines are not running (usage limit or credits?)")]
+    return []
+
+
 def check_incident_limits(root: Path, now: datetime, cfg: dict | None = None) -> list[dict]:
     cfg = cfg or alerts.params()
     st = alerts.load_state(root / "state")
@@ -272,6 +313,7 @@ def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "", git=real_g
     probs += _guarded("memory", check_memory, root)
     probs += _guarded("incident_limits", check_incident_limits, root, now, cfg)
     probs += _guarded("calendar", check_calendar, now)
+    probs += _guarded("routines_silent", check_routines_silent, root, loaded.get("guidance.json"), now)
     if in_market_window(now):
         probs += _guarded("watchdog", check_watchdog, root, now, cfg)
         probs += _guarded("engine", check_engine, root, now, gh, repo)

@@ -7,12 +7,13 @@ on:
   schedule:
     - cron: "*/10 3-10 * * 1-5"
     - cron: "0 11 * * 1-5"        # 16:30 IST
+    - cron: "15 11 * * 1-5"       # 16:45 IST (is the daily report there? Claude routines silent?)
   workflow_dispatch:
 
 permissions:
   actions: write      # dispatch market-hours.yml when the engine run is missing (self-heal)
   contents: write     # commits state/alerts.json, health.json and logs/health-DATE.jsonl
-  issues: read
+  issues: write       # open / comment on / close the "Claude routines not running" issue
 
 concurrency:
   group: alert-state
@@ -47,6 +48,29 @@ jobs:
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           { echo '### Watchdog'; echo '```'; cat "$RUNNER_TEMP/problems.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "missing=$(grep -c 'engine_run_missing\|ticks_missing\|ticks_stale' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Claude routines silent? (issue = free email to the owner, no AI needed)
+        run: |
+          set +e
+          TITLE="Claude routines not running (usage limit or credits?)"
+          num=$(gh api "repos/$GH_REPO/issues?state=open&labels=routines-silent&per_page=1" --jq '.[0].number // empty' 2>/dev/null)
+          if grep -q '"check": *"routines_silent"' "$RUNNER_TEMP/problems.txt"; then
+            detail=$(grep '"check": *"routines_silent"' "$RUNNER_TEMP/problems.txt" | head -1 | jq -r '.detail // ""')
+            body="The watchdog found: ${detail}. Check claude.ai usage limits and cloud-session credits. Trading is not affected (the engine uses fixed rules); the DeepSeek fallback (fallback.yml) covers guidance and the daily report if DEEPSEEK_API_KEY is set. Checked $(date '+%F %H:%M') IST."
+            if [ -z "$num" ]; then
+              gh api -X POST "repos/$GH_REPO/issues" -f title="$TITLE" -f body="$body" -f 'labels[]=routines-silent' >/dev/null \
+                && echo "opened routines-silent issue" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh api -X POST "repos/$GH_REPO/issues/$num/comments" -f body="Still silent at $(date '+%H:%M') IST: ${detail}" >/dev/null
+            fi
+            # fallback: guidance / daily report written by DeepSeek (the workflow decides what is due)
+            gh api -X POST "repos/$GH_REPO/actions/workflows/fallback.yml/dispatches" -f ref=main >/dev/null 2>&1 \
+              && echo "dispatched fallback.yml" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$num" ]; then
+            gh api -X POST "repos/$GH_REPO/issues/$num/comments" -f body="The Claude routines are running again ($(date '+%H:%M') IST). Closing." >/dev/null
+            gh api -X PATCH "repos/$GH_REPO/issues/$num" -f state=closed >/dev/null
+          fi
           exit 0
 
       - name: Self-heal, re-dispatch the engine
