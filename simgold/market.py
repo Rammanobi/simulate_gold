@@ -29,6 +29,11 @@ NSE_HOLIDAYS = {
 GLOBAL_CLOSED_HOLIDAYS = {date(2026, 4, 3), date(2026, 12, 25)}
 
 
+def holidays_known(year: int) -> bool:
+    """True if NSE_HOLIDAYS has been filled in for this year (the healthcheck warns from 1 Dec when next year is missing)."""
+    return any(d.year == year for d in NSE_HOLIDAYS)
+
+
 def now_ist() -> datetime:
     return datetime.now(IST)
 

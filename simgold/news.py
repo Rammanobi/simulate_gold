@@ -108,12 +108,30 @@ def dumps_items(items: dict[str, dict]) -> str:
     return "{\n" + body + "\n}\n" if body else "{}\n"
 
 
+def load_items(path: Path) -> dict[str, dict]:
+    """state/news.json -> {id: headline}; a corrupt file or malformed rows are dropped (logged), never fatal:
+    a broken news cache must not stop the engine from starting."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8")) if Path(path).exists() else {}
+    except (OSError, ValueError) as e:
+        log.warning("state/news.json unreadable (%s); starting with an empty news cache", e)
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k, v in raw.items():
+        if isinstance(v, dict) and isinstance(v.get("title"), str) and isinstance(v.get("ts"), (int, float)) \
+                and not isinstance(v.get("ts"), bool) and math.isfinite(v["ts"]):
+            out[str(k)] = v
+    return out
+
+
 class NewsBook:
     """Persistent cache of scored headlines → decayed per-asset sentiment."""
 
     def __init__(self, path: Path):
         self.path = path
-        self.items: dict[str, dict] = json.loads(path.read_text()) if path.exists() else {}
+        self.items: dict[str, dict] = load_items(path)
         self.last_refresh = 0.0
         self.last_new: list[dict] = []   # headlines first seen in the latest refresh (fast-lane matching)
 

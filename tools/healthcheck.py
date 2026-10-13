@@ -19,7 +19,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+import copy  # noqa: E402
+
 from simgold import alerts  # noqa: E402
+from simgold.broker import validate_portfolio_dict  # noqa: E402
 from simgold.market import IST, is_trading_day  # noqa: E402
 
 ENGINE_WORKFLOW = "market-hours.yml"
@@ -96,7 +99,7 @@ def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
 def check_state_files(root: Path) -> tuple[list[dict], dict]:
     out, loaded = [], {}
     spec = {"portfolio.json": ("cash", "positions", "floor", "liquidbees"), "guidance.json": ("updated",),
-            "fastlane.json": (), "events.json": ()}
+            "fastlane.json": (), "events.json": (), "alerts.json": (), "safe_mode.json": ()}
     for name, keys in spec.items():
         p = root / "state" / name
         if not p.exists():
@@ -111,6 +114,11 @@ def check_state_files(root: Path) -> tuple[list[dict], dict]:
             miss = [k for k in keys if k not in d]
             if miss:
                 out.append(problem("state_keys", "state_corrupt", f"{name} is missing keys {miss}"))
+            elif name == "portfolio.json":
+                try:
+                    validate_portfolio_dict(copy.deepcopy(d))
+                except ValueError as e:
+                    out.append(problem("state_values", "state_corrupt", f"portfolio.json: {e}"))
             loaded[name] = d
         except Exception as e:  # noqa: BLE001
             out.append(problem("state_parse", "state_corrupt", f"{name} does not parse: {e}"))
@@ -137,17 +145,18 @@ def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, c
         return out
     cfg = cfg or alerts.params()
     cash, lb = pf.get("cash"), pf.get("liquidbees")
+    positions = pf.get("positions") if isinstance(pf.get("positions"), dict) else {}
     for name, v in (("cash", cash), ("liquidbees", lb)):
         if isinstance(v, (int, float)) and v < 0:
             out.append(problem(f"negative_{name}", "state_corrupt", f"{name} is {v}"))
-    for a, p in (pf.get("positions") or {}).items():
+    for a, p in positions.items():
         if isinstance(p, dict) and isinstance(p.get("qty"), (int, float)) and p["qty"] < 0:
             out.append(problem("negative_qty", "state_corrupt", f"{a} quantity is {p['qty']}"))
     t = last_tick(root, now)
     value = t["value"] if t and t.get("value") is not None else None
     if value is None and isinstance(cash, (int, float)) and isinstance(lb, (int, float)):
         value = cash + lb + sum((p.get("qty", 0) * (p.get("last_price") or p.get("avg_cost") or 0))
-                                for p in (pf.get("positions") or {}).values() if isinstance(p, dict))
+                                for p in positions.values() if isinstance(p, dict))
     floor = pf.get("floor")
     if isinstance(value, (int, float)) and isinstance(floor, (int, float)):
         if value < floor - FLOOR_SLACK:
@@ -157,9 +166,10 @@ def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, c
         prev = prev_floor(root, now.astimezone(IST).date().isoformat(), git)
         if prev is not None and floor < prev - 1e-6:
             out.append(problem("floor_lowered", "floor_broken", f"floor {floor:,.0f} is lower than the previous day's floor {prev:,.0f}"))
-        tripped = (pf.get("cooldowns") or {}).get("no_buys_until")
+        cd = pf.get("cooldowns") if isinstance(pf.get("cooldowns"), dict) else {}
+        tripped = cd.get("no_buys_until")
         if value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
-                and (pf.get("positions") or {}):
+                and positions:
             out.append(problem("liquid_low", "invariant_warning",
                                f"LIQUIDBEES is {lb / value:.0%} of value (min {LIQUID_MIN:.0%}) and the tripwire has not fired"))
     return out
@@ -189,6 +199,20 @@ def check_memory(root: Path) -> list[dict]:
         if total > LOGS_MAX:
             out.append(problem("logs_size", "memory_cap", f"logs/ is {total // 2**20} MB (max {LOGS_MAX // 2**20})"))
     return out
+
+
+def check_calendar(now: datetime) -> list[dict]:
+    """The NSE holiday list is typed in per year (simgold/market.py). Without next year's list, holidays look like
+    trading days: month-end protection and the last-3-days window would count phantom sessions."""
+    from simgold import market as _m
+    d = now.astimezone(IST).date()
+    years = [d.year] + ([d.year + 1] if d.month == 12 else [])
+    miss = [y for y in years if not _m.holidays_known(y)]
+    if miss:
+        return [problem("holiday_calendar_missing", "invariant_warning",
+                        f"simgold/market.py has no NSE holiday list for {', '.join(map(str, miss))}; add the official "
+                        f"NSE circular dates (month-end and last-3-days rules count holidays as trading days without it)")]
+    return []
 
 
 def check_guidance_age(root: Path, guidance: dict | None, now: datetime, cfg: dict | None = None) -> list[dict]:
@@ -228,18 +252,30 @@ def check_watchdog(root: Path, now: datetime, cfg: dict | None = None) -> list[d
     return []
 
 
+def _guarded(name: str, fn, *args) -> list[dict]:
+    """A check that crashes is itself a problem (MEDIUM), never a silent exit 1 that the workflow would not alert on."""
+    try:
+        return fn(*args)
+    except Exception as e:  # noqa: BLE001
+        return [problem(f"{name}_crashed", "workflow_failed", f"the {name} check crashed: {type(e).__name__}: {e}")]
+
+
 def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "", git=real_git, cfg: dict | None = None) -> list[dict]:
     cfg = cfg or alerts.params()
     probs: list[dict] = []
-    state_p, loaded = check_state_files(root)
+    try:
+        state_p, loaded = check_state_files(root)
+    except Exception as e:  # noqa: BLE001
+        state_p, loaded = [problem("state_files_crashed", "workflow_failed", f"{type(e).__name__}: {e}")], {}
     probs += state_p
-    probs += check_invariants(root, loaded.get("portfolio.json"), now, git, cfg)
-    probs += check_memory(root)
-    probs += check_incident_limits(root, now, cfg)
+    probs += _guarded("invariants", check_invariants, root, loaded.get("portfolio.json"), now, git, cfg)
+    probs += _guarded("memory", check_memory, root)
+    probs += _guarded("incident_limits", check_incident_limits, root, now, cfg)
+    probs += _guarded("calendar", check_calendar, now)
     if in_market_window(now):
-        probs += check_watchdog(root, now, cfg)
-        probs += check_engine(root, now, gh, repo)
-        probs += check_guidance_age(root, loaded.get("guidance.json"), now, cfg)
+        probs += _guarded("watchdog", check_watchdog, root, now, cfg)
+        probs += _guarded("engine", check_engine, root, now, gh, repo)
+        probs += _guarded("guidance_age", check_guidance_age, root, loaded.get("guidance.json"), now, cfg)
     return probs
 
 
@@ -267,7 +303,10 @@ def main(argv=None) -> int:
     if "--no-write" not in args:
         write_health(ROOT, now, probs)
         if not probs:       # a clean pre-market run is what lets safe mode clear itself the next day
-            alerts.auto_clear_safe_mode(ROOT / "state", now.timestamp(), True)
+            try:
+                alerts.auto_clear_safe_mode(ROOT / "state", now.timestamp(), True)
+            except Exception:  # noqa: BLE001 - fail closed: safe mode simply stays on
+                pass
     if not probs:
         print(f"OK all checks passed at {now.strftime('%Y-%m-%d %H:%M')} IST")
         return 0

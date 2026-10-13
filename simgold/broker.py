@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -30,6 +32,61 @@ class Position:
     buy_costs: float = 0.0       # entry costs of the shares still held (for net P&L)
     last_price: float = 0.0
     entry_ts: str = ""
+
+
+_NUM_FIELDS = ("cash", "liquidbees", "floor", "best_profit", "realised_pnl", "total_costs", "peak_equity",
+               "month_start_equity", "day_costs", "liquidbees_income_today", "day_open_value")
+_DICT_FIELDS = ("counters", "cooldowns", "runtime", "stop_until", "last_trade_at")
+_GREEN_GUARD_KEYS = ("floor", "liquidbees", "best_profit")
+_REQUIRED_V1 = ("cash", "liquidbees", "floor", "positions")
+
+
+def _finite(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def validate_portfolio_dict(d) -> bool:
+    """Check a loaded portfolio.json; raise ValueError if it is not sane. Returns True for a legacy (pre-Green-Guard) file.
+    A file with Green Guard keys but no `schema` is NOT legacy: migrating it would move LIQUIDBEES and reset the floor."""
+    if not isinstance(d, dict):
+        raise ValueError("portfolio.json top level is not an object")
+    has_gg = any(k in d for k in _GREEN_GUARD_KEYS)
+    schema = d.get("schema", 1 if has_gg else 0)
+    if not _finite(schema):
+        raise ValueError(f"schema is not a number: {schema!r}")
+    legacy = schema < 1 and not has_gg
+    if not legacy:
+        miss = [k for k in _REQUIRED_V1 if k not in d]
+        if miss:
+            raise ValueError(f"portfolio.json is missing keys {miss}")
+    for k in _NUM_FIELDS:
+        if k in d and not _finite(d[k]):
+            raise ValueError(f"{k} is not a finite number: {d[k]!r}")
+    for k in ("cash", "liquidbees"):
+        if k in d and d[k] < -1.0:
+            raise ValueError(f"{k} is negative: {d[k]}")
+    for k in _DICT_FIELDS:
+        if k in d and not isinstance(d[k], dict):
+            raise ValueError(f"{k} is not an object")
+    if "trades" in d and not isinstance(d["trades"], list):
+        raise ValueError("trades is not a list")
+    pos = d.get("positions", {})
+    if not isinstance(pos, dict):
+        raise ValueError("positions is not an object")
+    for sym, v in pos.items():
+        if not isinstance(v, dict):
+            raise ValueError(f"position {sym} is not an object")
+        q = v.get("qty", 0)
+        if not _finite(q) or q < 0 or q != int(q):
+            raise ValueError(f"position {sym} has a bad quantity {q!r}")
+        for k in ("avg_cost", "high_water", "stop", "last_price", "buy_costs"):
+            if k in v and (not _finite(v[k]) or v[k] < 0):
+                raise ValueError(f"position {sym}.{k} is not a sane number: {v[k]!r}")
+        if q > 0 and not (v.get("avg_cost", 0) > 0):
+            raise ValueError(f"position {sym} has no entry price")
+    if not legacy:
+        d["schema"] = max(1, int(schema))
+    return legacy
 
 
 @dataclass
@@ -62,14 +119,16 @@ class Portfolio:
     # ---- persistence -------------------------------------------------------------
     @classmethod
     def load(cls, path: Path) -> "Portfolio":
+        """Raises ValueError on anything that is not a sane portfolio, so the caller restores a backup
+        (simgold.incidents.load_portfolio_safe) instead of trading on garbage."""
         if not path.exists():
             return cls()
         d = json.loads(path.read_text())
+        legacy = validate_portfolio_dict(d)
         pos_fields = set(Position.__dataclass_fields__)
         d["positions"] = {k: Position(**{a: b for a, b in v.items() if a in pos_fields})
                           for k, v in d.get("positions", {}).items()}
         known = set(cls.__dataclass_fields__)
-        legacy = d.get("schema", 0) < 1
         pf = cls(**{a: b for a, b in d.items() if a in known})
         if legacy:  # migrate the pre-Green-Guard file: idle cash moves into LIQUIDBEES
             pf.liquidbees, pf.cash = pf.cash, 0.0
@@ -78,7 +137,12 @@ class Portfolio:
         return pf
 
     def save(self, path: Path) -> None:
-        path.write_text(json.dumps(asdict(self), indent=1, default=str))
+        """Atomic (temp file + rename), and ONE line on purpose: a git rebase that meets a concurrent change can
+        then only keep one whole version, never splice lines of two portfolios together."""
+        path = Path(path)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(asdict(self), default=str, separators=(",", ":")) + "\n")
+        os.replace(tmp, path)
 
     # ---- accounting --------------------------------------------------------------
     def qty(self, asset: str) -> int:

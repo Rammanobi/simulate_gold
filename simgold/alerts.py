@@ -124,11 +124,47 @@ def state_path(state_dir) -> Path:
     return Path(state_dir) / "alerts.json"
 
 
+_ENTRY_DEFAULTS = {"component": "", "step": "", "category": "warning", "severity": MEDIUM, "first_seen": 0.0,
+                   "last_seen": 0.0, "count": 0, "status": "open", "emails": [], "acked": False, "resolved_emailed": False,
+                   "incident_id": "", "issue": None, "issue_url": "", "deferred": False, "group": "", "detail": ""}
+
+
+def _num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _repair(d) -> dict:
+    """A shape-checked copy of a loaded alerts.json: wrong-typed parts are reset, never trusted (and never crash)."""
+    base = _empty()
+    if not isinstance(d, dict):
+        return base
+    base.update({k: v for k, v in d.items() if k not in base})
+    f = d.get("fires")
+    if isinstance(f, dict) and isinstance(f.get("date", ""), str) and _num(f.get("n", 0)) and isinstance(f.get("ts", []), list):
+        base["fires"] = {"date": f.get("date", ""), "n": int(f.get("n", 0)), "ts": [t for t in f.get("ts", []) if _num(t)]}
+    if _num(d.get("last_high_fire")):
+        base["last_high_fire"] = float(d["last_high_fire"])
+    if isinstance(d.get("pending"), list):
+        base["pending"] = [p for p in d["pending"] if isinstance(p, str)]
+    for fp, e in (d.get("alerts") or {}).items() if isinstance(d.get("alerts"), dict) else []:
+        if not isinstance(e, dict):
+            continue
+        e = {**_ENTRY_DEFAULTS, **e, "fp": str(fp)}
+        if not isinstance(e["emails"], list):
+            e["emails"] = []
+        e["emails"] = [t for t in e["emails"] if _num(t)]
+        for k in ("first_seen", "last_seen", "count"):
+            if not _num(e[k]):
+                e[k] = 0
+        if e["severity"] not in (HIGH, MEDIUM, LOW):
+            e["severity"] = MEDIUM
+        base["alerts"][str(fp)] = e
+    return base
+
+
 def load_state(state_dir) -> dict:
     try:
-        d = json.loads(state_path(state_dir).read_text(encoding="utf-8"))
-        base = _empty(); base.update(d)
-        return base
+        return _repair(json.loads(state_path(state_dir).read_text(encoding="utf-8")))
     except (OSError, ValueError):
         return _empty()
 
@@ -468,16 +504,22 @@ def safe_mode_on(state_dir) -> bool:
     if not p.exists():
         return False
     try:
-        return bool(json.loads(p.read_text(encoding="utf-8")).get("on"))
-    except (OSError, ValueError, AttributeError):
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return True
+    return bool(d.get("on")) if isinstance(d, dict) else True
 
 
 def safe_mode_info(state_dir) -> dict:
-    try:
-        return json.loads(safe_path(state_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """{} when there is no file; an unreadable or wrong-shaped file reads as ON (fail closed, never auto-cleared)."""
+    p = safe_path(state_dir)
+    if not p.exists():
         return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        d = None
+    return d if isinstance(d, dict) else {"on": True, "since": "", "reason": "state/safe_mode.json is unreadable"}
 
 
 def set_safe_mode(state_dir, reason: str, now: float | None = None, notify=True, cfg: dict | None = None) -> bool:
