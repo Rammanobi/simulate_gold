@@ -40,6 +40,7 @@ DECISION_FIELDS = ["ts", "time", "action", "symbol", "qty", "price", "amount", "
 # a bad print and ignored for this tick. A real move that big keeps printing, so it is accepted once it dominates the
 # recent closes (after about 3 minutes). NSE ETF price bands are 20% a day, so 25% inside a few minutes is a glitch.
 MAX_TICK_JUMP = 0.25
+MAX_OPEN_JUMP = 0.50      # with < 3 closes today (the open): vs yesterday's close / the last known price (bands are 20%)
 FUTURE_SLACK = timedelta(minutes=5)     # state files dated further ahead than this are not trusted
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
             "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode"}
@@ -84,7 +85,7 @@ def _as_ist(d: datetime) -> datetime:
     return d.astimezone(market.IST) if d.tzinfo else d.replace(tzinfo=market.IST)
 
 
-def clean_market(mkt: Market) -> list[tuple[str, str]]:
+def clean_market(mkt: Market, last_known: Mapping[str, float] | None = None) -> list[tuple[str, str]]:
     """Drop prices that cannot be real (NaN, inf, zero, negative) and single-minute spikes (MAX_TICK_JUMP).
     Mutates mkt; returns [(symbol, plain reason)] for what was dropped."""
     dropped: list[tuple[str, str]] = []
@@ -103,12 +104,15 @@ def clean_market(mkt: Market) -> list[tuple[str, str]]:
         ser = mkt.series.get(s) or []
         prev = [v for _, v in (ser[:-1] if ser and ser[-1][1] == px else ser)][-5:]
         if len(prev) >= 3:
-            med = statistics.median(prev)
-            if abs(px / med - 1) > MAX_TICK_JUMP:
+            med, limit = statistics.median(prev), MAX_TICK_JUMP
+        else:                    # the first minutes of a session: compare with yesterday's close or the last known price
+            med, limit = mkt.prev_close.get(s) or (last_known or {}).get(s), MAX_OPEN_JUMP
+        if med and _good_px(med):
+            if abs(px / med - 1) > limit:
                 mkt.prices.pop(s)
                 if ser and ser[-1][1] == px:          # and out of the shock detector: a glitch must not wake the AI
                     mkt.series[s] = ser[:-1]
-                dropped.append((s, f"The {s} price {px:.2f} is {(px / med - 1) * 100:+.0f}% away from the last few minutes "
+                dropped.append((s, f"The {s} price {px:.2f} is {(px / med - 1) * 100:+.0f}% away from the recent price "
                                    f"({med:.2f}), which looks like a bad print, so it was ignored this minute."))
     return dropped
 
@@ -124,7 +128,7 @@ def _dt(s, tz) -> datetime | None:
 class Engine:
     def __init__(self, pf: Portfolio, mkt: Market, env: Env):
         self.pf, self.mkt, self.env, self.p = pf, mkt, env, env.params
-        self.bad_prices = clean_market(mkt)
+        self.bad_prices = clean_market(mkt, {k: v.last_price for k, v in pf.positions.items() if v.last_price})
         self.now = mkt.now
         self.day = self.now.date()
         self.syms = list(self.p["instruments"])

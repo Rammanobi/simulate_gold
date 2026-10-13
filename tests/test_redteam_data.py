@@ -72,6 +72,18 @@ def test_single_bad_print_in_the_minute_series_is_ignored(tmp_path):
     money_ok(pf)
 
 
+@pytest.mark.parametrize("with_prev_close", [True, False])
+def test_bad_print_in_the_first_minutes_of_the_session_is_ignored(tmp_path, with_prev_close):
+    """Before the fix the spike filter needed 3 earlier closes, so a 0.01 print at 09:15-09:17 was a 'stop-loss'."""
+    pf = held_pf()
+    now = at(9, 16)
+    m = Market(now, {"GOLDBEES": 0.01}, {"GOLDBEES": now}, {}, {"GOLDBEES": [(at(9, 15), 100.0), (now, 0.01)]},
+               {"GOLDBEES": 100.0} if with_prev_close else {})
+    recs = run_tick(pf, m, env_for(tmp_path))
+    assert pf.positions["GOLDBEES"].qty == 100 and not [r for r in recs if r["action"] == "SELL"]
+    money_ok(pf)
+
+
 def test_a_real_crash_is_accepted_after_it_keeps_printing(tmp_path):
     """The spike filter must not hide a genuine move for long: three prints in a row at -30% are traded on."""
     pf = held_pf()
