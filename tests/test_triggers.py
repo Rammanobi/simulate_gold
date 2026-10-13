@@ -21,6 +21,25 @@ def test_chile_copper_mine_strike_affects_hindcopper_only_and_does_not_wake():
     assert r["wake"] is False
 
 
+def test_plural_rate_cuts_wakes():
+    r = match_headline("Fed hints at two rate cuts")
+    assert "monetary_policy" in r["categories"]
+    assert r["urgency"] == 4
+    assert r["wake"] is True
+
+
+def test_plural_missiles_match_geopolitics():
+    r = match_headline("Missiles fired across the border")
+    assert r["categories"] == ["geopolitics"]
+    assert r["wake"] is True
+
+
+def test_feds_still_does_not_match_fed_but_rate_cuts_does():
+    r = match_headline("Feds hint at rate cuts")
+    assert r["categories"] == ["monetary_policy"]
+    assert r["wake"] is True
+
+
 def test_fed_does_not_match_federal_or_feds():
     assert match_headline("Federal reserve minutes released today")["categories"] == []
     assert match_headline("Feds hint at a pause")["categories"] == []

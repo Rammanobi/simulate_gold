@@ -27,10 +27,14 @@ categories:
       - fed
       - fomc
       - rate cut
+      - rate cuts
       - rate hike
+      - rate hikes
       - fed chair
+      - fed chairs
       - rbi
       - repo rate
+      - repo rates
     affects: [GOLDBEES, SILVERBEES]
     urgency: 4
 
@@ -52,9 +56,13 @@ categories:
   geopolitics:
     keywords:
       - war
+      - wars
       - missile
+      - missiles
+      - sanction
       - sanctions
       - ceasefire
+      - ceasefires
     affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
     urgency: 4
 
@@ -63,39 +71,53 @@ categories:
       - dollar index
       - dxy
       - rupee
+      - rupees
     affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
     urgency: 2
 
   gold_specific:
     keywords:
       - central bank gold buying
+      - central banks buying gold
       - gold etf flows
+      - gold etf flow
     affects: [GOLDBEES]
     urgency: 3
 
   india_duty_budget:
     keywords:
       - import duty
+      - import duties
       - customs duty
+      - customs duties
       - union budget
+      - union budgets
     affects: [GOLDBEES, SILVERBEES]
     urgency: 4
 
   company_actions:
     keywords:
       - offer for sale
+      - offers for sale
       - stake sale
+      - stake sales
       - disinvestment
+      - disinvestments
       - block deal
+      - block deals
       - mine accident
+      - mine accidents
     affects: [HINDCOPPER]
     urgency: 4
 
   market_halt:
     keywords:
       - circuit breaker
+      - circuit breakers
       - trading halt
+      - trading halts
       - exchange outage
+      - exchange outages
     affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
     urgency: 5
 
@@ -109,11 +131,14 @@ categories:
   copper_specific:
     keywords:
       - copper mine strike
+      - copper mine strikes
       - chile
       - peru
       - lme copper
       - china stimulus
+      - stimulus measures
       - smelter
+      - smelters
     affects: [HINDCOPPER]
     urgency: 3
 
