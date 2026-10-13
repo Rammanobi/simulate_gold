@@ -19,7 +19,7 @@ from pathlib import Path
 
 import os
 
-from simgold import config, gitsync, market
+from simgold import brief, config, gitsync, market
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
 from simgold.engine import Env, run_tick
@@ -37,7 +37,7 @@ log = logging.getLogger("live")
 
 class Live:
     def __init__(self, force: bool, tick_seconds: int):
-        for d in (STATE, LOGS):
+        for d in (STATE, LOGS, ROOT / "memory"):
             d.mkdir(parents=True, exist_ok=True)
         self.force = force
         self.p = config.load_params()
@@ -81,11 +81,17 @@ class Live:
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
 
+    def write_brief(self):
+        """memory/brief.md for the Claude routines (cheap, no AI). Never raises."""
+        if brief.safe_write(ROOT, params=self.p):
+            log.info("memory/brief.md updated")
+
     def sync(self):
         """Commit and push live state, pull routine output. The engine re-reads guidance.json, fastlane.json and
         events.json from disk on every tick, so pulled changes are picked up on the next tick."""
         if not gitsync.enabled(os.environ):
             return
+        self.write_brief()                          # committed by the sync below
         if gitsync.sync(ROOT):
             log.info("git sync ok")
         # a pull may have changed files the engine owns the schema of; nothing is cached, so just note it
@@ -149,7 +155,8 @@ def main():
         time.sleep(max(1.0, args.tick_seconds - (time.time() - t0)))
     if live.last_tick_day and (args.once or now_ist().time() >= dtime(15, 25)):
         live.close_day()
-    live.sync()                                    # final push of whatever is left
+    live.write_brief()                             # end of the run: always, even without git sync
+    live.sync()                                    # final push of whatever is left (rewrites the brief once more)
 
 
 if __name__ == "__main__":

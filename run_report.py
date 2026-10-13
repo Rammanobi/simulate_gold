@@ -17,6 +17,15 @@ from simgold import report
 ROOT = Path(__file__).resolve().parent
 
 
+def generate(date: str, root: Path = ROOT, report_url: str | None = None, holiday: str | None = None):
+    """Build and write the report files for one trading date. Returns (day dict, {json,email,txt,page: Path})."""
+    root = Path(root)
+    day = report.build_day(date, root, holiday=holiday)
+    paths = report.write_reports(day, root / "reports" / "daily", date, ROOT / "templates" / "daily_report_template.html",
+                                 report_url=report_url)
+    return day, paths
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--date", help="trading date, YYYY-MM-DD (default: today)")

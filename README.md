@@ -137,6 +137,41 @@ simgold/backtest.py  daily backtest (fills at the next close, no look-ahead)
 run_live.py          minute loop      run_backtest.py   backtest report
 ```
 
+## Memory and routines
+
+Claude routines never read the raw logs. The engine writes small, cheap, no-AI files, and routines load them with one command.
+
+| Command | What it does |
+|---|---|
+| `python tools/context.py` | Prints `memory/brief.md`, `memory/lessons.md`, the last 3 `memory/daily/*.md` and the latest `memory/weekly/*.md` (hard cap 25 KB). The one command a routine runs to load context. |
+| `python tools/should_think.py [--force]` | Exit 0 and `THINK: <reasons>`, or exit 3 and `SKIP: <why>`. Thresholds are under `routines:` in `config/params.yaml`. |
+| `python tools/write_brief.py` | Rewrites `memory/brief.md` (at most 120 lines / 6 KB). The engine does this at every git sync and at the end of the run. |
+| `python tools/guidance.py set --bias GOLD=favour SILVER=neutral COPPER=block --note "..."` | Validated writer for `state/guidance.json`. `touch --note "..."` keeps the bias and refreshes the time. |
+| `python tools/guidance.py fastlane --symbol SILVERBEES --block-minutes 60 --sell-fraction 0.5 --tighten-stop 205.1 --note "..."` | Writes `state/fastlane.json`. It runs the engine's own filter, so it refuses favour, buys and any loosening. `--symbol ALL --halt-buys-today` stops all buys for the day. |
+| `python tools/guidance.py events add --date 2026-10-14 --type CPI [--time 18:00]` | Adds to `state/events.json` (CPI, FOMC, JOBS, RBI, HINDCOPPER_RESULTS, BUDGET). Also `market-today` and `tomorrow` for the report. |
+| `python tools/daily_memory.py --date D` | Prints a skeleton of numbers for the day's memory note. The routine completes it into `memory/daily/D.md` (at most 15 lines). |
+| `python tools/send_report.py --date D` | Builds the day's report and prints `{subject, html_path, text_path, page_path}` for the Gmail send. |
+
+`memory/lessons.md` holds at most 40 bullets and only the Saturday review edits it.
+
+**Email lock.** The daily email goes out through the Gmail connector. `.claude/settings.json` runs a `PreToolUse` hook
+(`.claude/hooks/gmail_guard.py`) on every Gmail tool. It allows only `send_message` to the one address in the `REPORT_EMAIL`
+environment variable (exact match, no cc/bcc/attachments, subject starting with "Metals Daybook"), blocks every other Gmail
+write tool, and blocks all sends if `REPORT_EMAIL` is unset. The address is never stored in this public repo; set it as an
+environment variable of the routine.
+
+## Data growth
+
+Everything that grows has a cap, so the public repo stays small.
+
+- `state/news.json`: last 48 hours and at most 400 headlines, sorted keys, one headline per line (small diffs).
+- `state/seen_headlines.json`: at most 2,000 hashes and none older than 7 days.
+- `memory/brief.md`: at most 120 lines / 6 KB. `tools/context.py` output: at most 25 KB.
+- `tools/archive.py` (monthly, `archive.yml`, 1st Sunday 02:00 IST): logs older than 35 days become `archive/YYYY-MM/*.gz`,
+  after one summary row per day is appended to `data/daily_summary.csv`; `memory/daily` notes older than 60 days are folded into
+  `archive/memory/YYYY-MM.md`. It is safe to run twice.
+- Size guard: `python tools/archive.py --check` warns when `logs/` is over 200 MB or `archive/` over 1 GB.
+
 ## Known limits
 
 - Yahoo NSE intraday data is about 1 minute delayed and sometimes has gaps. A stale feed is treated as "market closed".

@@ -594,18 +594,42 @@ class Engine:
     def snapshot(self):
         pf = self.pf
         path = self.env.logs_dir / f"ticks-{self.day.isoformat()}.csv"
+        px_cols = list(self.syms)
         try:
             new = not path.exists()
+            if not new:      # a file started before the price columns existed keeps its old shape
+                with open(path, encoding="utf-8") as fh:
+                    if fh.readline().strip().split(",")[-1:] != [px_cols[-1]]:
+                        px_cols = []
             with open(path, "a", encoding="utf-8") as fh:
                 if new:
-                    fh.write("time,value,floor,cash,liquidbees\n")
-                fh.write(f"{self.now:%H:%M},{self.value():.2f},{pf.floor:.2f},{pf.cash:.2f},{pf.liquidbees:.2f}\n")
+                    fh.write("time,value,floor,cash,liquidbees," + ",".join(px_cols) + "\n")
+                row = f"{self.now:%H:%M},{self.value():.2f},{pf.floor:.2f},{pf.cash:.2f},{pf.liquidbees:.2f}"
+                for s in px_cols:
+                    px = self.mkt.prices.get(s)
+                    row += f",{px:.2f}" if px else ","
+                fh.write(row + "\n")
         except OSError:
             log.exception("could not write tick snapshot")
+        self.write_last_prices()
         vh = self.rt.setdefault("value_hist", [])
         vh.append([self.now.isoformat(timespec="seconds"), round(self.value(), 2)])
         cutoff = self.now - timedelta(minutes=self.p["fast_lane"]["portfolio_drop_window_min"] + 5)
         self.rt["value_hist"] = [x for x in vh if _dt(x[0], self.now.tzinfo) >= cutoff]
+
+    def write_last_prices(self):
+        """state/last_prices.json: {symbol: {price, ts, prev_close}}, read by the memory brief and tools/should_think.py."""
+        path = self.env.state_dir / "last_prices.json"
+        data = _load_json(path)
+        data = data if isinstance(data, dict) else {}
+        for s, px in self.mkt.prices.items():
+            ts = self.mkt.price_ts.get(s)
+            data[s] = {"price": round(px, 2), "ts": (ts or self.now).isoformat(timespec="seconds"),
+                       "prev_close": round(self.mkt.prev_close[s], 2) if self.mkt.prev_close.get(s) else None}
+        try:
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        except OSError:
+            log.exception("could not write last_prices.json")
 
     def run(self) -> list[dict]:
         self.env.logs_dir.mkdir(parents=True, exist_ok=True)

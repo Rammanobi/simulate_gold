@@ -89,7 +89,7 @@ def test_quiet_rally_day(tmp_path):
     assert all(b >= a for a, b in zip(floors, floors[1:])), "floor must never decrease"
     assert min(v - f for v, f in zip(values, floors)) > 0, "value must stay above the floor"
     rows = list(csv.reader(open(env.logs_dir / f"ticks-{DAY.isoformat()}.csv")))
-    assert rows[0] == ["time", "value", "floor", "cash", "liquidbees"] and len(rows) == 376
+    assert rows[0] == ["time", "value", "floor", "cash", "liquidbees", "GOLDBEES", "SILVERBEES", "HINDCOPPER"] and len(rows) == 376
     assert sum(r["action"] == "BUY" for r in recs) <= 3
     # budget never exceeded: worst-case risk of everything held fits the usable risk when each buy was made
     assert all(p.stop < p.last_price for p in pf.positions.values())

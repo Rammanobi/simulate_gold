@@ -136,3 +136,21 @@ engine:
   fastlane_max_age_min: 30           # ignore fastlane.json older than this when first seen
   market_open: "09:15"
   market_close: "15:30"
+
+# ---- memory layer and Claude routines (tools/should_think.py, tools/write_brief.py, tools/context.py) ----
+routines:
+  guidance_max_age_hours: 3          # guidance.json older than this (or missing) -> think
+  move_factor: 0.75                  # think if a price moved this share of its fast-lane 10-min threshold since the last guidance
+  headline_urgency: 3                # a new headline at this urgency or above (since the last guidance) -> think
+  event_lookahead_days: 1            # an event today or within this many days -> think
+  stop_proximity_pct: 0.01           # an open position within 1% of its stop -> think
+  cushion_below: 300                 # cushion (value - floor) under this many rupees -> think
+  brief_max_lines: 120
+  brief_max_bytes: 6000
+  brief_max_headlines: 15
+  brief_max_decisions: 25
+  brief_headline_max_age_hours: 36   # older headlines are never shown as "new"
+  seen_headlines_keep: 2000         # dedupe memory: at most this many headline hashes ...
+  seen_headlines_days: 7            # ... and none older than this
+  context_max_bytes: 25000
+  context_daily_notes: 3

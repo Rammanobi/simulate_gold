@@ -89,6 +89,25 @@ def fetch_headlines(queries: list[str], per_query: int = 15) -> list[dict]:
     return items
 
 
+KEEP_HOURS = 48          # headlines older than this are dropped
+KEEP_MAX = 400           # and at most this many are kept (newest first)
+
+
+def prune_items(items: dict[str, dict], now: float | None = None) -> dict[str, dict]:
+    """Last 48 hours, at most 400 items, newest kept."""
+    cutoff = (now or time.time()) - KEEP_HOURS * 3600
+    kept = sorted((kv for kv in items.items() if kv[1].get("ts", 0) >= cutoff), key=lambda kv: kv[1].get("ts", 0),
+                  reverse=True)[:KEEP_MAX]
+    return dict(kept)
+
+
+def dumps_items(items: dict[str, dict]) -> str:
+    """Sorted keys, compact, one headline per line, so a git diff only shows the lines that changed."""
+    body = ",\n".join(f"{json.dumps(k)}:{json.dumps(v, sort_keys=True, separators=(',', ':'), ensure_ascii=False)}"
+                      for k, v in sorted(items.items()))
+    return "{\n" + body + "\n}\n" if body else "{}\n"
+
+
 class NewsBook:
     """Persistent cache of scored headlines → decayed per-asset sentiment."""
 
@@ -97,6 +116,9 @@ class NewsBook:
         self.items: dict[str, dict] = json.loads(path.read_text()) if path.exists() else {}
         self.last_refresh = 0.0
         self.last_new: list[dict] = []   # headlines first seen in the latest refresh (fast-lane matching)
+
+    def write(self) -> None:
+        self.path.write_text(dumps_items(self.items), encoding="utf-8")
 
     def refresh(self, force: bool = False, llm_score: bool = True) -> int:
         self.last_new = []
@@ -112,9 +134,8 @@ class NewsBook:
         for h in fresh:
             s = (scores or {}).get(h["id"]) or lexicon_score(h["title"])
             self.items[h["id"]] = {**h, **s}
-        cutoff = time.time() - 4 * 86400
-        self.items = {k: v for k, v in self.items.items() if v["ts"] >= cutoff}
-        self.path.write_text(json.dumps(self.items, indent=1))
+        self.items = prune_items(self.items)
+        self.write()
         return len(fresh)
 
     def sentiment(self, now: float | None = None) -> dict[str, float]:

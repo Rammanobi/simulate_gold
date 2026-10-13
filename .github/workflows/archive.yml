@@ -1,0 +1,60 @@
+name: monthly archive
+
+# Keeps the public repo small: logs older than 35 days are summarised into data/daily_summary.csv and gzipped
+# into archive/, and daily memory notes older than 60 days are folded into archive/memory/.
+# Runs 02:00 IST on the first Sunday of the month. IST Sunday 02:00 is Saturday 20:30 UTC, so the schedule fires
+# every Saturday 20:30 UTC and the first step stops unless the IST date is the 1st to the 7th.
+on:
+  schedule:
+    - cron: "30 20 * * 6"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "run even if it is not the first Sunday"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: paper-trader
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: First Sunday of the month (IST)?
+        id: gate
+        run: |
+          DAY=$(TZ=Asia/Kolkata date +%d | sed 's/^0//')
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$DAY" -le 7 ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"; echo "IST day of month is $DAY: skipping"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'yes'
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'yes'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+        if: steps.gate.outputs.run == 'yes'
+      - run: python tools/archive.py
+        if: steps.gate.outputs.run == 'yes'
+      - name: Commit
+        if: steps.gate.outputs.run == 'yes'
+        run: |
+          git config user.name "simgold-engine"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A logs archive data memory
+          git diff --cached --quiet || git commit -m "archive: $(TZ=Asia/Kolkata date +%F)"
+          for i in 1 2 3; do
+            git pull --rebase --autostash -X theirs || { git rebase --abort || true; }
+            git push && break
+            sleep 5
+          done

@@ -61,7 +61,7 @@ jobs:
       - name: Final sync
         if: always()
         run: |
-          git add state logs reports
+          git add state logs reports memory
           git diff --cached --quiet || git commit -m "paper-trade: $(date +'%H:%M') IST"
           for i in 1 2 3; do
             git pull --rebase --autostash -X theirs || { git rebase --abort || true; }

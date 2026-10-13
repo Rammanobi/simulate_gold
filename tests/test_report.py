@@ -129,10 +129,10 @@ def test_html_contains_every_reason(green_root, tmp_path):
 
 def test_subject_green_and_red(green_root, red_root):
     g = report.build_day(GREEN_DAY, green_root)
-    assert report.subject_line(g) == "📈 Metals report · Mon 12 Oct · +₹147 (green)"
+    assert report.subject_line(g) == "Metals Daybook · 📈 Mon 12 Oct · +₹147 (green)"
     r = report.build_day(RED_DAY, red_root)
     assert r["portfolio"]["day_pnl"] == pytest.approx(-310)
-    assert report.subject_line(r) == "📉 Metals report · Tue 13 Oct · −₹310 (red)"
+    assert report.subject_line(r) == "Metals Daybook · 📉 Tue 13 Oct · −₹310 (red)"
 
 
 def test_red_day_wording_and_reasons(red_root, tmp_path):
@@ -208,7 +208,7 @@ def test_market_section_and_neutral_rows(green_root, tmp_path):
 def test_cli_sample_and_date(green_root):
     out = subprocess.run([sys.executable, str(REPO / "run_report.py"), "--date", GREEN_DAY, "--root", str(green_root),
                           "--report-url", "https://example.com/r"], capture_output=True, text=True, encoding="utf-8", check=True)
-    assert out.stdout.strip() == "📈 Metals report · Mon 12 Oct · +₹147 (green)"
+    assert out.stdout.strip() == "Metals Daybook · 📈 Mon 12 Oct · +₹147 (green)"
     daily = green_root / "reports" / "daily"
     for suffix in ("json", "email.html", "txt", "page.html"):
         assert (daily / f"{GREEN_DAY}.{suffix}").exists()

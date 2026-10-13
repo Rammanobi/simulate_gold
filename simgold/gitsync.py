@@ -1,7 +1,7 @@
 """In-day git sync so Claude routines can see live state and the engine picks up their guidance.
 
 Only active when SIMGOLD_GIT_SYNC=1. Never raises: any failure is logged and trading goes on.
-Routines write only state/guidance.json, fastlane.json, events.json, market_today.json and tomorrow.txt;
+The engine also commits memory/brief.md. Routines write only state/guidance.json, fastlane.json, events.json, market_today.json and tomorrow.txt;
 the engine never writes those, so rebases should not conflict. If one still fails it is aborted.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ def sync(root: Path, runner=subprocess.run, now: datetime | None = None, retries
     """add -> commit -> pull --rebase -> push. Returns True if the push succeeded (or nothing to push)."""
     stamp = (now or datetime.now(IST)).strftime("%H:%M")
     try:
-        _git(root, "add", "state", "logs", "reports", runner=runner)
+        _git(root, "add", "state", "logs", "reports", "memory", runner=runner)
         if _git(root, "diff", "--cached", "--quiet", runner=runner).returncode != 0:
             c = _git(root, "commit", "-q", "-m", f"paper-trade: {stamp} IST", runner=runner)
             if c.returncode != 0:

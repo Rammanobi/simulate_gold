@@ -546,14 +546,14 @@ def subject_line(day: dict) -> str:
     d = dt.date.fromisoformat(day["date"])
     label = f"{d.strftime('%a')} {d.day} {d.strftime('%b')}"
     if day.get("closed"):
-        return f"🏖️ Metals report · {label} · Market closed"
+        return f"Metals Daybook · 🏖️ {label} · Market closed"
     pnl = day["portfolio"]["day_pnl"]
     r = _round(pnl)
     if r > 0:
-        return f"📈 Metals report · {label} · {sg(pnl)} (green)"
+        return f"Metals Daybook · 📈 {label} · {sg(pnl)} (green)"
     if r < 0:
-        return f"📉 Metals report · {label} · {sg(pnl)} (red)"
-    return f"📊 Metals report · {label} · ₹0 (flat)"
+        return f"Metals Daybook · 📉 {label} · {sg(pnl)} (red)"
+    return f"Metals Daybook · 📊 {label} · ₹0 (flat)"
 
 
 # ------------------------------------------------------------------ helpers
