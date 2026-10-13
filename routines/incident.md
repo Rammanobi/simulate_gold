@@ -26,7 +26,7 @@ The Gmail hook allows only subjects that start with "Metals Daybook", so use the
   `python tools/incident.py clear-safe-mode --reason "..."`. It also clears itself at the next pre-market if healthy.
 
 ## 1. Context and triage (model tiers)
-1. `python tools/context.py` (skip if missing); `git pull --rebase`.
+1. `python tools/context.py` (skip if missing); `git pull --rebase --autostash`.
 2. Haiku: spawn an Agent subagent with model "haiku" to summarise payload and logs into at most 15 lines.
 3. Sonnet (you) classify: TRIVIAL (restart, re-dispatch, restore a file, known holiday), STANDARD (data source broke and
    needs a fallback, a test fix), COMPLEX (unknown cause, rule or logic bug, repeated failures, anything touching trading logic).
@@ -66,7 +66,9 @@ rejecting = closing the PR). An email reply can only ACK, never approve code. Ne
    If a fix attempt failed, `set --id ID --fix-failed`.
 2. `python tools/incident.py should-email --id ID` prints `SEND <mode>: reason` or `HOLD: reason`. On HOLD stop emailing.
 3. On SEND: `render --id ID --mode <mode>`, send with Gmail, then `set --id ID --emailed` (this schedules the reminders).
-4. `git add incidents/ state/alerts.json state/safe_mode.json && git commit -m "incident: ID" && git pull --rebase && git push` (main).
+4. `git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"` (merges `state/alerts.json`
+   as JSON, see `.gitattributes`), then
+   `git add incidents/ state/alerts.json state/safe_mode.json && git commit -m "incident: ID" && git pull --rebase --autostash && git push` (main).
    Resolving a HIGH: also close its GitHub issue with a comment (`gh api -X PATCH repos/.../issues/N -f state=closed`).
 
 ## R. Lifecycle modes (cheap, no diagnosis)
