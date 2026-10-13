@@ -18,8 +18,10 @@ from datetime import datetime, time as dtime
 from pathlib import Path
 
 import os
+import shutil
 
-from simgold import brief, config, gitsync, market
+from simgold import alerts, brief, config, gitsync, market
+from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
 from simgold.engine import Env, run_tick
@@ -30,6 +32,7 @@ from simgold.news import NewsBook
 ROOT = Path(__file__).parent
 STATE, LOGS = ROOT / "state", ROOT / "logs"
 PF_PATH, NEWS_PATH, EQUITY_PATH = STATE / "portfolio.json", STATE / "news.json", STATE / "equity.csv"
+PF_BACKUP = STATE / "portfolio.backup.json"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("live")
@@ -41,7 +44,11 @@ class Live:
             d.mkdir(parents=True, exist_ok=True)
         self.force = force
         self.p = config.load_params()
-        self.pf = Portfolio.load(PF_PATH)
+        self.mon = IncidentMonitor(LOGS, STATE)
+        self.pf, recovery = load_portfolio_safe(PF_PATH, PF_BACKUP, ROOT)
+        if recovery:      # restored (or rebuilt) state: safe mode, no new buys until the routine verifies a fix
+            log.error("STATE RECOVERY: %s - safe mode, no new buys", recovery)
+            self.mon.state_corrupt(recovery)
         self.news = NewsBook(NEWS_PATH)
         self.env = Env(state_dir=STATE, logs_dir=LOGS, params=self.p, tick_seconds=tick_seconds)
         self.tickers = list(self.p["engine"]["tickers"].values())
@@ -70,6 +77,7 @@ class Live:
         if not self.force and (ts - newest.to_pydatetime()).total_seconds() > stale_min * 60:
             log.info("feeds are stale (last bar %s) - no trading this tick", newest.strftime("%H:%M"))
             return
+        self.mon.mark_fresh()
         try:
             self.news.refresh(llm_score=False)
         except Exception:
@@ -77,6 +85,7 @@ class Live:
         mkt = build_market(ts, bars, self._daily(), headlines=self.news.last_new, params=self.p)
         decisions = run_tick(self.pf, mkt, self.env)
         self.pf.save(PF_PATH)
+        self._backup_state()
         self.last_tick_day = ts.date()
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
@@ -86,13 +95,19 @@ class Live:
         if brief.safe_write(ROOT, params=self.p):
             log.info("memory/brief.md updated")
 
+    def _backup_state(self):
+        try:
+            shutil.copyfile(PF_PATH, PF_BACKUP)     # last known-good copy, written from memory just now
+        except OSError:
+            log.warning("could not write the portfolio backup")
+
     def sync(self):
         """Commit and push live state, pull routine output. The engine re-reads guidance.json, fastlane.json and
         events.json from disk on every tick, so pulled changes are picked up on the next tick."""
         if not gitsync.enabled(os.environ):
             return
         self.write_brief()                          # committed by the sync below
-        if gitsync.sync(ROOT):
+        if gitsync.sync(ROOT, monitor=self.mon):
             log.info("git sync ok")
         # a pull may have changed files the engine owns the schema of; nothing is cached, so just note it
         log.info("guidance/fastlane/events will be re-read on the next tick")
@@ -143,10 +158,15 @@ def main():
         if args.force or is_market_open(now):
             try:
                 live.tick()
-            except Exception:
+                live.mon.tick_ok()
+            except Exception as e:
                 log.exception("tick failed; will retry next tick")
+                live.mon.tick_failed(e)
+            if not args.force:
+                live.mon.check_feed(True)
         elif now.time() > CLOSE:
-            break                                   # the session is over
+            break
+        live.mon.housekeeping()                                   # the session is over
         if args.sync_every > 0 and time.time() - last_sync >= args.sync_every * 60:
             live.sync()
             last_sync = time.time()

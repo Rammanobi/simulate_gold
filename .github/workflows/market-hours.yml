@@ -33,6 +33,8 @@ jobs:
       TZ: Asia/Kolkata
       ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}       # optional; may be empty
       ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}   # optional; may be empty
+      ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}       # optional; engine incident webhook
+      ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}   # optional; may be empty
     steps:
       - uses: actions/checkout@v4
       - name: Git identity

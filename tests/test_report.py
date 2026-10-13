@@ -244,3 +244,27 @@ def test_costs_not_double_counted_and_engine_fields_preferred(tmp_path):
     assert sum(b.values()) == pytest.approx(110, abs=1.0)
     assert any(d["symbol"] == "All metals" for d in day["decisions"])
     assert "already included" in report.render_email(day)
+
+
+def test_fixed_today_and_system_health_sections(tmp_path):
+    import json as _json
+    inc = tmp_path / "incidents"; inc.mkdir()
+    (inc / "2026-10-13-feed.json").write_text(_json.dumps({"title": "Feed <down>", "actions": [
+        {"kind": "safe-fix", "text": "re-ran the job"}, {"kind": "info", "text": "x"}]}))
+    (inc / "2026-10-13-nofix.json").write_text(_json.dumps({"title": "No fix", "actions": [{"kind": "proposal", "text": "pr"}]}))
+    (inc / "2026-10-12-old.json").write_text(_json.dumps({"title": "Old", "actions": [{"kind": "safe-fix", "text": "y"}]}))
+    assert report.fixed_today("2026-10-13", tmp_path) == ["Feed <down>: re-ran the job"]
+    assert report.fixed_today("2026-10-14", tmp_path) == []
+    logs = tmp_path / "logs"; logs.mkdir()
+    green = _json.dumps({"results": [], "all_green": True})
+    (logs / "health-2026-10-13.jsonl").write_text("\n".join([green] * 38) + "\n")
+    assert report.system_health("2026-10-13", tmp_path) == "Watchdog: 38 checks today, all green"
+    bad = _json.dumps({"results": [{"check": "ticks_stale"}, {"check": "guidance_stale"}], "all_green": False})
+    (logs / "health-2026-10-13.jsonl").write_text(green + "\n" + bad + "\n" + bad + "\n")
+    assert report.system_health("2026-10-13", tmp_path) == "Watchdog: 3 checks today, 2 problems, see incidents"
+    assert report.system_health("2026-10-15", tmp_path) == ""
+    day = {"fixed_today": ["Feed <down>: re-ran the job"], "system_health": "Watchdog: 3 checks today, 2 problems, see incidents"}
+    h = report._ops_html(day)
+    assert "Fixed today" in h and "Feed &lt;down&gt;" in h and "see incidents" in h
+    assert report._ops_html({"fixed_today": [], "system_health": ""}) == ""          # hidden when empty
+    assert "FIXED TODAY" in "\n".join(report._ops_text(day)) and report._ops_text({}) == []

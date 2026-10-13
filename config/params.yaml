@@ -154,3 +154,21 @@ routines:
   seen_headlines_days: 7            # ... and none older than this
   context_max_bytes: 25000
   context_daily_notes: 3
+
+# ---- alert policy (simgold/alerts.py) ----------------------------------------------------
+alerts:
+  max_fires_per_day: 6               # routine wake-ups per IST day across all sources (HIGH included)
+  group_window_min: 15               # non-HIGH alerts within this long after a HIGH fire join its email
+  medium_reminder_hours: [1, 4]      # MEDIUM "Still broken" ladder, then once a day
+  medium_reminder_daily_hours: 24
+  high_reminder_min: 60              # HIGH is re-sent hourly until acknowledged
+  high_reminder_due_min: 55          # the hourly workflow treats a HIGH as due once its last email is this old
+  max_reminders_per_incident: 24
+  tick_exceptions: 3                 # consecutive tick exceptions -> HIGH (exits and floor are not enforced)
+  no_prices_min: 10                  # data source down this long during market hours -> MEDIUM
+  git_push_fail_min: 15              # git sync failing this long -> HIGH
+  stale_guidance_hours: 3
+  safe_mode_incidents: 5             # more than this many distinct incidents in a day -> safe mode
+  safe_mode_fix_window_min: 30       # a HIGH still open this long -> safe mode
+  watchdog_stale_min: 30             # state/health.json older than this in market hours -> HIGH
+  near_floor_inr: 100                # value this close to (or under) the floor is HIGH
