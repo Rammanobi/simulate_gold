@@ -1,8 +1,7 @@
 # Red-team review (2026-10-13)
 
-**Branch:** `claude/redteam`, based on `5ed3bf3`, with `origin/main` (Daybook Inbox, README) merged in c4f24f3. The
-new Inbox code (`tools/inbox.py`, `simgold/inboxlink.py`, incident.md section D) arrived after this review began
-and was **not red-teamed** (see P10).
+**Branch:** `claude/redteam`, based on `5ed3bf3`, with `origin/main` (Daybook Inbox, README) merged in c4f24f3. The Inbox code (`tools/inbox.py`, `simgold/inboxlink.py`, incident.md section D) arrived after this review began
+and is reviewed in section 5 (P10).
 
 **Scope:** the paper-trading engine (`run_live.py`, `simgold/`), the routine tools (`tools/`), the workflows,
 the routine playbooks, the Gmail hook. **Paper trading only; no real money.**
@@ -189,15 +188,41 @@ remove most of it.
 
 ## 4. Open items and proposals
 
-| # | Item | Kind | Proposal |
+| # | Item | Kind | Proposal / fix |
 |---|---|---|---|
 | P1 | **2027 NSE holiday list missing** (`simgold/market.py`) | data | The owner adds the official NSE 2027 circular before 1 Jan 2027 (the healthcheck warns from 1 Dec; `test_2027_republic_day_is_a_holiday` xfail flips then). Dates are not guessed here. |
 | P2 | **A gap past the tripwire leaves the portfolio below a floor that never decreases** (rulebook §1.5, §8) | rule (owner) | Stress fuzz: 2 red month ends of 230, both after such a gap; value below the floor on 2.5% of ticks while carry climbs back. Options to evaluate, not applied: (a) after a tripwire whose fill landed below the floor, re-base the floor once to `max(value − 100, 99,500)` and log it; (b) while below the floor, allow a carry-funded risk budget (`0.8 × expected carry to month end`); (c) keep it and report "days below floor" in the weekly review. Decide with 6+ months of paper data. |
-| P3 | `reports/daily/` grows ~2 MB a month, never archived | growth | Gzip reports older than 35 days into `archive/YYYY-MM/reports/` (keep the `.json`), unless old email links point at the hosted pages. |
-| P4 | GitHub cron delay worst case | ops | Scheduled runs can start 10–30+ min late at busy times and are sometimes dropped. Defences already in place: the premarket routine dispatches the engine at 08:50, the watchdog re-dispatches every 10 min, and the 12:15 cron is a backup. Until the first tick, stops are not enforced (paper only). For more slack, also schedule a run at 09:00 IST (`30 3 * * 1-5`); the concurrency group de-duplicates. |
-| P5 | `portfolio.json` `trades` list grows forever and is committed every 5 min | growth | Trim trades older than 35 days from `portfolio.json` in `archive.py`; they are already in the archived decision logs. |
-| P6 | `market-hours.yml` runs the full test suite before trading; a flaky or date-dependent failure stops the whole day, including exits on open positions | ops | On a test failure, still run the loop in safe mode (exits, stops and the tripwire only; no buys), and keep the `test_failure_main` alert. |
+| P3 | ~~`reports/daily/` grows ~2 MB a month, never archived~~ **FIXED** (feef2be) | growth | `tools/archive.py` gzips `reports/daily/*` (html, txt, page) older than 35 days into `archive/YYYY-MM/reports/`; the `.json` stays uncompressed. Idempotent, also after a crash between gzip and delete. |
+| P4 | ~~GitHub cron delay worst case~~ **FIXED** (feef2be) | ops | A second cron at 09:00 IST (`30 3 * * 1-5`) was added. Verified: the `paper-trader` concurrency group (no cancel-in-progress) queues the second run, and `state/.engine.lock` (`flock`) refuses a second engine on one checkout; both are pinned by tests. |
+| P5 | ~~`portfolio.json` `trades` list grows forever and is committed every 5 min~~ **FIXED** (feef2be) | growth | `Portfolio.trim_trades` keeps the last 200 trades; older ones are appended to `logs/trades-archive.jsonl` BEFORE they leave `portfolio.json` (a crash can duplicate, never lose; lines already archived are not repeated). `archive.py` gzips that file's old lines into `archive/YYYY-MM/`. |
+| P6 | ~~`market-hours.yml` runs the full test suite before trading; a flaky or date-dependent failure stops the whole day, including exits on open positions~~ **FIXED** (feef2be) | ops | The pytest step is `continue-on-error`; on failure `run_live.py --safe-mode` (reason "tests failing") runs the day with exits, stops and the floor only, and a final step fails the run so `incident.yml` raises `test_failure_main` as usual. |
 | P7 | The spike filter (`MAX_TICK_JUMP = 25%`) delays acting on a genuine >25% move by ~3 minutes | trade-off | Keep. Revisit if real data shows bad prints are rarer than such moves. |
-| P8 | MEDIUM "still broken" emails have no cap after the 1 h / 4 h steps (one a day until resolved) | policy | Cap at 7 daily reminders, or roll them into the weekly email. |
+| P8 | ~~MEDIUM "still broken" emails have no cap after the 1 h / 4 h steps (one a day until resolved)~~ **FIXED** (feef2be) | policy | `alerts.max_medium_reminders: 10` in `config/params.yaml` (1 initial email + 10 reminders, then silence), tested. |
 | P9 | Muhurat and special sessions are not modelled | scope | Fine for paper trading; documented. |
-| P10 | Daybook Inbox (merged during this review): PR merges driven by an Inbox database "Accept" | scope | Not reviewed. Red-team next: who can write `decisions/*`, replay of an old Accept, an Accept for a different PR number, and a payload claiming to be the owner. |
+| P10 | ~~Daybook Inbox (merged during this review): PR merges driven by an Inbox database "Accept"~~ **FIXED** (feef2be) | scope | Reviewed, see section 5. One real bug (a trailing newline slipped past every `$` anchored pattern) and six hardening fixes. |
+
+## 5. Daybook Inbox red-team (P10)
+
+Scope: `tools/inbox.py`, `simgold/inboxlink.py`, the email buttons (`simgold/report.py`, `tools/incident.py`) and the
+`owner_decision` playbook (`routines/incident.md` section D). Tests: `tests/test_redteam_inbox.py`. Commit feef2be.
+
+| Attack / question | Result |
+|---|---|
+| Item id with `..`, `.`, `/`, spaces, newline, `#`, `?`, non-ASCII, 500 characters | **FIXED**: `safe_id` allowed `.` and `..` (a database path `decisions/..`) and had no length limit. Now no leading or trailing `.`/`-`, at most 80 characters; the playbook's regex has the same rule |
+| Trailing newline (`"abc\n"`) against a `$`-anchored pattern | **FIXED (real bug)**: Python's `$` matches before a final newline, so `...pull/12\n` and an id `abc\n` passed. All patterns now end with `\Z` |
+| Inbox link building | **FIXED**: `inbox_url.txt` only had to start with `https://`, so any host, spaces or a second line could reach an `href` and the plain-text email. Now a single `https://claude.ai/...` URL of safe characters, else no button; the fragment is always the sanitised id |
+| Email buttons with `javascript:` / `data:` / spaces | **FIXED**: incident email buttons and action links now emit only `https://` links (else a dead `#`); quotes were already HTML-escaped |
+| Path tricks through the tool (`--id ../../x`, `--from-incident`, `--from-daily`, `--date 2026-10-13T00:00`) | **FIXED**: ids and dates are validated before any file is opened (`--from-*` had no check at all) |
+| PR URL of another repository, `/files`, `?x`, `#c`, lookalike repo or host | **FIXED**: `item_from_incident` copied any link into `pr_url`. It now blanks everything that is not exactly `https://github.com/Rammanobi/simulate_gold/pull/<n>`; the playbook uses the same regex and also requires the URL in the incident record |
+| Merge after CI check but before the merge call (the PR gets a new commit) | **FIXED**: the playbook passes `-f sha=<head sha checked>`, so GitHub refuses the merge if the head moved, and does not merge when the head commit is newer than `item.updated` (the owner judged an older version) |
+| Head from a fork, draft PR, wrong base | **FIXED (wording)**: the playbook now says `head.repo.full_name == base.repo.full_name`, base `main`, not a draft |
+| Revision cap | **FIXED**: the cap lived only in prose, and its word "REJECT" read like the owner's reject. It is now a STOP for accept and reject alike, and `inbox.py bump` refuses a 5th `needs_approval` revision (exits with "revision cap") |
+| Replay of an old Accept; Accept for a different revision | PASS: `decision.revision != item.revision` or an item that is no longer `needs_approval` ends the run |
+| Accept for a different PR number / a payload claiming to be the owner | PASS: the decision comes from the database; the PR number comes from the incident record, never the payload. The playbook now also requires `decision.decision` to be exactly `accept`/`reject` and `decision.item_id` to match |
+| Who can write `decisions/*`? | Not enforceable from the repo: it depends on how the Inbox Artifact's database is shared (only the owner may have write access). The playbook assumes that, treats every field except `decision`, `reason` and `revision` as untrusted, and cannot lower safety invariants even with a hostile `reason` |
+| Merge only with green CI | PASS (already specified): at least one check run and only success/skipped/neutral, otherwise no merge |
+| `$INBOX` taken from the payload | **FIXED (wording)**: it is the URL in `config/inbox_url.txt` only |
+
+Residual risk: the playbook is prose that Claude follows. The code-level guards (id and URL validation, own-PR blanking,
+revision cap) hold even if it slips; the `sha` pin, CI check and the "only the owner writes decisions" assumption do not.
+Consider moving the merge into a small tool that does these checks in code (not done here).
