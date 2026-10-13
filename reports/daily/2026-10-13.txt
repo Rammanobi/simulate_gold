@@ -28,10 +28,14 @@ Total: ₹0
 (Costs of ₹0 are already included above.)
 
 TOMORROW
-Nothing special is scheduled. The system follows its normal rules at the next open.
+No scheduled events on the calendar for tomorrow; normal rules apply.
 
 💡 Thrift mode: running on plan limits
 
+Fallback was used on 2026-10-13 (Claude routines were not running).
+
 Watchdog: 1 checks today, 1 problem, see incidents
+
+Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-13
 
 This is a paper simulation. No real money or orders were placed.

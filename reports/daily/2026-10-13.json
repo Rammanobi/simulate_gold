@@ -45,7 +45,7 @@
    100000
   ]
  ],
- "tomorrow": "Nothing special is scheduled. The system follows its normal rules at the next open.",
+ "tomorrow": "No scheduled events on the calendar for tomorrow; normal rules apply.",
  "warnings": [],
  "no_trade_note": "No trades today. The system waited because no entry met its rules, so the money stayed in LIQUIDBEES.",
  "one_line_summary": "Flat day: no change in value. No trades. The floor is ₹500 away.",
@@ -53,7 +53,7 @@
  "fixed_today": [],
  "system_health": "Watchdog: 1 checks today, 1 problem, see incidents",
  "thrift": true,
- "fallback_dates": [],
- "fallback": true,
- "fallback_summary": "On 2026-10-13 the market was open. Your paper portfolio closed at 100000.0 with a day P&L of 0.0. There were 0 buys and 0 sells, so it was a flat day with no trades. The floor is 99500.0, just ₹500 away. No warnings."
+ "fallback_dates": [
+  "2026-10-13"
+ ]
 }
