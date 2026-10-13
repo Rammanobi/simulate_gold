@@ -28,3 +28,22 @@ follow-up. The token can trigger the routine, so keep it only in GitHub secrets,
 
 Assumed already in place: the routines' cloud environment has `gh` authorised for this repo (Actions
 dispatch), the env var `REPORT_EMAIL`, and the Gmail connector on daily_report and weekly.
+
+## The owner's step: the Daybook Inbox
+
+The owner accepts or rejects things in the **Metals Daybook Inbox** Artifact (URL in `config/inbox_url.txt`). Every email links to
+`<inbox url>#<item id>`. Routines write items with `tools/inbox.py` + the `ArtifactData` tool; the owner's decision is
+read back from the artifact database and handled by the incident routine in mode `owner_decision`
+(`routines/incident.md` section D). The hourly and daily_report routines retry any decision that was never picked up
+(`notified == false`).
+
+1. After creating the **incident** routine, copy its **trigger id** (`trig_…`; the routine's API trigger / routine id).
+2. Put it into the Inbox config: the routine (or the Claude session that set things up) writes `config/main` with the
+   ArtifactData tool: `{"decision_trigger_id": "trig_…"}` in the artifact with the URL from `config/inbox_url.txt`.
+   The page reads it to call `fire_trigger`. Without it, decisions are still handled, up to an hour later, by the
+   hourly or daily_report fallback.
+3. The Claude Code Remote connector (`fire_trigger`) must be enabled for the Inbox page. The routines need the `ArtifactData`
+   tool, `gh` for the REST merge, and Gmail on the incident routine.
+
+Safety: the decision payload is untrusted; the routine re-reads the decision and item from the database. An Accept merges only a
+PR that is listed in the incident record and has green CI. A Reject's reason may steer a fix but never the safety invariants.

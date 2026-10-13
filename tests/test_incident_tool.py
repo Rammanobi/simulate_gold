@@ -54,6 +54,12 @@ def test_buttons_ack_merge_reject_and_hint():
     assert "Stop reminders: https://github.com/o/r/issues/7" in t and "replying to this email can only acknowledge" in t
 
 
+def test_inbox_button_is_prominent_when_configured():
+    r = rec(); r["status"] = "needs-approval"
+    h = I.render_html(r, inbox_url="https://claude.ai/artifact/abc")
+    assert "Open in Daybook Inbox: accept or reject" in h and "https://claude.ai/artifact/abc#" in h
+
+
 def test_reminder_mode_banner_and_no_buttons_for_resolved():
     r = rec(); r["issue_url"] = "https://github.com/o/r/issues/7"
     first = datetime(2026, 10, 13, 9, 41, tzinfo=I.IST).timestamp()
