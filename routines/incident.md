@@ -86,7 +86,7 @@ Then publish the item (section I).
 4. Publish to the Inbox (section I) with the final status.
 5. `git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"` (merges `state/alerts.json`
    as JSON, see `.gitattributes`), then
-   `git add incidents/ state/alerts.json state/safe_mode.json state/budget.json && git commit -m "incident: ID" && git pull --rebase --autostash && git push` (main).
+   `git add -- $(git ls-files -mo --exclude-standard -- incidents state/alerts.json state/safe_mode.json state/budget.json) && git commit -m "incident: ID" && git pull --rebase --autostash && git push` (main).
    Resolving a HIGH: also close its GitHub issue with a comment (`gh api -X PATCH repos/.../issues/N -f state=closed`).
 
 ## R. Lifecycle modes (cheap, no diagnosis)

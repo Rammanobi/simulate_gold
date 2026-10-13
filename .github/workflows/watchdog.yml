@@ -116,7 +116,7 @@ jobs:
           set +e
           git config user.name "simgold-watchdog"; git config user.email "actions@users.noreply.github.com"
           git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
-          git add state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl 2>/dev/null
+          for p in state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl; do [ -e "$p" ] && git add -A -- "$p"; done
           git diff --cached --quiet || git commit -qm "watchdog: health $(date +%H:%M) IST"
           for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
           exit 0

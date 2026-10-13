@@ -73,7 +73,7 @@ jobs:
         if: ${{ always() && !inputs.check }}
         run: |
           set +e
-          git add state/guidance.json state/fallback.json reports/daily 2>/dev/null
+          for p in state/guidance.json state/fallback.json reports/daily; do [ -e "$p" ] && git add -A -- "$p"; done
           git diff --cached --quiet || git commit -qm "fallback: DeepSeek guidance/report $(date +%H:%M) IST"
           for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
           exit 0
