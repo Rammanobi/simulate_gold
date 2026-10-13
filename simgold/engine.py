@@ -106,6 +106,8 @@ def clean_market(mkt: Market) -> list[tuple[str, str]]:
             med = statistics.median(prev)
             if abs(px / med - 1) > MAX_TICK_JUMP:
                 mkt.prices.pop(s)
+                if ser and ser[-1][1] == px:          # and out of the shock detector: a glitch must not wake the AI
+                    mkt.series[s] = ser[:-1]
                 dropped.append((s, f"The {s} price {px:.2f} is {(px / med - 1) * 100:+.0f}% away from the last few minutes "
                                    f"({med:.2f}), which looks like a bad print, so it was ignored this minute."))
     return dropped

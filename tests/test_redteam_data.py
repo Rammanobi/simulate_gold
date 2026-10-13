@@ -68,6 +68,7 @@ def test_single_bad_print_in_the_minute_series_is_ignored(tmp_path):
     recs = run_tick(pf, m, env_for(tmp_path))
     assert pf.positions["GOLDBEES"].qty == 100
     assert not [r for r in recs if r["action"] == "SELL"]
+    assert not [r for r in recs if r["trigger"] == "Price shock"]          # a glitch does not wake the fast lane
     money_ok(pf)
 
 
