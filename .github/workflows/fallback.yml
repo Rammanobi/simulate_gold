@@ -51,7 +51,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Key and model check
         if: ${{ inputs.check }}
-        run: python tools/fallback_check.py | tee -a "$GITHUB_STEP_SUMMARY"
+        run: set -o pipefail; python tools/fallback_check.py | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Fallback work (only if the Claude routines are silent)
         if: ${{ !inputs.check }}
         run: |
