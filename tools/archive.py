@@ -10,6 +10,9 @@
    (date, open, close, day_pnl, floor, buys, sells, skips, blocks, incidents, max_cushion, min_cushion), the
    long-term history for Python and the weekly review. A date already in the CSV is never added twice.
 2. memory/daily/YYYY-MM-DD.md older than 60 days -> appended to archive/memory/YYYY-MM.md, then deleted.
+3. state/fastlane_requests.jsonl lines older than 35 days -> archive/YYYY-MM/fastlane_requests-YYYY-MM.jsonl.gz.
+An archive .gz that already exists is never overwritten with different content (a log that reappears for an old
+date is kept next to it as name.2.gz), so nothing is ever lost.
 """
 from __future__ import annotations
 
@@ -18,7 +21,6 @@ import csv
 import gzip
 import json
 import re
-import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -130,16 +132,69 @@ def archive_logs(root: Path, today: date, dry: bool = False) -> list[str]:
     if new_days and not dry:
         write_summary(summary_path, rows)
     for f, d in todo:
-        dest = root / "archive" / d[:7] / (f.name + ".gz")
+        dest = _free_dest(root / "archive" / d[:7] / (f.name + ".gz"), f)
         said.append(f"{f.relative_to(root)} -> {dest.relative_to(root)}")
         if dry:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(dest.name + ".tmp")
-        with f.open("rb") as src, tmp.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as out:
-            shutil.copyfileobj(src, out)
-        tmp.replace(dest)
+        if not dest.exists():
+            _gzip_to(f.read_bytes(), dest)
         f.unlink()
+    return said
+
+
+def _gzip_to(data: bytes, dest: Path) -> None:
+    tmp = dest.with_name(dest.name + ".tmp")
+    with tmp.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as out:
+        out.write(data)
+    tmp.replace(dest)
+
+
+def _free_dest(dest: Path, f: Path) -> Path:
+    """dest itself if it is free or already holds exactly f's content (a re-run after a crash); else name.N.gz."""
+    data = f.read_bytes()
+    cand, n = dest, 1
+    while cand.exists():
+        try:
+            if gzip.decompress(cand.read_bytes()) == data:
+                return cand
+        except (OSError, EOFError):
+            pass
+        n += 1
+        cand = dest.with_name(dest.name[:-3] + f".{n}.gz")
+    return cand
+
+
+def archive_fastlane_requests(root: Path, today: date, dry: bool = False, days: int = LOG_AGE_DAYS) -> list[str]:
+    """Move fast-lane request lines older than `days` out of state/ (the file is appended to forever otherwise)."""
+    src = root / "state" / "fastlane_requests.jsonl"
+    if not src.exists():
+        return []
+    cutoff = (today - timedelta(days=days)).isoformat()
+    keep, old = [], {}
+    for line in src.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            ts = str(json.loads(line).get("ts", ""))[:10]
+        except (ValueError, AttributeError):
+            ts = ""
+        if ts and ts < cutoff:
+            old.setdefault(ts[:7], []).append(line)
+        else:
+            keep.append(line)
+    if not old:
+        return []
+    said = [f"state/fastlane_requests.jsonl: {sum(map(len, old.values()))} old line(s) -> archive/"]
+    if dry:
+        return said
+    for ym, lines in old.items():
+        dest = root / "archive" / ym / f"fastlane_requests-{ym}.jsonl.gz"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        have = gzip.decompress(dest.read_bytes()).decode("utf-8").splitlines() if dest.exists() else []
+        merged = have + [x for x in lines if x not in set(have)]        # a crash before the rewrite cannot duplicate
+        _gzip_to(("\n".join(merged) + "\n").encode("utf-8"), dest)
+    tmp = src.with_name(src.name + ".tmp")
+    tmp.write_text("".join(x + "\n" for x in keep), encoding="utf-8")
+    tmp.replace(src)
     return said
 
 
@@ -199,7 +254,8 @@ def main(argv=None) -> int:
         print("\n".join("WARNING: " + x for x in w) or "sizes ok")
         return 0
     today = date.fromisoformat(a.today) if a.today else date.today()
-    said = archive_logs(root, today, a.dry_run) + archive_memory(root, today, a.dry_run)
+    said = (archive_logs(root, today, a.dry_run) + archive_memory(root, today, a.dry_run)
+            + archive_fastlane_requests(root, today, a.dry_run))
     print("\n".join(said) if said else "nothing to archive")
     for x in size_warnings(root):
         print("WARNING: " + x)
