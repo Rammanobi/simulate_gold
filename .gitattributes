@@ -1,0 +1,4 @@
+# state/alerts.json is written by the engine and by the watchdog/reminders/incident workflows at the same time;
+# merge it as JSON (simgold/alerts.py merge-file). The driver is configured by simgold/gitsync.py and the
+# workflows; without it git falls back to a normal text merge.
+state/alerts.json merge=simgold-alerts

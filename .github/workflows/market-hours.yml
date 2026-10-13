@@ -41,6 +41,7 @@ jobs:
         run: |
           git config user.name "simgold-engine"
           git config user.email "actions@users.noreply.github.com"
+          git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

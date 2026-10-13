@@ -80,6 +80,7 @@ jobs:
         run: |
           set +e
           git config user.name "simgold-reminders"; git config user.email "actions@users.noreply.github.com"
+          git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
           git add state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl 2>/dev/null
           git diff --cached --quiet || git commit -qm "reminders: state $(date +%H:%M) IST"
           for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done

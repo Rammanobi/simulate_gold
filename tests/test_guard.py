@@ -676,7 +676,8 @@ def test_git_sync_order_and_failure_handling(tmp_path):
         rc = 1 if cmd[1:3] == ["diff", "--cached"] else 0
         return SimpleNamespace(returncode=rc, stdout="", stderr="")
     assert gitsync.sync(tmp_path, runner=runner, now=at(11, 5))
-    assert [c[0] for c in calls] == ["add", "diff", "commit", "pull", "push"]
+    calls[:] = [c for c in calls if c[0] != "config"]           # the alerts.json merge driver is (re)configured first
+    assert [c[0] for c in calls] == ["add", "diff", "commit", "pull", "diff", "push"]
     assert calls[2][-1] == "paper-trade: 11:05 IST" and calls[3] == ["pull", "--rebase", "--autostash", "-X", "theirs"]
     # failing rebase is aborted and does not raise
     calls.clear()

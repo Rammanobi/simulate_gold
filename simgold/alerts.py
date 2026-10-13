@@ -573,6 +573,54 @@ def auto_clear_safe_mode(state_dir, now: float, healthy: bool) -> bool:
     return False
 
 
+# ---------------------------------------------------------------- git merge driver for state/alerts.json
+def _merge_entry(a: dict, b: dict) -> dict:
+    newer, older = (a, b) if max(a.get("last_seen", 0), a.get("resolved_at", 0)) >= \
+        max(b.get("last_seen", 0), b.get("resolved_at", 0)) else (b, a)
+    out = {**older, **newer}
+    out["emails"] = sorted(set(a.get("emails", [])) | set(b.get("emails", [])))
+    out["count"] = max(a.get("count", 0), b.get("count", 0))
+    firsts = [x for x in (a.get("first_seen"), b.get("first_seen")) if x]
+    out["first_seen"] = min(firsts) if firsts else 0
+    out["acked"] = bool(a.get("acked") or b.get("acked"))
+    out["resolved_emailed"] = bool(a.get("resolved_emailed") or b.get("resolved_emailed"))
+    for k in ("incident_id", "issue", "issue_url"):
+        out[k] = newer.get(k) or older.get(k) or out.get(k)
+    return out
+
+
+def merge_states(base: dict, ours: dict, theirs: dict) -> dict:
+    """Three-way merge of two alert states that diverged from base: union of incidents, emails, fires and pending."""
+    ours, theirs = _repair(ours), _repair(theirs)
+    out = {**theirs, **ours}
+    out["alerts"] = dict(theirs["alerts"])
+    for fp, e in ours["alerts"].items():
+        out["alerts"][fp] = _merge_entry(e, theirs["alerts"][fp]) if fp in theirs["alerts"] else e
+    fo, ft = ours["fires"], theirs["fires"]
+    if fo["date"] == ft["date"]:
+        ts = sorted(set(fo["ts"]) | set(ft["ts"]))
+        out["fires"] = {"date": fo["date"], "n": max(len(ts), fo["n"], ft["n"]), "ts": ts}
+    else:
+        out["fires"] = fo if fo["date"] > ft["date"] else ft
+    out["last_high_fire"] = max(ours["last_high_fire"], theirs["last_high_fire"])
+    pend = [p for p in ours["pending"] + theirs["pending"] if p in out["alerts"]]
+    out["pending"] = [p for i, p in enumerate(pend) if p not in pend[:i] and out["alerts"][p].get("status") == "open"]
+    return out
+
+
+def merge_file(base_path, ours_path, theirs_path) -> int:
+    """git merge driver: writes the merge into ours_path (%A) and always exits 0 with valid JSON."""
+    def read(pth):
+        try:
+            return json.loads(Path(pth).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+    base, ours, theirs = read(base_path), read(ours_path), read(theirs_path)
+    merged = merge_states(base or {}, ours if ours is not None else (theirs or {}), theirs if theirs is not None else (ours or {}))
+    Path(ours_path).write_text(json.dumps(merged, indent=1, sort_keys=True), encoding="utf-8")
+    return 0
+
+
 # ---------------------------------------------------------------- CLI
 def _env_args(a) -> list[dict]:
     return [{"component": a.component, "step": a.step, "category": a.category, "detail": a.detail or "", "error": a.error or ""}]
@@ -590,7 +638,11 @@ def main(argv=None) -> int:
     rm = sub.add_parser("reminders"); rm.add_argument("--repo", required=True)
     po = sub.add_parser("post"); po.add_argument("--text-file", required=True)
     rs = sub.add_parser("resolve-missing"); rs.add_argument("--component", required=True); rs.add_argument("--current", default="")
+    mf = sub.add_parser("merge-file", help="git merge driver: merge-file %%O %%A %%B")
+    mf.add_argument("base"); mf.add_argument("ours"); mf.add_argument("theirs")
     a = ap.parse_args(argv)
+    if a.cmd == "merge-file":
+        return merge_file(a.base, a.ours, a.theirs)
     sd = Path(a.state)
     if a.cmd == "gate":
         err = a.error or ""

@@ -123,6 +123,24 @@ class Live:
             log.exception("could not write equity.csv")
 
 
+def acquire_lock(path: Path):
+    """An exclusive, non-blocking lock so two engine runs on one checkout cannot both trade and overwrite each other's
+    portfolio.json (lost update). Returns the open file (keep it open) or None if another run holds it.
+    On Actions the `paper-trader` concurrency group already serialises runs; this covers local / manual runs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(path, "a")
+    try:
+        import fcntl
+    except ImportError:          # no flock (Windows): fall back to no lock
+        return fh
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
 def _until(arg: str | None, now: datetime) -> datetime:
     if arg:
         h, m = map(int, arg.split(":"))
@@ -150,6 +168,10 @@ def main():
         log.info("already past --until %s IST - nothing to do", args.until)
         return
 
+    lock = acquire_lock(STATE / ".engine.lock")
+    if lock is None:
+        log.error("another engine run holds state/.engine.lock - not starting a second one")
+        return
     live = Live(force=args.force, tick_seconds=args.tick_seconds)
     started = last_sync = time.time()
     while True:
