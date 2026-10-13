@@ -90,7 +90,14 @@ class Client:
     def candidates(self, tier: str) -> list[str]:
         prefs = [str(x) for x in self.cfg["models"].get(tier, [])]
         have = self.list_models()
-        return [m for m in prefs if m in have] if have is not None else prefs
+        if have is None:
+            return prefs
+        picked = [m for m in prefs if m in have]
+        if picked:
+            return picked
+        # DeepSeek renames models; when none of the configured ids exist, pick by family name
+        hints = ("pro", "reasoner", "think") if tier == "thinking" else ("flash", "chat", "lite")
+        return sorted(m for m in have if any(h in m.lower() for h in hints))
 
     def chat(self, tier: str, messages: list[dict], json_mode: bool = False) -> str:
         """The reply's `content`. Raises FallbackError when no model works."""

@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "20 11 * * 1-5"      # 16:50 IST
   workflow_dispatch:
+    inputs:
+      check:
+        description: "Only test the DeepSeek key and models (no guidance, no report)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,7 +49,11 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Key and model check
+        if: ${{ inputs.check }}
+        run: python tools/fallback_check.py | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Fallback work (only if the Claude routines are silent)
+        if: ${{ !inputs.check }}
         run: |
           set +e
           git config user.name "simgold-fallback"; git config user.email "actions@users.noreply.github.com"
@@ -61,7 +70,7 @@ jobs:
           fi
           exit 0
       - name: Commit
-        if: always()
+        if: ${{ always() && !inputs.check }}
         run: |
           set +e
           git add state/guidance.json state/fallback.json reports/daily 2>/dev/null
