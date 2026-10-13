@@ -1,0 +1,59 @@
+{
+ "date": "2026-10-13",
+ "weekday": "Tuesday",
+ "day_of_month_run": 2,
+ "start_capital": 100000.0,
+ "portfolio": {
+  "open": 100000.0,
+  "close": 100000.0,
+  "day_pnl": 0.0,
+  "day_pnl_pct": 0.0,
+  "month_pnl": 0.0,
+  "month_pnl_pct": 0.0,
+  "floor": 99500.0,
+  "floor_next_step": "Floor moves to ₹1,00,000 once profit reaches ₹500",
+  "next_value": 100500.0,
+  "floor_after_next": 100000.0,
+  "distance_to_floor": 500.0,
+  "cash_in_liquidbees": 100000.0,
+  "liquidbees_income": 0.0,
+  "costs_paid": 0.0
+ },
+ "pnl_breakdown": {
+  "realized_trades": 0,
+  "unrealized_open": 0,
+  "liquidbees_income": 0.0
+ },
+ "market": [],
+ "holdings_close": [],
+ "decisions": [],
+ "counts": {
+  "buys": 0,
+  "sells": 0,
+  "skips": 0,
+  "blocks": 0,
+  "holds": 0,
+  "fast_lane_runs": 0
+ },
+ "intraday": [
+  [
+   "09:15",
+   100000
+  ],
+  [
+   "15:30",
+   100000
+  ]
+ ],
+ "tomorrow": "Nothing special is scheduled. The system follows its normal rules at the next open.",
+ "warnings": [],
+ "no_trade_note": "No trades today. The system waited because no entry met its rules, so the money stayed in LIQUIDBEES.",
+ "one_line_summary": "Flat day: no change in value. No trades. The floor is ₹500 away.",
+ "subject": "Metals Daybook · 📊 Tue 13 Oct · ₹0 (flat)",
+ "fixed_today": [],
+ "system_health": "Watchdog: 1 checks today, 1 problem, see incidents",
+ "thrift": true,
+ "fallback_dates": [],
+ "fallback": true,
+ "fallback_summary": "On 2026-10-13 the market was open. Your paper portfolio closed at 100000.0 with a day P&L of 0.0. There were 0 buys and 0 sells, so it was a flat day with no trades. The floor is 99500.0, just ₹500 away. No warnings."
+}

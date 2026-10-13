@@ -1,0 +1,37 @@
+GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
+Tuesday 13 Oct 2026
+
+HEADLINE
+Day P&L:      ₹0 (0.00%)
+Month P&L:    ₹0 (0.00%)
+Portfolio:    ₹1,00,000 (opened the day at ₹1,00,000)
+Flat day: no change in value. No trades. The floor is ₹500 away.
+
+PORTFOLIO AND FLOOR
+Floor:              ₹99,500
+Distance to floor:  ₹500
+Next step:          floor moves to ₹1,00,000 once profit reaches ₹500
+Cash in LIQUIDBEES: ₹1,00,000 (LIQUIDBEES income today: ₹0)
+Costs paid today:   ₹0
+
+DECISIONS
+No trades today. The system waited because no entry met its rules, so the money stayed in LIQUIDBEES.
+
+HOLDINGS AT CLOSE
+No positions held overnight.
+
+WHERE TODAY'S P&L CAME FROM
+Trades closed (realized): ₹0
+Open positions (unrealised): ₹0
+LIQUIDBEES income: ₹0
+Total: ₹0
+(Costs of ₹0 are already included above.)
+
+TOMORROW
+Nothing special is scheduled. The system follows its normal rules at the next open.
+
+💡 Thrift mode: running on plan limits
+
+Watchdog: 1 checks today, 1 problem, see incidents
+
+This is a paper simulation. No real money or orders were placed.
