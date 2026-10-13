@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1600">
+<title>One trading day, as a storyboard</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{width:1600px;position:relative;background:#f7f4ec;background-image:radial-gradient(#ddd6c4 1.2px,transparent 1.3px);background-size:26px 26px;
+ font-family:Inter,"Segoe UI","Helvetica Neue",Arial,sans-serif;color:#13202b;font-size:15px;line-height:1.35;-webkit-font-smoothing:antialiased}
+h1{position:absolute;left:40px;top:26px;margin:0;font-size:44px;line-height:1.1;letter-spacing:-.5px;font-weight:800}
+.sub{position:absolute;left:42px;top:84px;width:1400px;font-size:20px;color:#3a4a58;line-height:1.35}
+.badge{position:absolute;right:40px;top:34px;background:#13202b;color:#fff;font-weight:700;font-size:16px;padding:8px 16px;border-radius:999px}
+.lane{position:absolute;border-radius:20px;border:2px solid var(--c);background:var(--t);opacity:1}
+.lane>.ll{position:absolute;left:0;top:0;bottom:0;width:40px;background:var(--c);border-radius:17px 0 0 17px;color:#fff;font-weight:800;font-size:15px;letter-spacing:1.5px;
+ writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;text-transform:uppercase;white-space:nowrap}
+.card{position:absolute;background:#fff;border-radius:14px;padding:12px 15px;border-top:5px solid var(--c);
+ box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.09)}
+.card h3{margin:0 0 4px;font-size:18px;line-height:1.2;font-weight:750}
+.card p{margin:0 0 3px;font-size:15px}
+.card .m{font-family:"DejaVu Sans Mono","Liberation Mono",monospace;font-size:14px}
+.card ul{margin:2px 0 0;padding-left:19px;font-size:15px}
+.card li{margin:1px 0}
+.c-gold{--c:#a8790f;--t:#fbf3df}.c-green{--c:#1a7f4b;--t:#e6f4ec}.c-red{--c:#b23a30;--t:#f9e8e5}.c-blue{--c:#2f6690;--t:#e5eef6}.c-slate{--c:#5b7083;--t:#eceff2}.c-ink{--c:#13202b;--t:#eceff2}
+.card.tint{background:var(--t)}
+.card.dash{border:2px dashed var(--c);border-top:5px solid var(--c)}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:13.5px;font-weight:700;color:#fff;background:var(--c,#5b7083);white-space:nowrap;vertical-align:1px}
+.pill.gold{background:#a8790f}.pill.green{background:#1a7f4b}.pill.red{background:#b23a30}.pill.blue{background:#2f6690}.pill.slate{background:#5b7083}.pill.ink{background:#13202b}
+.pill.out{background:#fff;color:#13202b;border:1.5px solid #13202b}
+.num{display:inline-flex;width:28px;height:28px;border-radius:50%;background:#13202b;color:#fff;font-weight:800;font-size:15px;align-items:center;justify-content:center;margin-right:8px;flex:none}
+.abs{position:absolute}
+.txt{position:absolute;font-size:15px}
+.note{position:absolute;font-size:16px;color:#3a4a58}
+svg.ov{position:absolute;left:0;top:0;pointer-events:none}
+.legend{position:absolute;left:40px;display:flex;gap:26px;align-items:center;background:#fff;border-radius:12px;padding:10px 18px;font-size:15px;box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.07)}
+.legend span.sw{display:inline-block;width:16px;height:16px;border-radius:5px;margin-right:7px;vertical-align:-3px}
+.legend b{font-weight:800;margin-right:4px}
+.foot{position:absolute;left:40px;font-size:14px;color:#5b6b78}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
+table.t th{text-align:left;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:#fff;padding:8px 10px;background:#13202b}
+table.t th:first-child{border-radius:10px 0 0 0}table.t th:last-child{border-radius:0 10px 0 0}
+table.t td{padding:8px 10px;border-bottom:1px solid #e3dfd2;vertical-align:top}
+b.g{color:#1a7f4b}b.r{color:#b23a30}b.y{color:#a8790f}
+</style></head>
+<body style="height:1260px">
+<h1>One trading day, as a storyboard</h1>
+<div class="sub">An illustrative example day (not real data). Day 1 of a month, so positions are small on purpose.</div>
+<div class="badge">Illustrative example</div>
+<div class="card c-gold " style="left:40px;top:150px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">08:50</div><span class="num" style="margin:0;background:#a8790f">1</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Premarket</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Opus + Haiku</span></p>
+<p style="font-size:15.5px;line-height:1.38">Gold +0.8% overnight, dollar down, no event today. Bias: gold <b>favour</b>, silver neutral, copper <b>block</b> (results due Wednesday).</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">state/guidance.json</span></div></div><div class="card c-gold " style="left:347.5px;top:150px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">~09:00</div><span class="num" style="margin:0;background:#a8790f">2</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Engine starts</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · dispatch</span></p>
+<p style="font-size:15.5px;line-height:1.38">Premarket sees no engine running and starts it. The 09:10 schedule waits as a backup.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">market-hours run</span></div></div><div class="card c-blue " style="left:655px;top:150px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">09:15</div><span class="num" style="margin:0;background:#2f6690">3</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Market opens</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">No buys in the first 15 minutes. The engine only watches and logs a tick every minute.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">logs/ticks-D.csv</span></div></div><div class="card c-blue " style="left:962.5px;top:150px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">09:36</div><span class="num" style="margin:0;background:#2f6690">4</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">BUY gold</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">Score hit 0.72 at 09:33 and held 3 minutes. 40 shares for ₹4,844. Stop at ₹119.65.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">logs/decisions, portfolio.json</span></div></div><div class="card c-blue " style="left:1270px;top:150px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">09:51</div><span class="num" style="margin:0;background:#2f6690">5</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">SKIP silver</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">Silver looks good, but the last buy was 15 minutes ago and 30 must pass.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">logs/decisions</span></div></div><div class="card c-gold " style="left:40px;top:435px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">10:15</div><span class="num" style="margin:0;background:#a8790f">6</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Hourly check</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Sonnet</span></p>
+<p style="font-size:15.5px;line-height:1.38">Nothing changed. Refreshes the guidance so it stays fresh. Done in under 2 minutes.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">state/guidance.json</span></div></div><div class="card c-blue " style="left:347.5px;top:435px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">10:52</div><span class="num" style="margin:0;background:#2f6690">7</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Price feed gap</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">No prices for 12 minutes. No price means no buy. After 10 minutes it raises a MEDIUM alert.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">state/alerts.json</span></div></div><div class="card c-gold " style="left:655px;top:435px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">10:55</div><span class="num" style="margin:0;background:#a8790f">8</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Fixed, no email</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Haiku + Sonnet</span></p>
+<p style="font-size:15.5px;line-height:1.38">Feed is back. Triage: trivial, no code change. Marked resolved. Nothing for you to do.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">incidents/ID.json</span></div></div><div class="card c-blue " style="left:962.5px;top:435px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">11:40</div><span class="num" style="margin:0;background:#2f6690">9</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Half sold</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">Gold is 1.6% up. 20 shares sold at ₹122.94, +₹34.47. Stop on the rest moves to break-even.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">logs/decisions, portfolio.json</span></div></div><div class="card c-blue " style="left:1270px;top:435px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">13:05</div><span class="num" style="margin:0;background:#2f6690">10</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">News shock</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">"US jobless claims jump; traders bet on Fed rate cut." Gold and silver buys blocked 30 min at once. Fast lane called.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">fastlane_requests.jsonl</span></div></div><div class="card c-gold " style="left:40px;top:720px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">13:08</div><span class="num" style="margin:0;background:#a8790f">11</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Fast lane</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Opus</span></p>
+<p style="font-size:15.5px;line-height:1.38">Checks the story. Defence only: tightens the stop on the 20 shares to ₹122.50. No selling.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">state/fastlane.json</span></div></div><div class="card c-gold " style="left:347.5px;top:720px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">13:15</div><span class="num" style="margin:0;background:#a8790f">12</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Hourly rethink</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Sonnet + Opus</span></p>
+<p style="font-size:15.5px;line-height:1.38">New headline, so it rethinks. Gold favour becomes neutral. Silver neutral, copper block.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">state/guidance.json</span></div></div><div class="card c-blue " style="left:655px;top:720px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">15:20</div><span class="num" style="margin:0;background:#2f6690">13</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Overnight check</h3>
+<p style="margin-bottom:8px"><span class="pill blue">Engine</span></p>
+<p style="font-size:15.5px;line-height:1.38">Holds 20 gold shares (₹2,464). Worst-case night loss ₹76 fits the ₹182 budget. Kept.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">logs/decisions</span></div></div><div class="card c-gold " style="left:962.5px;top:720px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">15:45</div><span class="num" style="margin:0;background:#a8790f">14</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Daily report</h3>
+<p style="margin-bottom:8px"><span class="pill gold">Routine · Sonnet + Haiku</span></p>
+<p style="font-size:15.5px;line-height:1.38">Builds the report, writes tomorrow's note and the day memory, emails you, adds an Inbox item.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">reports/daily/, memory/daily/</span></div></div><div class="card c-green " style="left:1270px;top:720px;width:290px;height:262px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:30px;font-weight:800;letter-spacing:-.5px">~16:00</div><span class="num" style="margin:0;background:#1a7f4b">15</span></div>
+<h3 style="font-size:19px;margin:2px 0 6px">Your 30 seconds</h3>
+<p style="margin-bottom:8px"><span class="pill green">You</span></p>
+<p style="font-size:15.5px;line-height:1.38">You read one email, opened the Inbox and tapped "Looks right". Item resolved.</p>
+<div style="position:absolute;left:15px;right:15px;bottom:12px;border-top:1px dashed #c9c3b0;padding-top:6px;font-size:13.5px;color:#3a4a58">File: <span class="m" style="font-size:13px">Inbox: decisions/daily-D</span></div></div><div class="card c-green tint" style="left:40px;top:1015px;width:1520px;height:120px"><h3 style="font-size:21px">End of day (all numbers reconcile)</h3>
+<div style="display:flex;gap:40px;align-items:baseline;font-size:20px;margin-top:6px"><span><b>Value</b> ₹1,00,074</span><span><b>Floor</b> ₹99,500</span><span><b>Cushion</b> ₹574</span><span style="color:#1a7f4b"><b>Day P&amp;L +₹74</b> (+0.07%)</span><span style="font-size:16px;color:#3a4a58">+₹34 realised + ₹42 on the 20 held − ₹3 costs and exit allowance; interest ₹0 on day 1</span></div></div><div class="legend" style="top:1160px"><div><span class="sw" style="background:#2f6690"></span><b>Engine</b> (fixed rules)</div><div><span class="sw" style="background:#a8790f"></span><b>Claude routine</b> (model named)</div><div><span class="sw" style="background:#1a7f4b"></span><b>You</b></div></div><div class="foot" style="top:1216px">Illustrative example, not real data. Prices: GOLDBEES about ₹121, SILVERBEES about ₹209. Full minute-by-minute story with every number: docs/DAY_IN_THE_LIFE.md.</div>
+<svg class="ov" width="1600" height="1260" viewBox="0 0 1600 1260"><defs><marker id="a-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#13202b"/></marker><marker id="a-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a8790f"/></marker><marker id="a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f4b"/></marker><marker id="a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b23a30"/></marker><marker id="a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/></marker><marker id="a-slate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b7083"/></marker></defs><path d="M331,281 L346,281" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M638.5,281 L653.5,281" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M946,281 L961,281" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M1253.5,281 L1268.5,281" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M331,566 L346,566" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M638.5,566 L653.5,566" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M946,566 L961,566" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M1253.5,566 L1268.5,566" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M331,851 L346,851" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M638.5,851 L653.5,851" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M946,851 L961,851" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M1253.5,851 L1268.5,851" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg>
+</body></html>

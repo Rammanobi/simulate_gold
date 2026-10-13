@@ -1,5 +1,7 @@
 # simulate_gold: an autonomous metals paper-trader (₹1 lakh)
 
+📊 Visual guide: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Example day: [docs/DAY_IN_THE_LIFE.md](docs/DAY_IN_THE_LIFE.md)
+
 **What this is.** A fully automated *paper-trading* simulator. No real money is used and no real orders
 are placed. It manages a virtual ₹1,00,000 across three NSE instruments, decides every minute whether to
 buy, sell or wait, writes a one-line reason for every decision, and emails a daily report.

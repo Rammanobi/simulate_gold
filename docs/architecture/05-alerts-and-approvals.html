@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1600">
+<title>From incident to your decision</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{width:1600px;position:relative;background:#f7f4ec;background-image:radial-gradient(#ddd6c4 1.2px,transparent 1.3px);background-size:26px 26px;
+ font-family:Inter,"Segoe UI","Helvetica Neue",Arial,sans-serif;color:#13202b;font-size:15px;line-height:1.35;-webkit-font-smoothing:antialiased}
+h1{position:absolute;left:40px;top:26px;margin:0;font-size:44px;line-height:1.1;letter-spacing:-.5px;font-weight:800}
+.sub{position:absolute;left:42px;top:84px;width:1400px;font-size:20px;color:#3a4a58;line-height:1.35}
+.badge{position:absolute;right:40px;top:34px;background:#13202b;color:#fff;font-weight:700;font-size:16px;padding:8px 16px;border-radius:999px}
+.lane{position:absolute;border-radius:20px;border:2px solid var(--c);background:var(--t);opacity:1}
+.lane>.ll{position:absolute;left:0;top:0;bottom:0;width:40px;background:var(--c);border-radius:17px 0 0 17px;color:#fff;font-weight:800;font-size:15px;letter-spacing:1.5px;
+ writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;text-transform:uppercase;white-space:nowrap}
+.card{position:absolute;background:#fff;border-radius:14px;padding:12px 15px;border-top:5px solid var(--c);
+ box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.09)}
+.card h3{margin:0 0 4px;font-size:18px;line-height:1.2;font-weight:750}
+.card p{margin:0 0 3px;font-size:15px}
+.card .m{font-family:"DejaVu Sans Mono","Liberation Mono",monospace;font-size:14px}
+.card ul{margin:2px 0 0;padding-left:19px;font-size:15px}
+.card li{margin:1px 0}
+.c-gold{--c:#a8790f;--t:#fbf3df}.c-green{--c:#1a7f4b;--t:#e6f4ec}.c-red{--c:#b23a30;--t:#f9e8e5}.c-blue{--c:#2f6690;--t:#e5eef6}.c-slate{--c:#5b7083;--t:#eceff2}.c-ink{--c:#13202b;--t:#eceff2}
+.card.tint{background:var(--t)}
+.card.dash{border:2px dashed var(--c);border-top:5px solid var(--c)}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:13.5px;font-weight:700;color:#fff;background:var(--c,#5b7083);white-space:nowrap;vertical-align:1px}
+.pill.gold{background:#a8790f}.pill.green{background:#1a7f4b}.pill.red{background:#b23a30}.pill.blue{background:#2f6690}.pill.slate{background:#5b7083}.pill.ink{background:#13202b}
+.pill.out{background:#fff;color:#13202b;border:1.5px solid #13202b}
+.num{display:inline-flex;width:28px;height:28px;border-radius:50%;background:#13202b;color:#fff;font-weight:800;font-size:15px;align-items:center;justify-content:center;margin-right:8px;flex:none}
+.abs{position:absolute}
+.txt{position:absolute;font-size:15px}
+.note{position:absolute;font-size:16px;color:#3a4a58}
+svg.ov{position:absolute;left:0;top:0;pointer-events:none}
+.legend{position:absolute;left:40px;display:flex;gap:26px;align-items:center;background:#fff;border-radius:12px;padding:10px 18px;font-size:15px;box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.07)}
+.legend span.sw{display:inline-block;width:16px;height:16px;border-radius:5px;margin-right:7px;vertical-align:-3px}
+.legend b{font-weight:800;margin-right:4px}
+.foot{position:absolute;left:40px;font-size:14px;color:#5b6b78}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
+table.t th{text-align:left;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:#fff;padding:8px 10px;background:#13202b}
+table.t th:first-child{border-radius:10px 0 0 0}table.t th:last-child{border-radius:0 10px 0 0}
+table.t td{padding:8px 10px;border-bottom:1px solid #e3dfd2;vertical-align:top}
+b.g{color:#1a7f4b}b.r{color:#b23a30}b.y{color:#a8790f}
+</style></head>
+<body style="height:1170px">
+<h1>From incident to your decision</h1>
+<div class="sub">Most problems are fixed quietly. Anything risky waits for your Accept or Reject, with a reason.</div>
+<div class="badge">Paper trading only · no real money</div>
+<div class="card c-blue " style="left:40px;top:150px;width:300px;height:400px"><h3 style="display:flex;align-items:center;font-size:20px"><span class="num">1</span>Something breaks</h3>
+<ul><li><b>Engine</b>: no prices for 10 min, 3 tick errors in a row, git push failing 15 min</li><li><b>Workflow</b> run failed, or tests fail on main</li><li><b>Watchdog</b> (every 10 min): engine not running, value near the floor, corrupted state, guidance older than 3 h</li></ul></div><div class="card c-slate " style="left:375px;top:150px;width:420px;height:400px"><h3 style="display:flex;align-items:center;font-size:20px"><span class="num">2</span>Alert policy (plain code, no AI)</h3>
+<p><b>Fingerprint</b> = workflow + step + error type. The same problem is one incident, not ten.</p>
+<p>Claude is woken at most <b>6 times a day</b>. Extra alerts wait and join the next email.</p>
+<p style="margin-bottom:8px">Alerts within 15 min of a HIGH share its email.</p>
+<div style="background:#f9e8e5;border-left:6px solid #b23a30;border-radius:8px;padding:7px 10px;margin:6px 0"><b style="color:#b23a30">HIGH</b>: engine stopped, within ₹100 of the floor, corrupted state, tests failing on main</div>
+<div style="background:#fbf3df;border-left:6px solid #a8790f;border-radius:8px;padding:7px 10px;margin:6px 0"><b style="color:#a8790f">MEDIUM</b>: data source down, failed run, stale guidance</div>
+<div style="background:#e6f4ec;border-left:6px solid #1a7f4b;border-radius:8px;padding:7px 10px;margin:6px 0"><b style="color:#1a7f4b">LOW</b>: one-off fetch error, slow run</div></div><div class="card c-gold " style="left:830px;top:150px;width:330px;height:400px"><h3 style="display:flex;align-items:center;font-size:20px"><span class="num">3</span>Incident routine</h3>
+<p><span class="pill gold">Haiku</span> summarises the payload and logs in 15 lines</p>
+<p><span class="pill gold">Sonnet</span> triages:</p>
+<ul><li><b>Trivial</b>: restart, re-run, restore a file, known holiday. Sonnet fixes it</li><li><b>Standard</b>: a data source needs a fallback, a test fix. A Sonnet helper writes it</li><li><b>Complex</b>: unknown cause, trading logic</li></ul>
+<p><span class="pill gold">Opus</span> helper writes the fix or pull request</p></div><div class="card c-green tint" style="left:1195px;top:150px;width:365px;height:190px"><h3>Safe fix: done on main</h3><p style="font-size:14.5px">Only after tests pass. Re-start the engine, restore state from backup, add a missing NSE holiday, add a tested data fallback, re-run a failed job.</p></div><div class="card c-red tint" style="left:1195px;top:360px;width:365px;height:190px"><h3>Anything else: a pull request</h3><p style="font-size:14.5px">Trading rules, <span class="m" style="font-size:13px">config/params.yaml</span>, the rulebook, floor logic, permissions, secrets. Branch <span class="m" style="font-size:13px">claude/fix-…</span>. <b>Never merged without you.</b></p></div><div class="card c-green tint" style="left:40px;top:600px;width:380px;height:250px"><h3 style="display:flex;align-items:center;font-size:20px"><span class="num">4</span>You get an email</h3>
+<ul><li>HIGH: at once, plus a GitHub issue "[HIGH] …"</li><li>MEDIUM: only if it needs your approval or the fix failed</li><li>LOW: never. It shows under "Fixed today" in the daily email</li></ul><p style="font-size:14.5px;margin-top:6px">Subject starts "Metals Daybook". Sent only to your one address.</p></div><div class="card c-green " style="left:455px;top:600px;width:400px;height:250px"><h3 style="display:flex;align-items:center;font-size:20px"><span class="num">5</span>Daybook Inbox</h3>
+<p>A claude.ai page with one item per decision, and two buttons:</p>
+<div style="display:flex;gap:10px;margin:6px 0"><span class="pill green" style="font-size:16px;padding:5px 16px">Accept</span><span class="pill red" style="font-size:16px;padding:5px 16px">Reject</span></div>
+<p>Reject has a <b>reason box</b>. Either button wakes the incident routine within a minute.</p><p style="font-size:14.5px">Daily report items say "Looks right".</p></div><div class="card c-green tint" style="left:890px;top:600px;width:320px;height:250px"><h3>Accept</h3>
+<ul style="font-size:14.5px"><li>Checks the pull request is the one in the incident record, open, and CI is green</li><li>Squash-merges it</li><li>Email "Applied"; item turns resolved</li></ul></div><div class="card c-red tint" style="left:1240px;top:600px;width:320px;height:250px"><h3>Reject, with a reason</h3>
+<ul style="font-size:14.5px"><li>Opus revises the same branch using your reason (it can never override the safety rules)</li><li>Email "Revised"; a new item to accept or reject</li><li>After 3 revisions: "Needs a human look"</li><li>Reason saved as a lesson candidate</li></ul></div><div class="card c-red tint" style="left:40px;top:880px;width:500px;height:200px"><h3>Hourly reminders until you ACK</h3><p>A HIGH alert is re-sent every hour (24 at most) until you acknowledge it by:</p><ul><li>replying <span class="m">ACK</span>, <span class="m">OK</span> or <span class="m">SEEN</span> in the same email thread</li><li>commenting <span class="m">ack</span> on the GitHub issue, or closing it</li><li>the button in the email</li></ul></div><div class="card c-red tint" style="left:570px;top:880px;width:500px;height:200px"><h3>Safe mode</h3><p>Turns on after more than 5 different incidents in a day, or a HIGH not fixed in 30 minutes.</p><ul><li>No new buys</li><li>Exits, stops and the floor keep working</li><li>Clears after a verified fix, or a healthy pre-market check</li></ul></div><div class="card c-slate " style="left:1100px;top:880px;width:460px;height:200px"><h3>Why it stays cheap</h3><ul><li>Repeats never wake Claude twice</li><li>Reminders and checks are free GitHub jobs</li><li>An email reply can only ACK, never approve code</li><li>Logs, headlines and payloads are treated as untrusted text</li></ul></div><div class="legend" style="top:1110px"><div><span class="sw" style="background:#b23a30"></span><b>HIGH / risk</b></div><div><span class="sw" style="background:#a8790f"></span><b>MEDIUM / Claude routine</b></div><div><span class="sw" style="background:#1a7f4b"></span><b>LOW / you / safe</b></div><div><span class="sw" style="background:#5b7083"></span><b>Policy code</b></div></div>
+<svg class="ov" width="1600" height="1170" viewBox="0 0 1600 1170"><defs><marker id="a-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#13202b"/></marker><marker id="a-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a8790f"/></marker><marker id="a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f4b"/></marker><marker id="a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b23a30"/></marker><marker id="a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/></marker><marker id="a-slate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b7083"/></marker></defs><path d="M340,350 L375,350" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M795,350 L830,350" fill="none" stroke="#13202b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-ink)"/><path d="M1160,245 L1195,245" fill="none" stroke="#1a7f4b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-green)"/><path d="M1160,455 L1195,455" fill="none" stroke="#b23a30" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-red)"/><path d="M420,725 L455,725" fill="none" stroke="#1a7f4b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-green)"/><path d="M855,680 L890,680" fill="none" stroke="#1a7f4b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-green)"/><path d="M1560,455 L1578,455 L1578,572 L230,572 L230,600" fill="none" stroke="#b23a30" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 7" marker-end="url(#a-red)"/><text x="900" y="565" text-anchor="middle" font-size="14" font-weight="700" fill="#b23a30" stroke="#f7f4ec" stroke-width="5" paint-order="stroke" stroke-linejoin="round">pull request opened, needs your decision</text></svg>
+</body></html>

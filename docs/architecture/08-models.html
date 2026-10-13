@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1600">
+<title>Which model does which job</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{width:1600px;position:relative;background:#f7f4ec;background-image:radial-gradient(#ddd6c4 1.2px,transparent 1.3px);background-size:26px 26px;
+ font-family:Inter,"Segoe UI","Helvetica Neue",Arial,sans-serif;color:#13202b;font-size:15px;line-height:1.35;-webkit-font-smoothing:antialiased}
+h1{position:absolute;left:40px;top:26px;margin:0;font-size:44px;line-height:1.1;letter-spacing:-.5px;font-weight:800}
+.sub{position:absolute;left:42px;top:84px;width:1400px;font-size:20px;color:#3a4a58;line-height:1.35}
+.badge{position:absolute;right:40px;top:34px;background:#13202b;color:#fff;font-weight:700;font-size:16px;padding:8px 16px;border-radius:999px}
+.lane{position:absolute;border-radius:20px;border:2px solid var(--c);background:var(--t);opacity:1}
+.lane>.ll{position:absolute;left:0;top:0;bottom:0;width:40px;background:var(--c);border-radius:17px 0 0 17px;color:#fff;font-weight:800;font-size:15px;letter-spacing:1.5px;
+ writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;text-transform:uppercase;white-space:nowrap}
+.card{position:absolute;background:#fff;border-radius:14px;padding:12px 15px;border-top:5px solid var(--c);
+ box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.09)}
+.card h3{margin:0 0 4px;font-size:18px;line-height:1.2;font-weight:750}
+.card p{margin:0 0 3px;font-size:15px}
+.card .m{font-family:"DejaVu Sans Mono","Liberation Mono",monospace;font-size:14px}
+.card ul{margin:2px 0 0;padding-left:19px;font-size:15px}
+.card li{margin:1px 0}
+.c-gold{--c:#a8790f;--t:#fbf3df}.c-green{--c:#1a7f4b;--t:#e6f4ec}.c-red{--c:#b23a30;--t:#f9e8e5}.c-blue{--c:#2f6690;--t:#e5eef6}.c-slate{--c:#5b7083;--t:#eceff2}.c-ink{--c:#13202b;--t:#eceff2}
+.card.tint{background:var(--t)}
+.card.dash{border:2px dashed var(--c);border-top:5px solid var(--c)}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:13.5px;font-weight:700;color:#fff;background:var(--c,#5b7083);white-space:nowrap;vertical-align:1px}
+.pill.gold{background:#a8790f}.pill.green{background:#1a7f4b}.pill.red{background:#b23a30}.pill.blue{background:#2f6690}.pill.slate{background:#5b7083}.pill.ink{background:#13202b}
+.pill.out{background:#fff;color:#13202b;border:1.5px solid #13202b}
+.num{display:inline-flex;width:28px;height:28px;border-radius:50%;background:#13202b;color:#fff;font-weight:800;font-size:15px;align-items:center;justify-content:center;margin-right:8px;flex:none}
+.abs{position:absolute}
+.txt{position:absolute;font-size:15px}
+.note{position:absolute;font-size:16px;color:#3a4a58}
+svg.ov{position:absolute;left:0;top:0;pointer-events:none}
+.legend{position:absolute;left:40px;display:flex;gap:26px;align-items:center;background:#fff;border-radius:12px;padding:10px 18px;font-size:15px;box-shadow:0 1px 2px rgba(19,32,43,.10),0 4px 10px rgba(19,32,43,.07)}
+.legend span.sw{display:inline-block;width:16px;height:16px;border-radius:5px;margin-right:7px;vertical-align:-3px}
+.legend b{font-weight:800;margin-right:4px}
+.foot{position:absolute;left:40px;font-size:14px;color:#5b6b78}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
+table.t th{text-align:left;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:#fff;padding:8px 10px;background:#13202b}
+table.t th:first-child{border-radius:10px 0 0 0}table.t th:last-child{border-radius:0 10px 0 0}
+table.t td{padding:8px 10px;border-bottom:1px solid #e3dfd2;vertical-align:top}
+b.g{color:#1a7f4b}b.r{color:#b23a30}b.y{color:#a8790f}
+</style></head>
+<body style="height:907px">
+<h1>Which model does which job</h1>
+<div class="sub">Opus for hard judgement, Sonnet for routine thinking, Haiku for reading, DeepSeek only as a backup, and no AI for trades.</div>
+<div class="badge">Paper trading only · no real money</div>
+<div class="card c-ink " style="left:40px;top:140px;width:1520px;height:562px"><table class="t" style="font-size:16px"><tr><th style="width:12%">Model</th><th style="width:38%">Task</th><th style="width:22%">When</th><th>Why this model</th></tr><tr><td><span class="pill gold" style="font-size:15px;padding:2px 12px">Opus</span></td><td><b>Premarket bias, events and notes</b></td><td>08:50 Mon to Fri</td><td>The biggest judgement call of the day</td></tr><tr><td><span class="pill gold" style="font-size:15px;padding:2px 12px">Opus</span></td><td><b>Fast lane defence (block, sell part, tighten a stop)</b></td><td>on a shock, back in 2 to 4 min</td><td>Needs care; no helpers, to stay fast</td></tr><tr><td><span class="pill gold" style="font-size:15px;padding:2px 12px">Opus</span></td><td><b>Complex incident fix or pull request</b></td><td>only if Sonnet says complex</td><td>Unknown cause or trading logic</td></tr><tr><td><span class="pill gold" style="font-size:15px;padding:2px 12px">Opus</span></td><td><b>Weekly review, lessons, proposals</b></td><td>Saturday 09:50</td><td>Honest comparison with buy-and-hold gold</td></tr><tr><td><span class="pill blue" style="font-size:15px;padding:2px 12px">Sonnet</span></td><td><b>Hourly check (Opus helper only if something moved)</b></td><td>10:15 to 15:15</td><td>Mostly "no change", so cheap</td></tr><tr><td><span class="pill blue" style="font-size:15px;padding:2px 12px">Sonnet</span></td><td><b>Daily report and email</b></td><td>15:45</td><td>Mostly mechanical</td></tr><tr><td><span class="pill blue" style="font-size:15px;padding:2px 12px">Sonnet</span></td><td><b>Incident triage and simple fixes</b></td><td>on a problem</td><td>Sorts trivial from complex</td></tr><tr><td><span class="pill green" style="font-size:15px;padding:2px 12px">Haiku</span></td><td><b>Fetch and condense news and market numbers</b></td><td>inside premarket</td><td>Reading and summarising only</td></tr><tr><td><span class="pill green" style="font-size:15px;padding:2px 12px">Haiku</span></td><td><b>Draft the daily memory note; summarise incident logs</b></td><td>after the close, on a problem</td><td>Short facts from a template</td></tr><tr><td><span class="pill red" style="font-size:15px;padding:2px 12px">DeepSeek</span></td><td><b>Set the bias (thinking model: v4-pro / reasoner)</b></td><td>fallback only</td><td>When Claude cannot run at all</td></tr><tr><td><span class="pill red" style="font-size:15px;padding:2px 12px">DeepSeek</span></td><td><b>Write the report summary (fast model: flash)</b></td><td>fallback only</td><td>Keeps the daily email alive</td></tr><tr><td><span class="pill slate" style="font-size:15px;padding:2px 12px">Engine</span></td><td><b>Every buy, sell, stop and the floor</b></td><td>every 60 seconds</td><td>Fixed rules. No AI touches money</td></tr></table></div><div class="card c-gold tint" style="left:40px;top:732px;width:1520px;height:90px"><h3>Rule of thumb</h3><p>Use the big model only where judgement matters, a cheap model for reading and summarising, and no AI at all for money decisions.</p></div><div class="legend" style="top:847px"><div><span class="sw" style="background:#a8790f"></span><b>Opus</b></div><div><span class="sw" style="background:#2f6690"></span><b>Sonnet</b></div><div><span class="sw" style="background:#1a7f4b"></span><b>Haiku</b></div><div><span class="sw" style="background:#b23a30"></span><b>DeepSeek (fallback)</b></div><div><span class="sw" style="background:#5b7083"></span><b>Engine (no AI)</b></div></div>
+<svg class="ov" width="1600" height="907" viewBox="0 0 1600 907"><defs><marker id="a-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#13202b"/></marker><marker id="a-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a8790f"/></marker><marker id="a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f4b"/></marker><marker id="a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b23a30"/></marker><marker id="a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/></marker><marker id="a-slate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b7083"/></marker></defs></svg>
+</body></html>
