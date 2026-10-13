@@ -28,7 +28,7 @@ categories:
       - fomc
       - rate cut
       - rate hike
-      - powell
+      - fed chair
       - rbi
       - repo rate
     affects: [GOLDBEES, SILVERBEES]
@@ -70,9 +70,34 @@ categories:
     keywords:
       - central bank gold buying
       - gold etf flows
-      - import duty
     affects: [GOLDBEES]
     urgency: 3
+
+  india_duty_budget:
+    keywords:
+      - import duty
+      - customs duty
+      - union budget
+    affects: [GOLDBEES, SILVERBEES]
+    urgency: 4
+
+  company_actions:
+    keywords:
+      - offer for sale
+      - stake sale
+      - disinvestment
+      - block deal
+      - mine accident
+    affects: [HINDCOPPER]
+    urgency: 4
+
+  market_halt:
+    keywords:
+      - circuit breaker
+      - trading halt
+      - exchange outage
+    affects: [GOLDBEES, SILVERBEES, HINDCOPPER]
+    urgency: 5
 
   silver_specific:
     keywords:
