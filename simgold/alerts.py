@@ -484,11 +484,12 @@ def check_acks(state_dir, repo: str, gh=real_gh, now: float | None = None) -> li
 
 # ---------------------------------------------------------------- routine webhook
 def post_routine(text: str, url: str, token: str, timeout: float = 10.0) -> bool:
-    body = json.dumps({"text": text}).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "Authorization": f"Bearer {token}", "anthropic-beta": BETA, "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"})
+    """Never raises: an empty or malformed URL (e.g. a secret pasted without https://) is just a failed post."""
     try:
+        body = json.dumps({"text": text}).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Authorization": f"Bearer {token}", "anthropic-beta": BETA, "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310 - owner-supplied URL
             return 200 <= r.status < 300
     except Exception as e:  # noqa: BLE001

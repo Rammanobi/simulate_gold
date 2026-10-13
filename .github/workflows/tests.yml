@@ -2,6 +2,8 @@ name: tests
 on:
   push:
   pull_request:
+permissions:
+  contents: read          # tests never write; do not inherit a write-all default token
 jobs:
   pytest:
     runs-on: ubuntu-latest

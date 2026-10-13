@@ -63,11 +63,7 @@ jobs:
           esac
       - name: Final sync
         if: always()
+        # same path as the in-loop sync: add -> commit -> pull --rebase (-X theirs) -> push, 3 tries, and a merge
+        # fallback when a rebase cannot finish, so the session's portfolio state always reaches main
         run: |
-          git add state logs reports memory
-          git diff --cached --quiet || git commit -m "paper-trade: $(date +'%H:%M') IST"
-          for i in 1 2 3; do
-            git pull --rebase --autostash -X theirs || { git rebase --abort || true; }
-            git push && break
-            sleep 5
-          done
+          python -c "import pathlib, sys; from simgold import gitsync; sys.exit(0 if gitsync.sync(pathlib.Path('.')) else 1)"
