@@ -131,9 +131,9 @@ def test_stale_guidance_is_medium(tmp_path):
     assert run(root) == []
 
 
-def test_watchdog_stale_is_high_after_30_min(tmp_path):
-    assert run(setup(tmp_path, health_age_min=29)) == []
-    p = run(setup(tmp_path / "x", health_age_min=31))
+def test_watchdog_stale_is_high_after_75_min(tmp_path):
+    assert run(setup(tmp_path, health_age_min=74)) == []
+    p = run(setup(tmp_path / "x", health_age_min=76))
     assert [(x["check"], x["severity"]) for x in p] == [("watchdog_stale", "high")]
     root = setup(tmp_path / "y")
     (root / "state" / "health.json").write_text("{broken")

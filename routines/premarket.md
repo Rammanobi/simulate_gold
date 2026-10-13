@@ -64,6 +64,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    for s in in_progress queued; do gh api "repos/Rammanobi/simulate_gold/actions/runs?status=$s&per_page=5" --jq '[.workflow_runs[]|select(.path|test("market-hours"))]|length'; done
    ```
    Both 0 → `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`.
+   Then also dispatch the watchdog once (GitHub's schedules run late for this repo): `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main`.
    Any non-zero → do nothing (never start a second run). REST only; GraphQL is blocked.
 8. **Commit and push** (routine-owned files only):
    ```bash

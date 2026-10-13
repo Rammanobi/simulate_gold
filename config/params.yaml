@@ -178,7 +178,7 @@ alerts:
   stale_guidance_hours: 3
   safe_mode_incidents: 5             # more than this many distinct incidents in a day -> safe mode
   safe_mode_fix_window_min: 30       # a HIGH still open this long -> safe mode
-  watchdog_stale_min: 30             # state/health.json older than this in market hours -> HIGH
+  watchdog_stale_min: 75             # state/health.json older than this in market hours -> HIGH (GitHub cron is late; the hourly routine dispatches the watchdog)
   near_floor_inr: 100                # value this close to (or under) the floor is HIGH
 
 # ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----

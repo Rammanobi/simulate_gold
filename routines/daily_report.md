@@ -55,7 +55,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `to` = that one address, `subject` = the JSON subject (starts "Metals Daybook"), `body` = text file
    contents, `htmlBody` = HTML file contents. One send only. If the hook blocks it: report the reason and
    stop sending; do not retry with changes. Never write the address anywhere.
-9b. **Publish to the Inbox.** Skip silently if the `ArtifactData` tool is missing. `INBOX=$(cat config/inbox_url.txt)`; the report
+9b. **Publish to the Inbox.** Mandatory: the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing (then say so in the final message). `INBOX=$(cat config/inbox_url.txt)`; the report
     email already links to `$INBOX#daily-D`. Write the day's item:
     `python tools/inbox.py item-from-daily --date D [--report-url URL] --out /tmp/item.json` (URL = contents of
     `config/report_artifact_url.txt` when present), then ArtifactData `set` (url = $INBOX, collection `items`,

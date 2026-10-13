@@ -3,7 +3,7 @@
 {check, severity, category, detail}.     python tools/healthcheck.py [--pull] [--repo owner/name] [--no-write]
 
 Every run (unless --no-write) writes state/health.json {last_run, results[], all_green} and appends one line to
-logs/health-DATE.jsonl; a run that finds state/health.json older than 30 min in market hours reports `watchdog_stale`.
+logs/health-DATE.jsonl; a run that finds state/health.json older than watchdog_stale_min (75 min) in market hours reports `watchdog_stale`.
 Schemas are the real ones: state/portfolio.json (cash, positions, floor, liquidbees), logs/ticks-DATE.csv
 (time,value,floor,cash,liquidbees; time = HH:MM IST), state/guidance.json ("updated"), fastlane.json, events.json.
 """

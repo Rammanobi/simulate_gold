@@ -33,7 +33,13 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    ```
    Both 0 and time before 15:20 → `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`.
    Otherwise do nothing. Never start a second run. REST only.
-2b. **Unnotified owner decisions** (cheap; one ArtifactData query, usually empty). Skip silently if the `ArtifactData` tool
+   **GitHub's own schedules run hours late for this repo, so this routine also drives them** (cheap REST calls):
+   - At the 12:15 run, dispatch the afternoon session explicitly (it queues behind the morning one and starts ~12:20):
+     `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=afternoon'`
+     unless a `market-hours` run is already *queued*.
+   - Every run: `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main` and
+     `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/reminders.yml/dispatches -f ref=main`.
+2b. **Unnotified owner decisions** (cheap; one ArtifactData query, usually empty). the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing; skip if it
    or `config/inbox_url.txt` is missing. With url = `$(cat config/inbox_url.txt)`: `query` collection `decisions` where `notified == false`.
    For each row older than 5 minutes (`at`; newer ones are still being handled by the fired routine): read `config/main`
    (`decision_trigger_id`). If it is set and the connector `fire_trigger` is available, fire it ONCE with text
