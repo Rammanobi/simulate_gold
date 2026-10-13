@@ -15,9 +15,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1791897576.1283863,
+   "resolved_at": 1791901886.231341,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "routines_silent"
   }
  },
