@@ -96,8 +96,10 @@ class NewsBook:
         self.path = path
         self.items: dict[str, dict] = json.loads(path.read_text()) if path.exists() else {}
         self.last_refresh = 0.0
+        self.last_new: list[dict] = []   # headlines first seen in the latest refresh (fast-lane matching)
 
-    def refresh(self, force: bool = False) -> int:
+    def refresh(self, force: bool = False, llm_score: bool = True) -> int:
+        self.last_new = []
         if not force and time.time() - self.last_refresh < config.NEWS_REFRESH_MIN * 60:
             return 0
         self.last_refresh = time.time()
@@ -105,7 +107,8 @@ class NewsBook:
         fresh = [h for h in fetch_headlines(queries) if h["id"] not in self.items]
         if not fresh:
             return 0
-        scores = score_headlines(fresh) if os.getenv("ANTHROPIC_API_KEY") else None
+        self.last_new = fresh
+        scores = score_headlines(fresh) if (llm_score and os.getenv("ANTHROPIC_API_KEY")) else None
         for h in fresh:
             s = (scores or {}).get(h["id"]) or lexicon_score(h["title"])
             self.items[h["id"]] = {**h, **s}

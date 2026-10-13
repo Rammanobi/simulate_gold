@@ -43,3 +43,22 @@ def live_prices(tickers: list[str]) -> tuple[dict[str, float], dict[str, pd.Time
     if missing:
         log.warning("no intraday bars for %s", sorted(missing))
     return prices, stamps
+
+
+def intraday_bars(tickers: list[str]) -> dict[str, pd.DataFrame]:
+    """Today's 1-minute OHLCV bars per ticker (tz-aware IST index, lower-case columns)."""
+    df = _download(tickers, period="1d", interval="1m")
+    out = {}
+    for t in tickers:
+        try:
+            sub = pd.DataFrame({c.lower(): df[c][t] for c in ("Open", "High", "Low", "Close", "Volume")})
+        except KeyError:
+            continue
+        sub = sub.dropna(subset=["close"])
+        if sub.empty:
+            continue
+        idx = pd.DatetimeIndex(sub.index)
+        sub.index = idx.tz_localize("UTC") if idx.tz is None else idx
+        sub.index = sub.index.tz_convert("Asia/Kolkata")
+        out[t] = sub.sort_index()
+    return out

@@ -1,5 +1,5 @@
 {
- "cash": 100000.0,
+ "cash": 0.0,
  "positions": {},
  "peak_equity": 100000.0,
  "month": "2026-10",
@@ -9,5 +9,13 @@
  "flat_until": "",
  "realised_pnl": 0.0,
  "total_costs": 0.0,
- "trades": []
+ "trades": [],
+ "floor": 99500.0,
+ "best_profit": 0.0,
+ "liquidbees": 100000.0,
+ "last_accrual": "",
+ "counters": {},
+ "cooldowns": {},
+ "runtime": {},
+ "schema": 1
 }
