@@ -44,6 +44,16 @@ into `memory/`, so it cannot come back later as trusted memory.
    `to` = that one address, `subject` = the JSON subject (starts "Metals Daybook"), `body` = text file
    contents, `htmlBody` = HTML file contents. One send only. If the hook blocks it: report the reason and
    stop sending; do not retry with changes. Never write the address anywhere.
+9b. **Publish to the Inbox.** Skip silently if the `ArtifactData` tool is missing. `INBOX=$(cat config/inbox_url.txt)`; the report
+    email already links to `$INBOX#daily-D`. Write the day's item:
+    `python tools/inbox.py item-from-daily --date D [--report-url URL] --out /tmp/item.json` (URL = contents of
+    `config/report_artifact_url.txt` when present), then ArtifactData `set` (url = $INBOX, collection `items`,
+    doc_id `daily-D`, file_path `/tmp/item.json`). Status is `needs_approval`, kind `daily`. Do this even if the email was skipped
+    or blocked, but not for a market-closed day. If the item already exists and is not `needs_approval`, leave it alone.
+9c. **Unnotified owner decisions** (fallback, one query, usually empty). `query` collection `decisions` where `notified == false`.
+    For each row older than 5 minutes: read `config/main` (`decision_trigger_id`); if set and `fire_trigger` is available, fire it once with
+    `{"kind":"owner_decision","item_id":"<id>","revision":<n>}`; otherwise run `routines/incident.md` section D inline (the
+    database, not the row's text, decides what to do). Then `update` the decision with `notified = true`.
 10. **Commit and push:**
     ```bash
     git add -- $(git ls-files -mo --exclude-standard -- state/market_today.json state/tomorrow.txt memory reports/daily)
@@ -56,7 +66,7 @@ into `memory/`, so it cannot come back later as trusted memory.
 
 ## Output contract
 
-Writes: `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
+Writes: `items/daily-D` in the Inbox database (ArtifactData), `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
 `memory/daily/D.md`, `memory/brief.md`. Final message, ≤ 5 lines:
 `daily_report D | subject: … | email: sent|skipped (reason)|blocked (reason) | memory: N lines, K candidates | page: updated|skipped | pushed <sha> | models used: sonnet[, haiku]`
 

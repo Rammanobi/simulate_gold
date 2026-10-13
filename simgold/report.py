@@ -15,6 +15,8 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
+
 START_CAPITAL = 100_000.0
 LOCKED_FLOOR = 100_000.0
 INITIAL_FLOOR = 99_500.0
@@ -36,6 +38,7 @@ NSE_HOLIDAYS = {
 }
 NEUTRAL_MARKETS = ("dollar index", "usd/inr", "dxy", "usdinr")
 ETF_NAMES = {"GOLDBEES": "gold", "SILVERBEES": "silver", "HINDCOPPER": "copper"}
+SAMPLE_INBOX_URL = "https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh"  # sample templates only
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
 
@@ -713,7 +716,7 @@ def _money_row(label: str, amount: float, border: bool = False, bold: bool = Fal
             f'<td align="right" style="padding:7px 0;font-family:{FONT};font-size:15px;font-weight:700;color:{_tone_color(amount)};{b}">{sg(amount)}</td></tr>')
 
 
-def render_email(day: dict, report_url: str | None = None, sample: bool = False) -> str:
+def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
@@ -840,11 +843,24 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False)
                   f'<td align="center" bgcolor="#1f2937" style="border-radius:8px;"><a href="{_html.escape(link, quote=True)}" style="display:inline-block;padding:15px 28px;'
                   f'font-family:{FONT};font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                   f'Open the interactive report</a></td></tr></table></td></tr>\n')
-    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + _ops_html(day) + button + foot
+    ib = inbox_link(inbox_url or (SAMPLE_INBOX_URL if sample else None), daily_item_id(day["date"]))
+    inbox = ""
+    if ib:
+        inbox = (f'<tr><td align="center" style="padding:28px 20px 4px 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+                 f'<td align="center" bgcolor="#1f2937" style="border-radius:8px;"><a href="{_html.escape(ib, quote=True)}" style="display:block;padding:16px 18px;'
+                 f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
+                 f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
+        button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
+    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
-def render_text(day: dict, sample: bool = False) -> str:
+def _inbox_text(day: dict, inbox_url: str | None, sample: bool) -> list[str]:
+    ib = inbox_link(inbox_url or (SAMPLE_INBOX_URL if sample else None), daily_item_id(day["date"]))
+    return [f"{INBOX_LABEL}: {ib}", ""] if ib else []
+
+
+def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
@@ -852,7 +868,8 @@ def render_text(day: dict, sample: bool = False) -> str:
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
-              "TOMORROW", day["tomorrow"], "", *_ops_text(day), "This is a paper simulation. No real money or orders were placed."]
+              "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),
+              "This is a paper simulation. No real money or orders were placed."]
         return "\n".join(L) + "\n"
     L += ["HEADLINE", f"Day P&L:      {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)})",
           f"Month P&L:    {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)})",
@@ -888,7 +905,7 @@ def render_text(day: dict, sample: bool = False) -> str:
     L += ["", "WHERE TODAY'S P&L CAME FROM", f"Trades closed (realized): {sg(b['realized_trades'])}",
           f"Open positions (unrealised): {sg(b['unrealized_open'])}", f"LIQUIDBEES income: {sg(b['liquidbees_income'])}",
           f"Total: {sg(p['day_pnl'])}", f"(Costs of {inr(p['costs_paid'])} are already included above.)", "", "TOMORROW", day["tomorrow"], "",
-          *_ops_text(day), "This is a paper simulation. No real money or orders were placed."]
+          *_ops_text(day), *_inbox_text(day, inbox_url, sample), "This is a paper simulation. No real money or orders were placed."]
     return "\n".join(L) + "\n"
 
 
@@ -905,7 +922,7 @@ def render_page(day: dict, template_path: Path, sample: bool = False) -> str:
 
 # -------------------------------------------------------------------- write
 def write_reports(day: dict, out_dir: Path, stem: str, template_path: Path,
-                  report_url: str | None = None, sample: bool = False) -> dict[str, Path]:
+                  report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> dict[str, Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     day = prepare(day)
@@ -917,7 +934,7 @@ def write_reports(day: dict, out_dir: Path, stem: str, template_path: Path,
     }
     clean = {k: v for k, v in day.items() if sample or k != "_note"}
     paths["json"].write_text(json.dumps(clean, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    paths["email"].write_text(render_email(clean, report_url, sample), encoding="utf-8")
-    paths["txt"].write_text(render_text(clean, sample), encoding="utf-8")
+    paths["email"].write_text(render_email(clean, report_url, sample, inbox_url), encoding="utf-8")
+    paths["txt"].write_text(render_text(clean, sample, inbox_url), encoding="utf-8")
     paths["page"].write_text(render_page(clean, template_path, sample), encoding="utf-8")
     return paths

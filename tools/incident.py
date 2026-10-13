@@ -6,6 +6,7 @@
   open-issue --id ID            create the GitHub issue "[HIGH] title" (label incident) the owner acks on
   add-action --id ID --text T --kind safe-fix|proposal|info [--link URL] [--risk SENTENCE]
   set-status --id ID resolved|needs-approval|monitoring
+  revise-proposal --id ID --link PR_URL [--new-link URL] [--text T] [--risk R]   update a proposal after the owner's feedback
   set --id ID [--what .. --log .. --paused .. --portfolio .. --floor .. --missed .. --next .. --tier .. --handled ..]
       [--fix-failed] [--emailed]            (--emailed stamps the send time, or marks the Resolved email as sent)
   should-email --id ID          prints "SEND <mode>: reason" or "HOLD: reason" (mode: incident|reminder|still-broken|resolved)
@@ -28,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from simgold import alerts  # noqa: E402
+from simgold.inboxlink import INBOX_LABEL, inbox_link, load_inbox_url  # noqa: E402
 
 DIR = ROOT / "incidents"
 STATE = ROOT / "state"
@@ -158,7 +160,7 @@ def _action_row(a: dict) -> str:
 
 
 def render_html(rec: dict, mode: str = "incident", n: int = 0, first_sent: float | None = None,
-                related: list | None = None) -> str:
+                related: list | None = None, inbox_url: str | None = None) -> str:
     st = "resolved" if mode == "resolved" else rec["status"]
     label, fg, bg = STATUSES[st]
     acts = rec.get("actions", [])
@@ -167,6 +169,7 @@ def render_html(rec: dict, mode: str = "incident", n: int = 0, first_sent: float
     infos = [a for a in acts if a["kind"] == "info"]
     imp = rec.get("impact", {})
     high = rec.get("severity") == "high"
+    ib = inbox_link(inbox_url, rec["id"]) if mode != "resolved" and st != "resolved" else None
     parts = [f'<p style="margin:0 0 10px 0;">{e(rec.get("what") or rec["summary"])}</p>']
     if rec.get("log"):
         parts.append(f'<div style="background:#111827;color:#e5e7eb;border-radius:8px;padding:12px 14px;font-family:Menlo,Consolas,monospace;'
@@ -180,7 +183,8 @@ def render_html(rec: dict, mode: str = "incident", n: int = 0, first_sent: float
     did_rows = "".join(_action_row(a) for a in safe + infos)
     did = (f'<table role="presentation" cellpadding="0" cellspacing="0" width="100%">{did_rows}</table>' if did_rows
            else f'<span style="color:{GREY};">Nothing changed yet.</span>')
-    body = [_section("What went wrong", "".join(parts)), _section("Impact", impact), _section("What I did", did)]
+    body = ([f'<tr><td style="padding:6px 20px 0 20px;">{_button(ib, INBOX_LABEL, "dark")}</td></tr>'] if ib else [])
+    body += [_section("What went wrong", "".join(parts)), _section("Impact", impact), _section("What I did", did)]
     if related:
         li = "".join(f'<li style="padding:2px 0;">{e(r.get("step"))} ({e(r.get("severity"))}): {e(r.get("detail", "")[:140])}</li>' for r in related[:6])
         body.append(_section("Also happening", f'<ul style="margin:0;padding-left:18px;font-size:14px;color:{INK};">{li}</ul>'))
@@ -189,12 +193,14 @@ def render_html(rec: dict, mode: str = "incident", n: int = 0, first_sent: float
         for a in props:
             btns = ""
             if a.get("link"):
-                btns = _button(a["link"], "Review & merge the fix", "green") + _button(a["link"], "Reject (close the PR)", "outline")
+                btns = (f'<div style="font-size:13px;line-height:19px;color:{GREY};padding-top:8px;">Or decide on GitHub:</div>' if ib else "") + \
+                       _button(a["link"], "Review & merge the fix", "green") + _button(a["link"], "Reject (close the PR)", "outline")
             risk = (f'<div style="font-size:13px;line-height:19px;color:{GREY};padding-top:10px;">If not approved: '
                     f'{e(a.get("risk") or "the problem stays as described above.")}</div>')
             cards += (f'<div style="border:1px solid #e5d9a8;background:#fbf6e3;border-radius:10px;padding:14px;margin-bottom:10px;">'
                       f'<div style="font-weight:700;">{e(a["text"])}</div>{btns}{risk}</div>')
-        cards += (f'<div style="font-size:12px;line-height:18px;color:{GREY};">Only merging the pull request on GitHub approves a code change. '
+        cards += (f'<div style="font-size:12px;line-height:18px;color:{GREY};">'
+                  f'{"Accepting in the Daybook Inbox merges the pull request for you; merging it on GitHub works too. " if ib else "Only merging the pull request on GitHub approves a code change. "}'
                   f'Replying to this email can only acknowledge it, never approve anything.</div>')
         body.append(_section("What needs your approval", cards))
     if high and rec.get("issue_url") and mode != "resolved":
@@ -229,13 +235,18 @@ def render_html(rec: dict, mode: str = "incident", n: int = 0, first_sent: float
 """
 
 
-def render_text(rec: dict, mode: str = "incident", n: int = 0, first_sent: float | None = None, related: list | None = None) -> str:
+def render_text(rec: dict, mode: str = "incident", n: int = 0, first_sent: float | None = None, related: list | None = None,
+                inbox_url: str | None = None) -> str:
     st = "resolved" if mode == "resolved" else rec["status"]
     imp = rec.get("impact", {})
     L = [subject_for(rec, mode, n), ""]
     if mode == "reminder":
         L += [f"First sent {_hhmm(first_sent)}, no response yet.", ""]
-    L += [f"{STATUSES[st][0].upper()} (severity {rec['severity']}): {rec['summary']}", "", "WHAT WENT WRONG", rec.get("what") or rec["summary"]]
+    ib = inbox_link(inbox_url, rec["id"]) if mode != "resolved" and st != "resolved" else None
+    L += [f"{STATUSES[st][0].upper()} (severity {rec['severity']}): {rec['summary']}", ""]
+    if ib:
+        L += [f"{INBOX_LABEL}: {ib}", ""]
+    L += ["WHAT WENT WRONG", rec.get("what") or rec["summary"]]
     if rec.get("log"):
         L += ["", *["  " + x for x in rec["log"]]]
     if rec.get("handled_by"):
@@ -252,14 +263,16 @@ def render_text(rec: dict, mode: str = "incident", n: int = 0, first_sent: float
         for a in props:
             L += [f"- {a['text']}", f"  Review & merge the fix / Reject (close the PR): {a.get('link') or 'n/a'}",
                   f"  If not approved: {a.get('risk') or 'the problem stays as described.'}"]
-        L += ["  Only merging the PR approves a change; replying to this email can only acknowledge."]
+        L += ["  Accepting in the Daybook Inbox merges the PR for you; merging it on GitHub works too. Replying to this email can only acknowledge." if ib
+              else "  Only merging the PR approves a change; replying to this email can only acknowledge."]
     if rec.get("severity") == "high" and rec.get("issue_url") and mode != "resolved":
         L += ["", "ACKNOWLEDGE", f"Stop reminders: {rec['issue_url']} (comment ack, close it, or reply ACK to this email)."]
     L += ["", "WHAT HAPPENS NEXT", rec.get("next") or "I will keep watching the next runs.", "", f"Incident {rec['id']}. Paper trading only."]
     return "\n".join(L) + "\n"
 
 
-def render(rec: dict, d: Path | None = None, mode: str = "incident", state_dir: Path | None = None) -> dict:
+def render(rec: dict, d: Path | None = None, mode: str = "incident", state_dir: Path | None = None,
+           inbox_url: str | None = None) -> dict:
     d = d or DIR
     d.mkdir(parents=True, exist_ok=True)
     sd = state_dir or STATE
@@ -274,9 +287,11 @@ def render(rec: dict, d: Path | None = None, mode: str = "incident", state_dir: 
         pass
     if mode not in ("reminder",):
         n = n if mode != "incident" else 0
+    if inbox_url is None:
+        inbox_url = load_inbox_url(ROOT)
     hp, tp = d / f"{rec['id']}.email.html", d / f"{rec['id']}.email.txt"
-    hp.write_text(render_html(rec, mode, n, first, related), encoding="utf-8")
-    tp.write_text(render_text(rec, mode, n, first, related), encoding="utf-8")
+    hp.write_text(render_html(rec, mode, n, first, related, inbox_url), encoding="utf-8")
+    tp.write_text(render_text(rec, mode, n, first, related, inbox_url), encoding="utf-8")
     return {"subject": subject_for(rec, mode, n), "html_path": str(hp), "text_path": str(tp)}
 
 
@@ -335,6 +350,8 @@ def main(argv=None) -> int:
     o.add_argument("--error", default=""); o.add_argument("--fingerprint"); _fields(o)
     x = sub.add_parser("add-action"); x.add_argument("--id", required=True); x.add_argument("--text", required=True)
     x.add_argument("--kind", required=True, choices=KINDS); x.add_argument("--link"); x.add_argument("--risk")
+    rp = sub.add_parser("revise-proposal"); rp.add_argument("--id", required=True); rp.add_argument("--link", required=True)
+    rp.add_argument("--new-link"); rp.add_argument("--text"); rp.add_argument("--risk")
     s = sub.add_parser("set-status"); s.add_argument("--id", required=True); s.add_argument("status", choices=list(STATUSES))
     st = sub.add_parser("set"); st.add_argument("--id", required=True); _fields(st)
     st.add_argument("--fix-failed", action="store_true"); st.add_argument("--emailed", action="store_true")
@@ -366,6 +383,15 @@ def main(argv=None) -> int:
         if a.link: act["link"] = a.link
         if a.risk: act["risk"] = a.risk
         rec["actions"].append(act)
+    elif a.cmd == "revise-proposal":
+        hit = [x for x in rec["actions"] if x["kind"] == "proposal" and x.get("link") == a.link]
+        if not hit:
+            sys.exit(f"no proposal with link {a.link} in {rec['id']}")
+        for x in hit:
+            x["link"] = a.new_link or x["link"]
+            x["text"] = a.text or x["text"]
+            if a.risk:
+                x["risk"] = a.risk
     elif a.cmd == "set-status":
         rec["status"] = a.status
         if a.status == "resolved":

@@ -13,16 +13,18 @@ import sys
 from pathlib import Path
 
 from simgold import report
+from simgold.inboxlink import load_inbox_url
 
 ROOT = Path(__file__).resolve().parent
 
 
-def generate(date: str, root: Path = ROOT, report_url: str | None = None, holiday: str | None = None):
+def generate(date: str, root: Path = ROOT, report_url: str | None = None, holiday: str | None = None,
+             inbox_url: str | None = None):
     """Build and write the report files for one trading date. Returns (day dict, {json,email,txt,page: Path})."""
     root = Path(root)
     day = report.build_day(date, root, holiday=holiday)
     paths = report.write_reports(day, root / "reports" / "daily", date, ROOT / "templates" / "daily_report_template.html",
-                                 report_url=report_url)
+                                 report_url=report_url, inbox_url=inbox_url or load_inbox_url(root))
     return day, paths
 
 
@@ -52,7 +54,8 @@ def main(argv=None) -> int:
             ap.error("--date must look like 2026-10-12")
         day = report.build_day(date, root, holiday=a.holiday)
         stem = date
-    report.write_reports(day, out, stem, template, report_url=a.report_url, sample=a.sample)
+    report.write_reports(day, out, stem, template, report_url=a.report_url, sample=a.sample,
+                         inbox_url=None if a.sample else load_inbox_url(root))
     print(report.subject_line(day))
     return 0
 
