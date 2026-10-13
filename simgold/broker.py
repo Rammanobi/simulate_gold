@@ -23,6 +23,13 @@ class Position:
     avg_cost: float = 0.0
     high_water: float = 0.0
     opened: str = ""
+    # --- Green Guard fields (engine.py); the legacy brain ignores them -------------------------
+    stop: float = 0.0            # current stop price (initial, then break-even, or tightened)
+    half_sold: bool = False      # take-half-profit already done -> trailing stop is live
+    adds: int = 0                # how many times this position was added to
+    buy_costs: float = 0.0       # entry costs of the shares still held (for net P&L)
+    last_price: float = 0.0
+    entry_ts: str = ""
 
 
 @dataclass
@@ -38,6 +45,15 @@ class Portfolio:
     realised_pnl: float = 0.0
     total_costs: float = 0.0
     trades: list[dict] = field(default_factory=list)
+    # --- Green Guard state (engine.py) -----------------------------------------------------------
+    floor: float = 99500.0
+    best_profit: float = 0.0
+    liquidbees: float = 0.0                       # rupees parked in LIQUIDBEES (earns the daily yield)
+    last_accrual: str = ""                        # ISO date interest was last credited up to
+    counters: dict = field(default_factory=dict)  # day / week trade counts and the 2-loss counter
+    cooldowns: dict = field(default_factory=dict) # buy spacing, blocks, stop-outs, tripwire day, skip log times
+    runtime: dict = field(default_factory=dict)   # score streaks, price shocks seen, value history, fast-lane runs
+    schema: int = 1
 
     # ---- persistence -------------------------------------------------------------
     @classmethod
@@ -45,8 +61,17 @@ class Portfolio:
         if not path.exists():
             return cls()
         d = json.loads(path.read_text())
-        d["positions"] = {k: Position(**v) for k, v in d.get("positions", {}).items()}
-        return cls(**d)
+        pos_fields = set(Position.__dataclass_fields__)
+        d["positions"] = {k: Position(**{a: b for a, b in v.items() if a in pos_fields})
+                          for k, v in d.get("positions", {}).items()}
+        known = set(cls.__dataclass_fields__)
+        legacy = d.get("schema", 0) < 1
+        pf = cls(**{a: b for a, b in d.items() if a in known})
+        if legacy:  # migrate the pre-Green-Guard file: idle cash moves into LIQUIDBEES
+            pf.liquidbees, pf.cash = pf.cash, 0.0
+            pf.floor = 99500.0
+            pf.schema = 1
+        return pf
 
     def save(self, path: Path) -> None:
         path.write_text(json.dumps(asdict(self), indent=1, default=str))

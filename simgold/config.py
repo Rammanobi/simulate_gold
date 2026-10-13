@@ -77,3 +77,30 @@ NEWS_HALF_LIFE_H = 12                 # news sentiment decays with a 12h half-li
 RISK = Risk()
 WEIGHTS = Weights()
 COSTS = Costs()
+
+
+# ---- Green Guard rulebook parameters (config/params.yaml) -------------------------------
+import functools as _functools
+from pathlib import Path as _Path
+
+PARAMS_PATH = _Path(__file__).resolve().parent.parent / "config" / "params.yaml"
+
+
+@_functools.lru_cache(maxsize=None)
+def _load(path: str) -> dict:
+    import yaml
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+def load_params(path=None) -> dict:
+    """Rulebook section 10 plus the engine extras, as a dict. Cached per path."""
+    return _load(str(path or PARAMS_PATH))
+
+
+def symbol_of(name: str) -> str:
+    """Normalise GOLD / GOLDBEES / GOLDBEES.NS (any case) to the rulebook symbol GOLDBEES."""
+    n = str(name).strip().upper()
+    if n.endswith(".NS"):
+        n = n[:-3]
+    return load_params()["engine"]["aliases"].get(n, n)

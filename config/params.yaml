@@ -1,0 +1,138 @@
+# simulate_gold rulebook v1 - all amounts in INR, percentages as decimals
+# Sections up to `governance` are the rulebook section 10 block, verbatim.
+# The `engine:` section at the bottom holds engine-only extras (tickers, tolerances).
+capital:
+  start: 100000
+  park_symbol: LIQUIDBEES
+  park_ticker: LIQUIDBEES.NS        # cash-parking instrument; modelled as a rupee balance
+  liquid_credit: daily_pro_rata_calendar   # yield/365 per calendar day, credited daily
+  liquid_yield_annual: 0.063
+  liquid_carry_haircut: 0.8          # green_budget uses 80% of expected carry
+  min_cash_pct: 0.30
+
+valuation:
+  mark: ltp_minus_exit_cost          # value is net of round-trip/2 exit cost
+  month_end_mark: close_last_nse_trading_day
+  paper_slippage: {GOLDBEES: 0.0005, SILVERBEES: 0.0005, HINDCOPPER: 0.0010}
+
+green_guard:
+  initial_floor: 99500
+  lock_trigger_profit: 500
+  locked_floor: 100000
+  ratchet_share: 0.50
+  ratchet_offset: 500                # floor = 100000 + 0.5*(best_profit - 500); set 0 for literal
+  floor_never_decreases: true
+  tripwire_buffer: 100               # flatten all at value <= floor + 100
+  tripwire_cooldown: next_trading_day
+  caution_buffer: 300                # no new buys at value <= floor + 300
+  monthly_reset: false               # floor carries over and keeps ratcheting
+
+sizing:
+  risk_formula: qty * price * (gap_pct * gap_multiplier + cost_pct)
+  reserve: 100                       # usable = min(cushion - 100, green_budget) * week_factor
+  green_budget_target: 100000
+  green_budget_buffer: 100
+  week_factor:   {week1: 0.50, week2: 0.75, rest: 1.00}
+  week_days:     {week1: [1, 5], week2: [6, 10]}
+  max_gross_pct: {week1: 0.30, week2: 0.50, rest: 0.70}
+  gap_multiplier: {weekend: 1.25, nse_holiday_global_open: 1.5}
+  round_qty: floor
+
+instruments:
+  GOLDBEES:   {cap_pct: 0.60, stop: 0.012, gap: 0.03, cost: 0.0010, target_half: 0.015, trail: 0.010, time_stop_days: 5}
+  SILVERBEES: {cap_pct: 0.30, stop: 0.020, gap: 0.05, cost: 0.0010, target_half: 0.025, trail: 0.016, time_stop_days: 4}
+  HINDCOPPER: {cap_pct: 0.15, stop: 0.030, gap: 0.07, cost: 0.0025, target_half: 0.040, trail: 0.025, time_stop_days: 3}
+
+positions:
+  max_open: 3
+  one_per_instrument: true
+  max_adds: 1
+  add_requires_progress: 0.5         # fraction of target_half already reached
+  after_half_stop: entry_plus_costs
+  score_exit_below: 0.35
+  score_exit_time: "15:15"
+  time_stop_exit_time: "15:15"
+
+entry:
+  score_confirm_minutes: 3
+  max_price_age_min: 3
+  thresholds:
+    favour:  {GOLDBEES: 0.65, SILVERBEES: 0.70, HINDCOPPER: 0.75}
+    neutral: {GOLDBEES: 0.70, SILVERBEES: 0.75, HINDCOPPER: 0.80}
+    block:   no_buys
+  stale_guidance_minutes: 75
+  stale_guidance_penalty: 0.05       # treated as neutral + 0.05
+  score_weights:
+    close_gt_ema20: 0.15
+    ema20_gt_ema50: 0.15
+    ret10d_pos: 0.10
+    rsi14_50_70: 0.15
+    price_gt_vwap: 0.10
+    price_gt_or15_high: 0.15
+    range_lt_1p5_atr14: 0.10
+    open_gap_lt_1_dailyvol: 0.10
+
+daily_limits:
+  max_buys_per_day: 3
+  max_buys_per_instrument_day: 1
+  max_buys_per_instrument_week: 3
+  min_minutes_between_buys: 30
+  no_rebuy_after_stop_same_day: true
+  no_buys_before: "09:30"
+  no_buys_after: "15:00"
+  max_losing_trades_then_stop: 2
+  overnight_check_time: "15:20"
+
+fast_lane:
+  max_runs_per_day: 4
+  min_minutes_between_runs: 20
+  shock_window_min: 10
+  shock_pct:      {GOLDBEES: 0.006, SILVERBEES: 0.010, HINDCOPPER: 0.018}
+  from_close_pct: {GOLDBEES: 0.015, SILVERBEES: 0.027, HINDCOPPER: 0.040}
+  from_close_once_per_day: true
+  portfolio_drop_share_of_cushion: 0.40
+  portfolio_drop_window_min: 15
+  auto_block_on_shock_min: 30
+  auto_block_when_limit_hit_min: 60
+  news_file: news_triggers.yaml
+  add_categories: [india_duty_budget, company_actions, market_halt]
+  allowed_actions: [set_bias_neutral, set_bias_block, exit_partial, exit_full, tighten_stop, halt_buys_today]
+  forbidden_actions: [buy, set_bias_favour, loosen_stop, raise_cap, change_floor, change_gap, skip_limits]
+
+events:
+  calendar_file: events.json
+  us_cpi:   {no_metal_buys_after: "13:00", overnight_gap_mult: 1.5, next_day_no_buys_before: "09:45", applies: [GOLDBEES, SILVERBEES]}
+  us_jobs:  {no_metal_buys_after: "13:00", overnight_gap_mult: 1.5, next_day_no_buys_before: "09:45", applies: [GOLDBEES, SILVERBEES]}
+  fomc:     {no_metal_buys_all_day: true, overnight_gap_mult: 2.0, next_day_no_buys_before: "10:15", applies: [GOLDBEES, SILVERBEES]}
+  rbi:      {no_buys_window: ["09:15", "10:45"], applies: all}
+  union_budget: {same_as: fomc}
+  hindcopper_results: {no_buys_from_days_before: 2, exit_by: "15:00", exit_day: day_before, resume: "10:15 on 2nd trading day after"}
+
+month_end:
+  protect_last_trading_days: 3
+  no_new_buys: true
+  gap_mult: 1.5
+  required_min: max(floor, 100000) + 200
+  flatten_if_value_below: 100300
+  last_day_exit_time: "15:15"
+  last_day_min_after_stop: 100200
+
+governance:
+  weekly_review_can_tighten: true
+  loosening_requires_owner_approval: true
+
+# ---- engine-only extras (not in the rulebook block) ---------------------------------
+engine:
+  tickers: {GOLDBEES: GOLDBEES.NS, SILVERBEES: SILVERBEES.NS, HINDCOPPER: HINDCOPPER.NS}
+  kinds:   {GOLDBEES: etf, SILVERBEES: etf, HINDCOPPER: equity}
+  aliases: {GOLD: GOLDBEES, SILVER: SILVERBEES, COPPER: HINDCOPPER}
+  required_min_buffer: 200           # month_end.required_min = max(floor, 100000) + 200
+  month_end_floor_base: 100000
+  stale_feed_skip_min: 15            # all feeds older than this: skip the tick entirely
+  streak_max_gap_sec: 150            # a gap between observations longer than this restarts the 3-minute confirmation
+  hindcopper_exit_lead_min: 5        # "sell by 15:00" is executed from 14:55
+  hindcopper_intraday_exit_lead_min: 10
+  fastlane_max_block: end_of_day     # block_until from the fast lane is clamped to today
+  fastlane_max_age_min: 30           # ignore fastlane.json older than this when first seen
+  market_open: "09:15"
+  market_close: "15:30"
