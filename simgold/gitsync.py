@@ -24,8 +24,19 @@ def _git(root: Path, *args: str, runner=subprocess.run) -> subprocess.CompletedP
     return runner(["git", *args], cwd=root, capture_output=True, text=True, timeout=90)
 
 
-def sync(root: Path, runner=subprocess.run, now: datetime | None = None, retries: int = 3) -> bool:
-    """add -> commit -> pull --rebase -> push. Returns True if the push succeeded (or nothing to push)."""
+def sync(root: Path, runner=subprocess.run, now: datetime | None = None, retries: int = 3, monitor=None) -> bool:
+    """add -> commit -> pull --rebase -> push. Returns True if the push succeeded (or nothing to push).
+    `monitor` (simgold.incidents.IncidentMonitor) is told the result so repeated failures raise an incident."""
+    ok = _sync(root, runner, now, retries)
+    if monitor is not None:
+        try:
+            monitor.sync_result(ok, "" if ok else "see the engine log for the git error")
+        except Exception:      # noqa: BLE001 - never let alerting break trading
+            log.exception("incident monitor failed")
+    return ok
+
+
+def _sync(root: Path, runner, now, retries) -> bool:
     stamp = (now or datetime.now(IST)).strftime("%H:%M")
     try:
         _git(root, "add", "state", "logs", "reports", runner=runner)

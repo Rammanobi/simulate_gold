@@ -2,6 +2,7 @@ name: incident
 
 # Forwards failed runs of the engine/test workflows to the Claude "incident" routine.
 # This workflow is NOT in its own trigger list, so it can never trigger itself.
+# simgold/alerts.py decides whether the routine is woken (fingerprint, severity, 6 fires/day budget).
 on:
   workflow_run:
     workflows: ["market-hours paper trading", "tests"]
@@ -9,8 +10,12 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write     # commits state/alerts.json (the shared alert state) back to main
   issues: read
+
+concurrency:
+  group: alert-state
+  cancel-in-progress: false
 
 jobs:
   notify:
@@ -29,8 +34,15 @@ jobs:
       ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}
       ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml
+
       - name: Collect facts
-        id: facts
         continue-on-error: true
         run: |
           set +e
@@ -38,56 +50,60 @@ jobs:
           FAILED_JOB=$(echo "$jobs_json" | jq -r '[.jobs[]? | select(.conclusion=="failure" or .conclusion=="timed_out")][0].name // "unknown"')
           FAILED_STEP=$(echo "$jobs_json" | jq -r '[.jobs[]? | select(.conclusion=="failure" or .conclusion=="timed_out")][0] | [.steps[]? | select(.conclusion=="failure" or .conclusion=="timed_out")][0].name // "unknown"')
           gh run view "$RUN_ID" --log-failed 2>/dev/null | tail -n 120 | cut -c1-400 > "$RUNNER_TEMP/log_tail.txt"
-          echo "FAILED_JOB=$FAILED_JOB" >> "$GITHUB_ENV"
-          echo "FAILED_STEP=$FAILED_STEP" >> "$GITHUB_ENV"
+          CAT=workflow_failed
+          if [ "$WF_BRANCH" = "main" ] && { [ "$WF_NAME" = "tests" ] || echo "$FAILED_STEP" | grep -qi pytest; }; then CAT=test_failure_main; fi
+          { echo "FAILED_JOB=$FAILED_JOB"; echo "FAILED_STEP=$FAILED_STEP"; echo "CAT=$CAT"; } >> "$GITHUB_ENV"
           exit 0
 
-      - name: De-dupe against open incident issues
+      - name: Cheap pre-filter, open incident issue for the same workflow and step in the last 2h
         id: dedupe
         continue-on-error: true
         run: |
           set +e
           since=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-          # open issues labelled "incident" created in the last 2h whose title/body names the same workflow and step
           n=$(gh api "repos/$GH_REPO/issues?state=open&labels=incident&since=$since&per_page=50" 2>/dev/null \
             | jq --arg wf "$WF_NAME" --arg st "$FAILED_STEP" --arg since "$since" \
               '[.[]? | select(.pull_request|not) | select(.created_at >= $since) | select((.title + " " + (.body // "")) | (contains($wf) and contains($st)))] | length' 2>/dev/null)
           echo "duplicates=${n:-0}" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Send to incident routine
+      - name: Alert policy gate and wake the routine
         if: steps.dedupe.outputs.duplicates == '0' || steps.dedupe.outputs.duplicates == ''
         run: |
           set +e
           if [ -z "$ROUTINE_INCIDENT_URL" ] || [ -z "$ROUTINE_INCIDENT_TOKEN" ]; then
-            {
-              echo "### Incident routine not configured"
+            { echo "### Incident routine not configured"
               echo "Run [$WF_NAME #$RUN_ID]($WF_URL) ended with **$WF_CONCLUSION** (job: $FAILED_JOB, step: $FAILED_STEP)."
-              echo "Set repository secrets \`ROUTINE_INCIDENT_URL\` and \`ROUTINE_INCIDENT_TOKEN\` to enable automatic diagnosis."
-            } >> "$GITHUB_STEP_SUMMARY"
+              echo "Set repository secrets ROUTINE_INCIDENT_URL and ROUTINE_INCIDENT_TOKEN to enable automatic diagnosis."; } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          tail_text=$(tail -n 120 "$RUNNER_TEMP/log_tail.txt" 2>/dev/null)
-          mk() { jq -cn --arg wf "$WF_NAME" --arg run "$RUN_ID" --arg br "$WF_BRANCH" --arg sha "$WF_SHA" \
-            --arg url "$WF_URL" --arg concl "$WF_CONCLUSION" --arg job "$FAILED_JOB" --arg step "$FAILED_STEP" \
-            --arg log "$1" '{source:"github-actions",workflow:$wf,run_id:$run,branch:$br,head_sha:$sha,url:$url,conclusion:$concl,failed_job:$job,step:$step,log_tail:$log}'; }
-          facts=$(mk "$tail_text")
-          # keep the whole text within ~12 KB by trimming the oldest log lines
-          while [ "${#facts}" -gt 11500 ] && [ -n "$tail_text" ]; do
-            tail_text=$(printf '%s\n' "$tail_text" | tail -n +11)
+          decision=$(python -m simgold.alerts gate --component "$WF_NAME" --step "$FAILED_STEP" --category "$CAT" \
+            --log-file "$RUNNER_TEMP/log_tail.txt" --detail "$WF_CONCLUSION in $FAILED_JOB / $FAILED_STEP")
+          echo "decision: $decision" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(echo "$decision" | jq -r '.fire // false')" = "true" ]; then
+            fp=$(echo "$decision" | jq -r .fingerprint); sev=$(echo "$decision" | jq -r .severity)
+            tail_text=$(tail -n 120 "$RUNNER_TEMP/log_tail.txt" 2>/dev/null)
+            mk() { jq -cn --arg wf "$WF_NAME" --arg run "$RUN_ID" --arg br "$WF_BRANCH" --arg sha "$WF_SHA" --arg url "$WF_URL" \
+              --arg concl "$WF_CONCLUSION" --arg job "$FAILED_JOB" --arg step "$FAILED_STEP" --arg fp "$fp" --arg sev "$sev" --arg log "$1" \
+              '{source:"github-actions",workflow:$wf,run_id:$run,branch:$br,head_sha:$sha,url:$url,conclusion:$concl,failed_job:$job,step:$step,fingerprint:$fp,severity:$sev,log_tail:$log}'; }
             facts=$(mk "$tail_text")
-          done
-          body=$(jq -cn --arg t "$facts" '{text:$t}')
-          code=$(curl -sS -o "$RUNNER_TEMP/resp.txt" -w '%{http_code}' --max-time 30 -X POST "$ROUTINE_INCIDENT_URL" \
-            -H "Authorization: Bearer $ROUTINE_INCIDENT_TOKEN" \
-            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "Content-Type: application/json" --data "$body")
-          echo "### Incident routine fired (HTTP $code)" >> "$GITHUB_STEP_SUMMARY"
-          echo "$WF_NAME #$RUN_ID, step: $FAILED_STEP" >> "$GITHUB_STEP_SUMMARY"
-          exit 0   # never fail loudly
+            while [ "${#facts}" -gt 11500 ] && [ -n "$tail_text" ]; do tail_text=$(printf '%s\n' "$tail_text" | tail -n +11); facts=$(mk "$tail_text"); done
+            echo "$facts" > "$RUNNER_TEMP/facts.json"
+            python -m simgold.alerts post --text-file "$RUNNER_TEMP/facts.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
 
       - name: Note skipped duplicate
         if: steps.dedupe.outputs.duplicates != '0' && steps.dedupe.outputs.duplicates != ''
         run: |
           echo "Skipped - an open incident issue for $WF_NAME / $FAILED_STEP already exists (last 2h)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit alert state
+        if: always()
+        run: |
+          set +e
+          git config user.name "simgold-alerts"; git config user.email "actions@users.noreply.github.com"
+          git add state/alerts.json state/safe_mode.json 2>/dev/null
+          git diff --cached --quiet || git commit -qm "alerts: state update"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
+          exit 0

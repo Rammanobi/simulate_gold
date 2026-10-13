@@ -1,0 +1,86 @@
+name: reminders
+
+# Hourly at :07, 24/7. Costs no Claude usage unless a HIGH incident is unacknowledged and its last email is >= 55 min old.
+# 1. runs the healthcheck (this also keeps the watchdog watched: a stale state/health.json is itself a HIGH alert),
+# 2. records acknowledgements from GitHub (issue closed, `ack` label, or an `ack` comment by someone with write access),
+# 3. only then POSTs {"mode":"reminder","incident_id":...} to the incident routine.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  issues: read
+
+concurrency:
+  group: alert-state
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}
+      ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 60
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Healthcheck (watches the watchdog)
+        run: |
+          set +e
+          python tools/healthcheck.py --pull > "$RUNNER_TEMP/problems.txt"
+          if [ $? -eq 4 ]; then
+            decision=$(python -m simgold.alerts problems "$RUNNER_TEMP/problems.txt")
+            echo "decision: $decision" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(echo "$decision" | jq -r '.fire // false')" = "true" ]; then
+              head -c 5000 "$RUNNER_TEMP/problems.txt" > "$RUNNER_TEMP/p.txt"
+              jq -cn --rawfile p "$RUNNER_TEMP/p.txt" '{source:"reminders-healthcheck",workflow:"watchdog",problems_raw:$p}' > "$RUNNER_TEMP/facts.json"
+              python -m simgold.alerts post --text-file "$RUNNER_TEMP/facts.json" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          exit 0
+
+      - name: Record acknowledgements and find reminders that are due
+        id: due
+        run: |
+          set +e
+          out=$(python -m simgold.alerts reminders --repo "$GH_REPO")
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+          echo "$out" | jq -r '.due[]?' > "$RUNNER_TEMP/due.txt"
+          echo "n=$(wc -l < "$RUNNER_TEMP/due.txt")" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Wake the routine in reminder mode (only if something is due)
+        if: steps.due.outputs.n != '0'
+        run: |
+          set +e
+          while read -r id; do
+            [ -z "$id" ] && continue
+            jq -cn --arg id "$id" '{mode:"reminder",incident_id:$id}' > "$RUNNER_TEMP/rem.json"
+            python -m simgold.alerts post --text-file "$RUNNER_TEMP/rem.json" >> "$GITHUB_STEP_SUMMARY"
+          done < "$RUNNER_TEMP/due.txt"
+          exit 0
+
+      - name: Commit alert and health state
+        if: always()
+        run: |
+          set +e
+          git config user.name "simgold-reminders"; git config user.email "actions@users.noreply.github.com"
+          git add state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl 2>/dev/null
+          git diff --cached --quiet || git commit -qm "reminders: state $(date +%H:%M) IST"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
+          exit 0

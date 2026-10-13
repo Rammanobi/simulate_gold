@@ -1,6 +1,8 @@
-"""Engine-side incident detection: thresholds, JSONL log, rate-limited webhook to the incident routine.
+"""Engine-side incident detection. Thresholds and the wake budget come from simgold/alerts.py (config alerts:).
 
-Nothing in here may raise into the trading loop; every public method swallows its own errors.
+Every detector appends to logs/incidents-DATE.jsonl and records the alert in state/alerts.json; the routine webhook
+is POSTed only when alerts.py says so (new fingerprint, within the 6-fires/day budget). Nothing here may raise
+into the trading loop.
 """
 from __future__ import annotations
 
@@ -8,116 +10,105 @@ import json
 import logging
 import os
 import subprocess
+import tempfile
 import time
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from . import alerts
 from .market import IST
 
 log = logging.getLogger("incidents")
-
-TICK_EXC_THRESHOLD = 3          # consecutive tick exceptions
-NO_PRICES_MIN = 10              # minutes without fresh prices during market hours
-SYNC_FAIL_THRESHOLD = 3         # consecutive git sync failures
-MAX_PER_DAY = 3                 # webhook posts per IST day
-MIN_GAP_MIN = 30                # minutes between webhook posts
 WORKFLOW = "market-hours paper trading"
-MAX_TEXT = 12_000
 
-
-def _day(now: float) -> str:
-    return datetime.fromtimestamp(now, IST).date().isoformat()
-
-
-def build_text(facts: dict) -> str:
-    """Compact JSON string, hard-capped so the POST body stays small."""
-    text = json.dumps(facts, separators=(",", ":"), default=str)
-    if len(text) > MAX_TEXT:
-        facts = {**facts, "detail": str(facts.get("detail", ""))[:2000]}
-        text = json.dumps(facts, separators=(",", ":"), default=str)[:MAX_TEXT]
-    return text
-
-
-def post_routine(text: str, url: str, token: str, timeout: float = 10.0) -> bool:
-    body = json.dumps({"text": text}).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "Authorization": f"Bearer {token}", "anthropic-beta": "experimental-cc-routine-2026-04-01",
-        "anthropic-version": "2023-06-01", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return 200 <= r.status < 300
-    except Exception as e:  # noqa: BLE001 - must never crash the engine
-        log.warning("incident POST failed: %s", e)
-        return False
+# kept for callers that imported them
+build_text = alerts.build_text
+post_routine = alerts.post_routine
 
 
 class IncidentMonitor:
-    def __init__(self, logs_dir: Path, poster=post_routine, clock=time.time):
-        self.logs_dir, self.poster, self.clock = Path(logs_dir), poster, clock
+    def __init__(self, logs_dir: Path, state_dir: Path | None = None, poster=alerts.post_routine,
+                 clock=time.time, cfg: dict | None = None, environ=None):
+        self.logs_dir = Path(logs_dir)
+        self.state_dir = Path(state_dir) if state_dir else self.logs_dir.parent / "state"
+        self.poster, self.clock = poster, clock
+        self.cfg = cfg or alerts.params()
+        self.environ = os.environ if environ is None else environ
         self.tick_failures = 0
         self.sync_failures = 0
+        self.first_sync_fail: float | None = None
         self.last_fresh = clock()
-        self._fired: set[str] = set()      # kinds already fired in the current streak
+        self._open: dict[str, str] = {}      # kind -> fingerprint, while its streak is active
 
-    # ---- log + notify ------------------------------------------------------------
-    def _file(self, now: float) -> Path:
-        return self.logs_dir / f"incidents-{_day(now)}.jsonl"
+    # ---- plumbing ----------------------------------------------------------------
+    def _log(self, rec: dict, now: float) -> None:
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        f = self.logs_dir / f"incidents-{alerts.day_of(now)}.jsonl"
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, default=str, ensure_ascii=False) + "\n")
 
-    def _entries(self, now: float) -> list[dict]:
-        out = []
-        try:
-            for line in self._file(now).read_text(encoding="utf-8").splitlines():
-                try:
-                    out.append(json.loads(line))
-                except ValueError:
-                    pass
-        except OSError:
-            pass
-        return out
+    def _post(self, facts: dict) -> bool:
+        url, token = self.environ.get("ROUTINE_INCIDENT_URL", ""), self.environ.get("ROUTINE_INCIDENT_TOKEN", "")
+        if not (url and token):
+            return False
+        return bool(self.poster(alerts.build_text(facts), url, token))
 
-    def can_notify(self, now: float) -> bool:
-        sent = [e["notified_at"] for e in self._entries(now) if e.get("notified_at")]
-        return len(sent) < MAX_PER_DAY and (not sent or now - max(sent) >= MIN_GAP_MIN * 60)
-
-    def report(self, kind: str, severity: str, detail: str, step: str | None = None, now: float | None = None) -> dict:
-        """Always append to the JSONL; POST only if the rate limit allows. Never raises."""
+    def report(self, kind: str, category: str, step: str, detail: str, error: str = "", now: float | None = None) -> dict:
         now = self.clock() if now is None else now
-        rec = {"ts": datetime.fromtimestamp(now, IST).isoformat(timespec="seconds"), "kind": kind,
-               "severity": severity, "workflow": WORKFLOW, "step": step or kind, "detail": str(detail)[:4000]}
+        d: dict = {}
         try:
-            notified = False
-            url, token = os.getenv("ROUTINE_INCIDENT_URL", ""), os.getenv("ROUTINE_INCIDENT_TOKEN", "")
-            if url and token and self.can_notify(now):
-                notified = bool(self.poster(build_text({**rec, "source": "engine"}), url, token))
-            if notified:
-                rec["notified_at"] = now
-            self.logs_dir.mkdir(parents=True, exist_ok=True)
-            with open(self._file(now), "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(rec, default=str) + "\n")
+            d = alerts.raise_alert(self.state_dir, "engine", step, category, detail, error, now=now, cfg=self.cfg)
+            rec = {"ts": datetime.fromtimestamp(now, IST).isoformat(timespec="seconds"), "kind": kind, "category": category,
+                   "severity": d.get("severity"), "workflow": WORKFLOW, "step": step, "detail": str(detail)[:4000],
+                   "fingerprint": d.get("fingerprint"), "fired": bool(d.get("fire")), "decision": d.get("reason")}
+            self._log(rec, now)
+            if d.get("fire"):
+                self._post({**{k: rec[k] for k in ("kind", "category", "severity", "workflow", "step", "detail", "fingerprint")},
+                            "source": "engine", "component": "engine"})
+            if d.get("new"):
+                self._open[kind] = d["fingerprint"]
+            alerts.evaluate_safe_mode(self.state_dir, now, self.cfg)
         except Exception:  # noqa: BLE001
             log.exception("could not record incident")
-        return rec
+        return d
 
-    def _once(self, kind: str, severity: str, detail: str, now: float | None) -> None:
-        if kind not in self._fired:
-            self._fired.add(kind)
-            self.report(kind, severity, detail, now=now)
+    def _clear(self, kind: str, now: float | None = None) -> None:
+        fp = self._open.pop(kind, None)
+        if not fp:
+            return
+        try:
+            now = self.clock() if now is None else now
+            e = alerts.resolve(self.state_dir, fp, now)
+            if e and e.get("emails") and not e.get("resolved_emailed"):
+                self._post({"mode": "resolved", "incident_id": e.get("incident_id") or fp, "fingerprint": fp, "source": "engine"})
+        except Exception:  # noqa: BLE001
+            log.exception("could not clear incident")
+
+    def housekeeping(self, now: float | None = None) -> None:
+        """Cheap per-iteration check of the safe-mode triggers (distinct incidents, HIGH unfixed for 30 min)."""
+        try:
+            alerts.evaluate_safe_mode(self.state_dir, self.clock() if now is None else now, self.cfg)
+        except Exception:  # noqa: BLE001
+            log.exception("safe-mode evaluation failed")
 
     # ---- detectors ---------------------------------------------------------------
-    def tick_ok(self) -> None:
+    def tick_ok(self, now: float | None = None) -> None:
         self.tick_failures = 0
-        self._fired.discard("tick_exceptions")
+        self._clear("tick_exceptions", now)
+        self._clear("tick_transient", now)
 
     def tick_failed(self, exc: BaseException, now: float | None = None) -> None:
         self.tick_failures += 1
-        if self.tick_failures >= TICK_EXC_THRESHOLD:
-            self._once("tick_exceptions", "high",
-                       f"{self.tick_failures} consecutive tick exceptions; last: {type(exc).__name__}: {exc}", now)
+        name = type(exc).__name__
+        if self.tick_failures == 1:
+            self.report("tick_transient", "transient_fetch", "tick", f"tick failed once: {name}: {exc}", name, now)
+        if self.tick_failures >= self.cfg["tick_exceptions"] and "tick_exceptions" not in self._open:
+            self.report("tick_exceptions", "tick_exceptions", "tick-exceptions",
+                        f"{self.tick_failures} consecutive tick exceptions; last: {name}: {exc}", name, now)
 
     def mark_fresh(self, now: float | None = None) -> None:
         self.last_fresh = self.clock() if now is None else now
-        self._fired.discard("no_prices")
+        self._clear("no_prices", now)
 
     def check_feed(self, market_open: bool, now: float | None = None) -> None:
         now = self.clock() if now is None else now
@@ -125,28 +116,35 @@ class IncidentMonitor:
             self.last_fresh = now           # the clock only runs while the market is open
             return
         gap = (now - self.last_fresh) / 60
-        if gap > NO_PRICES_MIN:
-            self._once("no_prices", "medium", f"no fresh prices for {gap:.0f} min during market hours", now)
+        if gap > self.cfg["no_prices_min"] and "no_prices" not in self._open:
+            self.report("no_prices", "data_source_down", "price-feed", f"no fresh prices for {gap:.0f} min during market hours", "", now)
 
     def sync_result(self, ok: bool, detail: str = "", now: float | None = None) -> None:
+        now = self.clock() if now is None else now
         if ok:
-            self.sync_failures = 0
-            self._fired.discard("git_sync")
+            self.sync_failures, self.first_sync_fail = 0, None
+            self._clear("git_sync", now)
             return
         self.sync_failures += 1
-        if self.sync_failures >= SYNC_FAIL_THRESHOLD:
-            self._once("git_sync", "medium", f"git sync failed {self.sync_failures} times in a row: {detail}", now)
+        self.first_sync_fail = self.first_sync_fail or now
+        mins = (now - self.first_sync_fail) / 60
+        if mins >= self.cfg["git_push_fail_min"] and "git_sync" not in self._open:
+            self.report("git_sync", "git_push_failing", "git-sync",
+                        f"git sync failing for {mins:.0f} min ({self.sync_failures} attempts): {detail}", "", now)
 
     def state_corrupt(self, detail: str, now: float | None = None) -> None:
-        self._once("state_corrupt", "high", detail, now)
+        now = self.clock() if now is None else now
+        self.report("state_corrupt", "state_corrupt", "portfolio-state", detail, "", now)
+        alerts.set_safe_mode(self.state_dir, "portfolio state was corrupted: " + detail[:160], now, notify=False)
 
 
 # ---- robust portfolio loading ------------------------------------------------------
 def _try_parse(text: str):
-    from .broker import Portfolio, Position
-    d = json.loads(text)
-    d["positions"] = {k: Position(**v) for k, v in d.get("positions", {}).items()}
-    return Portfolio(**d)
+    from .broker import Portfolio
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "p.json"
+        p.write_text(text)
+        return Portfolio.load(p)
 
 
 def git_show(repo: Path, rev_path: str) -> str | None:
@@ -158,8 +156,7 @@ def git_show(repo: Path, rev_path: str) -> str | None:
 
 
 def load_portfolio_safe(path: Path, backup: Path, repo: Path, git_show_fn=git_show):
-    """Return (portfolio, recovery) where recovery is None if the file was fine, else a description.
-    A recovery (or fresh start) means the caller must run in safe mode (no new buys)."""
+    """Return (portfolio, recovery); recovery is None if the file was fine, else a description (caller enters safe mode)."""
     from .broker import Portfolio
     path = Path(path)
     if not path.exists():
@@ -169,7 +166,7 @@ def load_portfolio_safe(path: Path, backup: Path, repo: Path, git_show_fn=git_sh
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
     sources = [("state/portfolio.backup.json", lambda: Path(backup).read_text() if Path(backup).exists() else None),
-              ("git HEAD~1:state/portfolio.json", lambda: git_show_fn(repo, "HEAD~1:state/portfolio.json"))]
+               ("git HEAD~1:state/portfolio.json", lambda: git_show_fn(repo, "HEAD~1:state/portfolio.json"))]
     try:
         path.replace(path.with_name(path.name + ".corrupt"))
     except OSError:

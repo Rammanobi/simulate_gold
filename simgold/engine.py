@@ -22,7 +22,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
-from . import config, fastlane, guard, market
+from . import alerts, config, fastlane, guard, market
 from .broker import Position, Portfolio, trade_costs
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ except Exception:   # pragma: no cover - import guard
 DECISION_FIELDS = ["ts", "time", "action", "symbol", "qty", "price", "amount", "pnl", "reason", "trigger",
                    "stop", "risk", "value_after", "floor"]
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
-            "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule"}
+            "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode"}
 
 
 @dataclass
@@ -84,6 +84,7 @@ class Engine:
         self.syms = list(self.p["instruments"])
         self.log: list[dict] = []
         self.rt = pf.runtime
+        self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
         self.cd = pf.cooldowns
         self.er = guard.event_rules(self.day, guard.normalise_events(
             _load_json(env.state_dir / "events.json") or []), self.p)
@@ -542,6 +543,9 @@ class Engine:
         td, left = market.trading_day_of_month(self.day), market.trading_days_left_in_month(self.day)
         if guard.week_factor(td, left, p) == 0.0:
             return skip("These are the last 3 trading days of the month, so no new buys are made.")
+        if self.safe_mode:
+            return skip("The system is in safe mode after an incident, so no new buys (exits, stops and the floor still work).",
+                        "Safe mode", "BLOCK")
         nb = self.cd.get("no_buys_until")
         if nb and self.day.isoformat() < nb:
             return skip(f"The tripwire sold everything recently, so no buys until {nb}.")

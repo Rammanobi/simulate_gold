@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-"""Watchdog health check. Exit 0 and print "OK ..." when healthy; otherwise exit 4 and print one JSON line
-per problem {check, severity, detail}.   python tools/healthcheck.py [--pull] [--repo owner/name]
+"""Watchdog health check. Exit 0 and print "OK ..." when healthy; otherwise exit 4 and print one JSON line per problem
+{check, severity, category, detail}.     python tools/healthcheck.py [--pull] [--repo owner/name] [--no-write]
+
+Every run (unless --no-write) writes state/health.json {last_run, results[], all_green} and appends one line to
+logs/health-DATE.jsonl; a run that finds state/health.json older than 30 min in market hours reports `watchdog_stale`.
+Schemas are the real ones: state/portfolio.json (cash, positions, floor, liquidbees), logs/ticks-DATE.csv
+(time,value,floor,cash,liquidbees; time = HH:MM IST), state/guidance.json ("updated"), fastlane.json, events.json.
 """
 from __future__ import annotations
 
@@ -14,27 +19,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from simgold import alerts  # noqa: E402
 from simgold.market import IST, is_trading_day  # noqa: E402
 
 ENGINE_WORKFLOW = "market-hours.yml"
 WINDOW = (dtime(9, 10), dtime(15, 40))
 TICK_MAX_AGE_MIN = 5
-GUIDANCE_MAX_AGE_H = 3
-BRIEF_MAX = 8 * 1024
-LESSONS_MAX = 60
-CONTEXT_MAX = 25 * 1024
-LOGS_MAX = 200 * 1024 * 1024
+BRIEF_MAX, LESSONS_MAX, CONTEXT_MAX, LOGS_MAX = 8 * 1024, 60, 25 * 1024, 200 * 1024 * 1024
 FLOOR_SLACK = 100
 LIQUID_MIN = 0.30
-REQUIRED = {"portfolio.json": ["cash", "positions"], "guidance.json": [], "fastlane.json": [], "events.json": []}
 
 
-def problem(check, severity, detail):
-    return {"check": check, "severity": severity, "detail": detail}
+def problem(check: str, category: str, detail: str) -> dict:
+    return {"check": check, "severity": alerts.severity_of(category), "category": category, "detail": detail}
 
 
 def real_gh(args: list[str]) -> str:
     return subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60, check=True).stdout
+
+
+def real_git(root: Path, args: list[str]) -> str:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30, check=True).stdout
 
 
 def in_market_window(now: datetime) -> bool:
@@ -46,7 +51,7 @@ def _load_json(p: Path):
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def _parse_ts(v, now):
+def _parse_ts(v):
     try:
         t = datetime.fromisoformat(str(v).strip().replace("Z", "+00:00"))
         return t if t.tzinfo else t.replace(tzinfo=IST)
@@ -54,88 +59,109 @@ def _parse_ts(v, now):
         return None
 
 
+def last_tick(root: Path, now: datetime) -> dict | None:
+    """The last row of logs/ticks-TODAY.csv as {time(datetime), value, floor, cash, liquidbees}."""
+    f = root / "logs" / f"ticks-{now.astimezone(IST).date().isoformat()}.csv"
+    if not f.exists():
+        return None
+    try:
+        rows = list(csv.DictReader(f.read_text(encoding="utf-8").splitlines()))
+        r = rows[-1]
+        hh, mm = r["time"].strip().split(":")[:2]
+        t = now.astimezone(IST).replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+        return {"time": t, "value": float(r["value"]), "floor": float(r["floor"]), "cash": float(r["cash"]),
+                "liquidbees": float(r["liquidbees"])}
+    except (IndexError, KeyError, ValueError, OSError):
+        return {"time": datetime.fromtimestamp(f.stat().st_mtime, IST), "value": None, "floor": None}
+
+
 def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
     out = []
     try:
         data = json.loads(gh(["api", f"repos/{repo}/actions/workflows/{ENGINE_WORKFLOW}/runs?status=in_progress&per_page=5"]))
         if int(data.get("total_count", 0)) < 1:
-            out.append(problem("engine_run_missing", "high", "no market-hours workflow run is in progress during NSE hours"))
+            out.append(problem("engine_run_missing", "engine_not_running", "no market-hours workflow run is in progress during NSE hours"))
     except Exception as e:  # noqa: BLE001
-        out.append(problem("engine_run_unknown", "low", f"could not query workflow runs: {e}"))
-    f = root / "logs" / f"ticks-{now.astimezone(IST).date().isoformat()}.csv"
-    if not f.exists():
-        out.append(problem("ticks_missing", "high", f"{f.name} does not exist yet today"))
+        out.append(problem("engine_run_unknown", "warning", f"could not query workflow runs: {e}"))
+    t = last_tick(root, now)
+    if t is None:
+        out.append(problem("ticks_missing", "engine_not_running", f"logs/ticks-{now.astimezone(IST).date().isoformat()}.csv does not exist yet today"))
     else:
-        last = None
-        try:
-            rows = [r for r in csv.reader(f.read_text(encoding="utf-8").splitlines()) if r]
-            last = _parse_ts(rows[-1][0], now) if rows else None
-        except Exception:  # noqa: BLE001
-            pass
-        if last is None:
-            last = datetime.fromtimestamp(f.stat().st_mtime, IST)
-        age = (now - last).total_seconds() / 60
+        age = (now - t["time"]).total_seconds() / 60
         if age > TICK_MAX_AGE_MIN:
-            out.append(problem("ticks_stale", "high", f"last tick row is {age:.0f} min old (limit {TICK_MAX_AGE_MIN})"))
+            out.append(problem("ticks_stale", "engine_not_running", f"last tick row is {age:.0f} min old (limit {TICK_MAX_AGE_MIN})"))
     return out
 
 
 def check_state_files(root: Path) -> tuple[list[dict], dict]:
     out, loaded = [], {}
-    for name, keys in REQUIRED.items():
+    spec = {"portfolio.json": ("cash", "positions", "floor", "liquidbees"), "guidance.json": ("updated",),
+            "fastlane.json": (), "events.json": ()}
+    for name, keys in spec.items():
         p = root / "state" / name
         if not p.exists():
             continue
         try:
             d = _load_json(p)
-            if not isinstance(d, dict):
+            if name == "events.json":
+                if not isinstance(d, (list, dict)):
+                    raise ValueError("expected a list (or {events: [...]})")
+            elif not isinstance(d, dict):
                 raise ValueError("top level is not an object")
             miss = [k for k in keys if k not in d]
             if miss:
-                out.append(problem("state_keys", "high", f"{name} is missing keys {miss}"))
+                out.append(problem("state_keys", "state_corrupt", f"{name} is missing keys {miss}"))
             loaded[name] = d
         except Exception as e:  # noqa: BLE001
-            out.append(problem("state_parse", "high", f"{name} does not parse: {e}"))
+            out.append(problem("state_parse", "state_corrupt", f"{name} does not parse: {e}"))
     return out, loaded
 
 
-def _prev_floor(root: Path, today: str):
-    p = root / "state" / "equity.csv"
+def prev_floor(root: Path, today: str, git=real_git):
+    """The floor in the newest state/portfolio.json commit made before today (git history)."""
     try:
-        for r in reversed(list(csv.reader(p.read_text().splitlines()))):
-            if len(r) >= 3 and r[0] < today:
-                return float(r[2])
-    except (OSError, ValueError):
-        pass
-    try:
-        txt = subprocess.run(["git", "show", "HEAD~1:state/portfolio.json"], cwd=root, capture_output=True, text=True, timeout=20).stdout
-        return float(json.loads(txt)["floor"])
+        log = git(root, ["log", "-n", "40", "--format=%H %cI", "--", "state/portfolio.json"]).splitlines()
+        for ln in log:
+            sha, iso = ln.split(" ", 1)
+            when = _parse_ts(iso)
+            if when and when.astimezone(IST).date().isoformat() < today:
+                return float(json.loads(git(root, ["show", f"{sha}:state/portfolio.json"]))["floor"])
     except Exception:  # noqa: BLE001
-        return None
+        pass
+    return None
 
 
-def check_invariants(root: Path, pf: dict | None, now: datetime) -> list[dict]:
+def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, cfg: dict | None = None) -> list[dict]:
     out = []
     if not pf:
         return out
-    cash = pf.get("cash")
-    if isinstance(cash, (int, float)) and cash < 0:
-        out.append(problem("negative_cash", "high", f"cash is {cash}"))
+    cfg = cfg or alerts.params()
+    cash, lb = pf.get("cash"), pf.get("liquidbees")
+    for name, v in (("cash", cash), ("liquidbees", lb)):
+        if isinstance(v, (int, float)) and v < 0:
+            out.append(problem(f"negative_{name}", "state_corrupt", f"{name} is {v}"))
     for a, p in (pf.get("positions") or {}).items():
         if isinstance(p, dict) and isinstance(p.get("qty"), (int, float)) and p["qty"] < 0:
-            out.append(problem("negative_qty", "high", f"{a} quantity is {p['qty']}"))
-    value, floor = pf.get("value"), pf.get("floor")
+            out.append(problem("negative_qty", "state_corrupt", f"{a} quantity is {p['qty']}"))
+    t = last_tick(root, now)
+    value = t["value"] if t and t.get("value") is not None else None
+    if value is None and isinstance(cash, (int, float)) and isinstance(lb, (int, float)):
+        value = cash + lb + sum((p.get("qty", 0) * (p.get("last_price") or p.get("avg_cost") or 0))
+                                for p in (pf.get("positions") or {}).values() if isinstance(p, dict))
+    floor = pf.get("floor")
     if isinstance(value, (int, float)) and isinstance(floor, (int, float)):
         if value < floor - FLOOR_SLACK:
-            out.append(problem("below_floor", "high", f"value {value:,.0f} is below floor {floor:,.0f} (slack {FLOOR_SLACK})"))
-        prev = _prev_floor(root, now.astimezone(IST).date().isoformat())
+            out.append(problem("below_floor", "floor_broken", f"value {value:,.0f} is more than {FLOOR_SLACK} below the floor {floor:,.0f}"))
+        elif value <= floor + cfg["near_floor_inr"]:
+            out.append(problem("near_floor", "near_floor", f"value {value:,.0f} is within {cfg['near_floor_inr']} of the floor {floor:,.0f}"))
+        prev = prev_floor(root, now.astimezone(IST).date().isoformat(), git)
         if prev is not None and floor < prev - 1e-6:
-            out.append(problem("floor_lowered", "high", f"floor {floor:,.0f} is lower than the previous floor {prev:,.0f}"))
-    liq = (pf.get("positions") or {}).get("LIQUIDBEES")
-    if isinstance(value, (int, float)) and value > 0 and not pf.get("tripwire"):
-        lv = liq.get("value") if isinstance(liq, dict) else None
-        if isinstance(lv, (int, float)) and lv / value < LIQUID_MIN:
-            out.append(problem("liquid_low", "medium", f"LIQUIDBEES is {lv / value:.0%} of value (min {LIQUID_MIN:.0%}) and the tripwire has not fired"))
+            out.append(problem("floor_lowered", "floor_broken", f"floor {floor:,.0f} is lower than the previous day's floor {prev:,.0f}"))
+        tripped = (pf.get("cooldowns") or {}).get("no_buys_until")
+        if value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
+                and (pf.get("positions") or {}):
+            out.append(problem("liquid_low", "invariant_warning",
+                               f"LIQUIDBEES is {lb / value:.0%} of value (min {LIQUID_MIN:.0%}) and the tripwire has not fired"))
     return out
 
 
@@ -143,70 +169,90 @@ def check_memory(root: Path) -> list[dict]:
     out = []
     b = root / "memory" / "brief.md"
     if b.exists() and b.stat().st_size > BRIEF_MAX:
-        out.append(problem("memory_brief_size", "medium", f"memory/brief.md is {b.stat().st_size} bytes (max {BRIEF_MAX})"))
+        out.append(problem("memory_brief_size", "memory_cap", f"memory/brief.md is {b.stat().st_size} bytes (max {BRIEF_MAX})"))
     les = root / "memory" / "lessons.md"
     if les.exists():
         n = sum(1 for ln in les.read_text(encoding="utf-8").splitlines() if ln.lstrip().startswith(("- ", "* ")))
         if n > LESSONS_MAX:
-            out.append(problem("memory_lessons_size", "medium", f"memory/lessons.md has {n} bullets (max {LESSONS_MAX})"))
+            out.append(problem("memory_lessons_size", "memory_cap", f"memory/lessons.md has {n} bullets (max {LESSONS_MAX})"))
     ctx = root / "tools" / "context.py"
     if ctx.exists():
         try:
             r = subprocess.run([sys.executable, str(ctx)], cwd=root, capture_output=True, timeout=60)
             if len(r.stdout) > CONTEXT_MAX:
-                out.append(problem("context_size", "medium", f"tools/context.py output is {len(r.stdout)} bytes (max {CONTEXT_MAX})"))
+                out.append(problem("context_size", "memory_cap", f"tools/context.py output is {len(r.stdout)} bytes (max {CONTEXT_MAX})"))
         except Exception as e:  # noqa: BLE001
-            out.append(problem("context_run", "low", f"tools/context.py failed to run: {e}"))
+            out.append(problem("context_run", "warning", f"tools/context.py failed to run: {e}"))
     logs = root / "logs"
     if logs.exists():
         total = sum(f.stat().st_size for f in logs.rglob("*") if f.is_file())
         if total > LOGS_MAX:
-            out.append(problem("logs_size", "medium", f"logs/ is {total // 2**20} MB (max {LOGS_MAX // 2**20})"))
+            out.append(problem("logs_size", "memory_cap", f"logs/ is {total // 2**20} MB (max {LOGS_MAX // 2**20})"))
     return out
 
 
-def check_guidance_age(root: Path, guidance: dict | None, now: datetime) -> list[dict]:
+def check_guidance_age(root: Path, guidance: dict | None, now: datetime, cfg: dict | None = None) -> list[dict]:
     p = root / "state" / "guidance.json"
     if not p.exists():
         return []
-    ts = None
-    for k in ("updated_at", "ts", "generated_at"):
-        if guidance and guidance.get(k):
-            ts = _parse_ts(guidance[k], now)
-            break
+    cfg = cfg or alerts.params()
+    ts = _parse_ts(guidance.get("updated")) if guidance and guidance.get("updated") else None
     ts = ts or datetime.fromtimestamp(p.stat().st_mtime, IST)
     age = (now - ts).total_seconds() / 3600
-    return [problem("guidance_stale", "low", f"guidance is {age:.1f} h old (limit {GUIDANCE_MAX_AGE_H} h)")] if age > GUIDANCE_MAX_AGE_H else []
+    lim = cfg["stale_guidance_hours"]
+    return [problem("guidance_stale", "stale_guidance", f"guidance is {age:.1f} h old (limit {lim} h)")] if age > lim else []
 
 
-def check_incident_limits(root: Path, now: datetime) -> list[dict]:
-    f = root / "logs" / f"incidents-{now.astimezone(IST).date().isoformat()}.jsonl"
-    if not f.exists():
-        return []
-    sent = []
-    for ln in f.read_text(encoding="utf-8").splitlines():
-        try:
-            if json.loads(ln).get("notified_at"):
-                sent.append(json.loads(ln)["notified_at"])
-        except ValueError:
-            pass
-    sent.sort()
-    if len(sent) > 3 or any(b - a < 30 * 60 - 1 for a, b in zip(sent, sent[1:])):
-        return [problem("incident_rate_limit", "low", f"{len(sent)} incident posts today exceed the 3/day, 30 min apart limit")]
+def check_incident_limits(root: Path, now: datetime, cfg: dict | None = None) -> list[dict]:
+    cfg = cfg or alerts.params()
+    st = alerts.load_state(root / "state")
+    n = alerts.fires_today(st, now.timestamp())
+    if n > cfg["max_fires_per_day"]:
+        return [problem("incident_budget", "warning", f"{n} routine fires today exceed the budget of {cfg['max_fires_per_day']}")]
     return []
 
 
-def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "") -> list[dict]:
+def check_watchdog(root: Path, now: datetime, cfg: dict | None = None) -> list[dict]:
+    """Dead-man's switch: state/health.json (written by every run) must not be older than watchdog_stale_min in market hours."""
+    cfg = cfg or alerts.params()
+    p = root / "state" / "health.json"
+    try:
+        last = _parse_ts(_load_json(p)["last_run"])
+    except FileNotFoundError:
+        return []           # first ever run: nothing to compare with yet
+    except (OSError, ValueError, KeyError, TypeError):
+        return [problem("watchdog_stale", "watchdog_stale", "state/health.json is unreadable during market hours")]
+    age = (now - last).total_seconds() / 60 if last else 9999
+    if age > cfg["watchdog_stale_min"]:
+        return [problem("watchdog_stale", "watchdog_stale", f"the last healthcheck ran {age:.0f} min ago (limit {cfg['watchdog_stale_min']})")]
+    return []
+
+
+def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "", git=real_git, cfg: dict | None = None) -> list[dict]:
+    cfg = cfg or alerts.params()
     probs: list[dict] = []
     state_p, loaded = check_state_files(root)
     probs += state_p
-    probs += check_invariants(root, loaded.get("portfolio.json"), now)
+    probs += check_invariants(root, loaded.get("portfolio.json"), now, git, cfg)
     probs += check_memory(root)
-    probs += check_incident_limits(root, now)
+    probs += check_incident_limits(root, now, cfg)
     if in_market_window(now):
+        probs += check_watchdog(root, now, cfg)
         probs += check_engine(root, now, gh, repo)
-        probs += check_guidance_age(root, loaded.get("guidance.json"), now)
+        probs += check_guidance_age(root, loaded.get("guidance.json"), now, cfg)
     return probs
+
+
+def write_health(root: Path, now: datetime, probs: list[dict]) -> None:
+    """state/health.json (latest run) and logs/health-DATE.jsonl (one line per run, used by the daily email)."""
+    rec = {"last_run": now.isoformat(timespec="seconds"), "results": probs, "all_green": not probs}
+    try:
+        alerts.atomic_write(root / "state" / "health.json", json.dumps(rec, indent=1))
+        (root / "logs").mkdir(parents=True, exist_ok=True)
+        with open(root / "logs" / f"health-{now.astimezone(IST).date().isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def main(argv=None) -> int:
@@ -216,9 +262,14 @@ def main(argv=None) -> int:
     repo = os.getenv("GITHUB_REPOSITORY", "Rammanobi/simulate_gold")
     if "--repo" in args:
         repo = args[args.index("--repo") + 1]
-    probs = run_checks(ROOT, datetime.now(IST), repo=repo)
+    now = datetime.now(IST)
+    probs = run_checks(ROOT, now, repo=repo)
+    if "--no-write" not in args:
+        write_health(ROOT, now, probs)
+        if not probs:       # a clean pre-market run is what lets safe mode clear itself the next day
+            alerts.auto_clear_safe_mode(ROOT / "state", now.timestamp(), True)
     if not probs:
-        print(f"OK all checks passed at {datetime.now(IST).strftime('%Y-%m-%d %H:%M')} IST")
+        print(f"OK all checks passed at {now.strftime('%Y-%m-%d %H:%M')} IST")
         return 0
     for p in probs:
         print(json.dumps(p))

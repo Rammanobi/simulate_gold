@@ -1,6 +1,8 @@
 name: watchdog
 
-# Health check every 10 min while NSE is open (script filters to 09:10-15:40 IST), plus once after close.
+# Health check every 10 min while NSE is open (the script filters to 09:10-15:40 IST), plus once after the close.
+# GitHub cron can run late; tools/healthcheck.py writes state/health.json and reminders.yml / the hourly routine
+# check that file's age (dead-man's switch), so this watchdog is itself watched.
 on:
   schedule:
     - cron: "*/10 3-10 * * 1-5"
@@ -8,18 +10,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write      # dispatch market-hours.yml when the engine run is missing
-  contents: read
+  actions: write      # dispatch market-hours.yml when the engine run is missing (self-heal)
+  contents: write     # commits state/alerts.json, health.json and logs/health-DATE.jsonl
   issues: read
 
 concurrency:
-  group: watchdog
-  cancel-in-progress: true
+  group: alert-state
+  cancel-in-progress: false
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -28,24 +30,23 @@ jobs:
       ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 60          # healthcheck reads state/portfolio.json history for the floor-monotonic check
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+
       - name: Health check
         id: hc
         run: |
           set +e
           python tools/healthcheck.py --pull > "$RUNNER_TEMP/problems.txt"
-          rc=$?
-          cat "$RUNNER_TEMP/problems.txt"
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          # only medium/high problems are escalated
-          n=$(grep -c '"severity": "\(high\|medium\)"' "$RUNNER_TEMP/problems.txt")
-          echo "escalate=$n" >> "$GITHUB_OUTPUT"
-          echo "missing=$(grep -c 'engine_run_missing\|ticks_missing' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
           { echo '### Watchdog'; echo '```'; cat "$RUNNER_TEMP/problems.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "missing=$(grep -c 'engine_run_missing\|ticks_missing\|ticks_stale' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: Self-heal, re-dispatch the engine
@@ -61,25 +62,36 @@ jobs:
           fi
           exit 0
 
-      - name: Notify incident routine
-        if: steps.hc.outputs.rc == '4' && steps.hc.outputs.escalate != '0'
+      - name: Alert policy and wake the routine
         run: |
           set +e
-          if [ -z "$ROUTINE_INCIDENT_URL" ] || [ -z "$ROUTINE_INCIDENT_TOKEN" ]; then
-            echo "Incident routine not configured (ROUTINE_INCIDENT_URL / ROUTINE_INCIDENT_TOKEN empty)." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          if [ "${{ steps.hc.outputs.rc }}" = "4" ]; then
+            decision=$(python -m simgold.alerts problems "$RUNNER_TEMP/problems.txt")
+            echo "decision: $decision" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(echo "$decision" | jq -r '.fire // false')" = "true" ]; then
+              echo "$decision" | jq -c '{source:"watchdog",workflow:"watchdog",problems:[.decisions[]|select(.new)|{fingerprint,severity}],text:"see state/alerts.json"}' > "$RUNNER_TEMP/facts.json"
+              head -c 5000 "$RUNNER_TEMP/problems.txt" > "$RUNNER_TEMP/p.txt"
+              jq -cn --rawfile p "$RUNNER_TEMP/p.txt" --slurpfile f "$RUNNER_TEMP/facts.json" '$f[0] + {problems_raw:$p}' > "$RUNNER_TEMP/facts2.json"
+              python -m simgold.alerts post --text-file "$RUNNER_TEMP/facts2.json" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            current=$(jq -r '.check' "$RUNNER_TEMP/problems.txt" 2>/dev/null | paste -sd, -)
+          else
+            current=""
           fi
-          since=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-          first=$(head -n1 "$RUNNER_TEMP/problems.txt" | jq -r '.check // "unknown"' 2>/dev/null)
-          dup=$(gh api "repos/$GH_REPO/issues?state=open&labels=incident&since=$since&per_page=50" 2>/dev/null \
-            | jq --arg wf "watchdog" --arg st "$first" --arg since "$since" \
-              '[.[]? | select(.pull_request|not) | select(.created_at >= $since) | select((.title + " " + (.body // "")) | (contains($wf) and contains($st)))] | length' 2>/dev/null)
-          if [ "${dup:-0}" != "0" ]; then echo "Skipped - open watchdog incident for $first exists (2h)." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
-          problems=$(head -c 6000 "$RUNNER_TEMP/problems.txt")
-          facts=$(jq -cn --arg p "$problems" --arg first "$first" --arg run "$GITHUB_RUN_ID" \
-            '{source:"watchdog",workflow:"watchdog",step:$first,run_id:$run,problems:$p}')
-          body=$(jq -cn --arg t "$facts" '{text:$t}')
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$ROUTINE_INCIDENT_URL" \
-            -H "Authorization: Bearer $ROUTINE_INCIDENT_TOKEN" -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" --data "$body")
-          echo "Incident routine fired (HTTP $code)" >> "$GITHUB_STEP_SUMMARY"
+          # problems that went away: mark resolved; the routine sends exactly one Resolved email if it ever emailed them
+          res=$(python -m simgold.alerts resolve-missing --component watchdog --current "$current")
+          for id in $(echo "$res" | jq -r '.resolved_emailed[]?'); do
+            jq -cn --arg id "$id" '{mode:"resolved",incident_id:$id}' > "$RUNNER_TEMP/r.json"
+            python -m simgold.alerts post --text-file "$RUNNER_TEMP/r.json" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit 0
+
+      - name: Commit alert and health state
+        if: always()
+        run: |
+          set +e
+          git config user.name "simgold-watchdog"; git config user.email "actions@users.noreply.github.com"
+          git add state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl 2>/dev/null
+          git diff --cached --quiet || git commit -qm "watchdog: health $(date +%H:%M) IST"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
           exit 0

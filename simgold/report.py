@@ -292,7 +292,72 @@ def _market_from_decisions(decisions: list[dict]) -> list[dict]:
     return out
 
 
+def fixed_today(date: str, root: Path, limit: int = 4) -> list[str]:
+    """Incidents opened on `date` that the routine fixed itself (a safe-fix action), one short line each."""
+    out = []
+    for f in sorted((Path(root) / "incidents").glob(f"{date}-*.json")):
+        rec = _read_json(f, None)
+        if not isinstance(rec, dict):
+            continue
+        fixes = [a.get("text", "") for a in rec.get("actions", []) if a.get("kind") == "safe-fix"]
+        if fixes:
+            out.append(f"{rec.get('title', f.stem)}: {fixes[0]}")
+    return out[:limit] + ([f"and {len(out) - limit} more"] if len(out) > limit else [])
+
+
+def system_health(date: str, root: Path) -> str:
+    """One line from logs/health-DATE.jsonl, which tools/healthcheck.py appends to on every run."""
+    f = Path(root) / "logs" / f"health-{date}.jsonl"
+    runs, bad = 0, set()
+    try:
+        for ln in f.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            runs += 1
+            bad |= {p.get("check") for p in r.get("results", [])}
+    except OSError:
+        return ""
+    if not runs:
+        return ""
+    if not bad:
+        return f"Watchdog: {runs} checks today, all green"
+    return f"Watchdog: {runs} checks today, {len(bad)} {'problem' if len(bad) == 1 else 'problems'}, see incidents"
+
+
 def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
+    day = _build_day(date, root, holiday)
+    day["fixed_today"] = fixed_today(date, root)
+    day["system_health"] = system_health(date, root)
+    return day
+
+
+def _ops_html(day: dict) -> str:
+    """Small 'Fixed today' list and the watchdog line; empty (hidden) when there is nothing to say."""
+    fixed, health = day.get("fixed_today") or [], day.get("system_health") or ""
+    if not fixed and not health:
+        return ""
+    h = ""
+    if fixed:
+        h += _section("Fixed today") + "".join(
+            f'<tr><td style="padding:2px 20px;font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;">&#10003; {esc(x)}</td></tr>\n' for x in fixed)
+    if health:
+        h += (f'<tr><td style="padding:{10 if fixed else 22}px 20px 0 20px;font-family:{FONT};font-size:13px;line-height:19px;color:#6b7280;">'
+              f'{esc(health)}</td></tr>\n')
+    return h
+
+
+def _ops_text(day: dict) -> list[str]:
+    L = []
+    if day.get("fixed_today"):
+        L += ["FIXED TODAY"] + [f"- {x}" for x in day["fixed_today"]] + [""]
+    if day.get("system_health"):
+        L += [day["system_health"], ""]
+    return L
+
+
+def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     root = Path(root)
     d0 = dt.date.fromisoformat(date)
     weekday = d0.strftime("%A")
@@ -675,7 +740,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False)
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
-        return head + body + foot
+        return head + body + _ops_html(day) + foot
 
     pnl = p["day_pnl"]
     r = _round(pnl)
@@ -775,7 +840,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False)
                   f'<td align="center" bgcolor="#1f2937" style="border-radius:8px;"><a href="{_html.escape(link, quote=True)}" style="display:inline-block;padding:15px 28px;'
                   f'font-family:{FONT};font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                   f'Open the interactive report</a></td></tr></table></td></tr>\n')
-    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + button + foot
+    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + _ops_html(day) + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -787,7 +852,7 @@ def render_text(day: dict, sample: bool = False) -> str:
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
-              "TOMORROW", day["tomorrow"], "", "This is a paper simulation. No real money or orders were placed."]
+              "TOMORROW", day["tomorrow"], "", *_ops_text(day), "This is a paper simulation. No real money or orders were placed."]
         return "\n".join(L) + "\n"
     L += ["HEADLINE", f"Day P&L:      {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)})",
           f"Month P&L:    {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)})",
@@ -823,7 +888,7 @@ def render_text(day: dict, sample: bool = False) -> str:
     L += ["", "WHERE TODAY'S P&L CAME FROM", f"Trades closed (realized): {sg(b['realized_trades'])}",
           f"Open positions (unrealised): {sg(b['unrealized_open'])}", f"LIQUIDBEES income: {sg(b['liquidbees_income'])}",
           f"Total: {sg(p['day_pnl'])}", f"(Costs of {inr(p['costs_paid'])} are already included above.)", "", "TOMORROW", day["tomorrow"], "",
-          "This is a paper simulation. No real money or orders were placed."]
+          *_ops_text(day), "This is a paper simulation. No real money or orders were placed."]
     return "\n".join(L) + "\n"
 
 
