@@ -24,7 +24,7 @@ from simgold import alerts, brief, config, gitsync, market
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
-from simgold.engine import Env, run_tick
+from simgold.engine import Env, Market, run_tick
 from simgold.feed import build_market
 from simgold.market import CLOSE, IST, is_market_open, now_ist
 from simgold.news import NewsBook
@@ -33,6 +33,7 @@ ROOT = Path(__file__).parent
 STATE, LOGS = ROOT / "state", ROOT / "logs"
 PF_PATH, NEWS_PATH, EQUITY_PATH = STATE / "portfolio.json", STATE / "news.json", STATE / "equity.csv"
 PF_BACKUP = STATE / "portfolio.backup.json"
+PROTECTIVE_FROM = dtime(15, 15)       # time stop / score exit (15:15), overnight and month-end checks (15:20)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("live")
@@ -71,12 +72,12 @@ class Live:
         bars = intraday_bars(self.tickers)
         if not bars:
             log.info("no intraday bars (exchange closed or feed down) - nothing to do")
-            return
+            return self._protective_tick(ts)
         newest = max(b.index[-1] for b in bars.values())
         stale_min = self.p["engine"]["stale_feed_skip_min"]
         if not self.force and (ts - newest.to_pydatetime()).total_seconds() > stale_min * 60:
             log.info("feeds are stale (last bar %s) - no trading this tick", newest.strftime("%H:%M"))
-            return
+            return self._protective_tick(ts)
         self.mon.mark_fresh()
         try:
             self.news.refresh(llm_score=False)
@@ -89,6 +90,17 @@ class Live:
         self.last_tick_day = ts.date()
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
+
+    def _protective_tick(self, ts):
+        """Feed down or stale (early close, outage) from 15:15: still run the 15:15 exits and the 15:20 overnight and
+        month-end checks on the last known prices. No buy can happen: the engine only buys on a fresh price."""
+        if ts.time() < PROTECTIVE_FROM:
+            return
+        decisions = run_tick(self.pf, Market(now=ts, prices={}, price_ts={}, scores={}), self.env)
+        self.pf.save(PF_PATH)
+        self._backup_state()
+        self.last_tick_day = ts.date()
+        log.info("protective tick on last known prices (feed stale): %d decisions", len(decisions))
 
     def write_brief(self):
         """memory/brief.md for the Claude routines (cheap, no AI). Never raises."""
