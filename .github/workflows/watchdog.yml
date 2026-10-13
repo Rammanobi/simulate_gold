@@ -1,0 +1,85 @@
+name: watchdog
+
+# Health check every 10 min while NSE is open (script filters to 09:10-15:40 IST), plus once after close.
+on:
+  schedule:
+    - cron: "*/10 3-10 * * 1-5"
+    - cron: "0 11 * * 1-5"        # 16:30 IST
+  workflow_dispatch:
+
+permissions:
+  actions: write      # dispatch market-hours.yml when the engine run is missing
+  contents: read
+  issues: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}
+      ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Health check
+        id: hc
+        run: |
+          set +e
+          python tools/healthcheck.py --pull > "$RUNNER_TEMP/problems.txt"
+          rc=$?
+          cat "$RUNNER_TEMP/problems.txt"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # only medium/high problems are escalated
+          n=$(grep -c '"severity": "\(high\|medium\)"' "$RUNNER_TEMP/problems.txt")
+          echo "escalate=$n" >> "$GITHUB_OUTPUT"
+          echo "missing=$(grep -c 'engine_run_missing\|ticks_missing' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
+          { echo '### Watchdog'; echo '```'; cat "$RUNNER_TEMP/problems.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Self-heal, re-dispatch the engine
+        if: steps.hc.outputs.rc == '4' && steps.hc.outputs.missing != '0'
+        run: |
+          set +e
+          queued=$(gh api "repos/$GH_REPO/actions/workflows/market-hours.yml/runs?status=queued&per_page=1" --jq .total_count 2>/dev/null)
+          if [ "${queued:-0}" = "0" ]; then
+            gh api -X POST "repos/$GH_REPO/actions/workflows/market-hours.yml/dispatches" -f ref=main -f 'inputs[session]=auto' \
+              && echo "Re-dispatched market-hours.yml (session=auto)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "market-hours.yml already queued; not re-dispatching" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Notify incident routine
+        if: steps.hc.outputs.rc == '4' && steps.hc.outputs.escalate != '0'
+        run: |
+          set +e
+          if [ -z "$ROUTINE_INCIDENT_URL" ] || [ -z "$ROUTINE_INCIDENT_TOKEN" ]; then
+            echo "Incident routine not configured (ROUTINE_INCIDENT_URL / ROUTINE_INCIDENT_TOKEN empty)." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          since=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          first=$(head -n1 "$RUNNER_TEMP/problems.txt" | jq -r '.check // "unknown"' 2>/dev/null)
+          dup=$(gh api "repos/$GH_REPO/issues?state=open&labels=incident&since=$since&per_page=50" 2>/dev/null \
+            | jq --arg wf "watchdog" --arg st "$first" --arg since "$since" \
+              '[.[]? | select(.pull_request|not) | select(.created_at >= $since) | select((.title + " " + (.body // "")) | (contains($wf) and contains($st)))] | length' 2>/dev/null)
+          if [ "${dup:-0}" != "0" ]; then echo "Skipped - open watchdog incident for $first exists (2h)." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          problems=$(head -c 6000 "$RUNNER_TEMP/problems.txt")
+          facts=$(jq -cn --arg p "$problems" --arg first "$first" --arg run "$GITHUB_RUN_ID" \
+            '{source:"watchdog",workflow:"watchdog",step:$first,run_id:$run,problems:$p}')
+          body=$(jq -cn --arg t "$facts" '{text:$t}')
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$ROUTINE_INCIDENT_URL" \
+            -H "Authorization: Bearer $ROUTINE_INCIDENT_TOKEN" -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" --data "$body")
+          echo "Incident routine fired (HTTP $code)" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
