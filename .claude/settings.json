@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__.*[Gg]mail.*",
+        "matcher": "mcp__.*[Gg][Mm][Aa][Ii][Ll].*",
         "hooks": [
           {
             "type": "command",

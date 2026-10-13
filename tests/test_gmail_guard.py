@@ -100,7 +100,7 @@ def test_the_address_is_not_in_the_repo():
     if settings.exists():
         cfg = json.loads(settings.read_text())
         hook = cfg["hooks"]["PreToolUse"][0]
-        assert hook["matcher"] == "mcp__.*[Gg]mail.*"
+        assert hook["matcher"] == "mcp__.*[Gg][Mm][Aa][Ii][Ll].*"     # any letter case of "gmail"
         assert hook["hooks"][0]["command"] == "python3 -I .claude/hooks/gmail_guard.py"
         assert "@" not in settings.read_text()
     assert "@" not in GUARD.read_text()

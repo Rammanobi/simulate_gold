@@ -5,8 +5,9 @@ Policy (fail closed):
   * send_message is allowed ONLY when
       - the REPORT_EMAIL environment variable is set and non-empty,
       - its keys are a subset of {to, subject, body, htmlBody},
-      - `to` holds exactly one address, equal to REPORT_EMAIL (exact match, case-insensitive),
-      - the subject starts with "Metals Daybook".
+      - `to` holds exactly one address, equal to REPORT_EMAIL (exact match, ASCII case-insensitive; non-ASCII
+        look-alikes such as the Kelvin sign are refused, and REPORT_EMAIL itself must be ONE plain address),
+      - the subject starts with "Metals Daybook" and has no control characters (no CR/LF header injection).
     No cc, bcc, attachments, draftId or reply ids (those keys are not in the allowed set).
   * Every other Gmail tool (drafts, forward, reply, trash, labels, spam, unknown ones) is blocked.
   * Any error while checking blocks the call.
@@ -14,11 +15,20 @@ The address itself is never stored in this repository; it comes from the environ
 """
 import json
 import os
+import re
 import sys
 
 ALLOWED_KEYS = {"to", "subject", "body", "htmlBody"}
 SUBJECT_PREFIX = "Metals Daybook"
 READ_PREFIXES = ("get_", "list_", "search_")
+WRITE_WORDS = ("send", "forward", "reply", "trash", "delete", "spam", "modify", "update", "create", "import", "insert",
+               "batch", "move")
+PLAIN_ADDRESS = re.compile(r"^[A-Za-z0-9._%+\-]+\x40[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")   # \x40: no at-sign in this file
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _ascii_lower(s):
+    return s.lower() if s.isascii() else None
 
 
 def action_of(tool_name):
@@ -30,6 +40,8 @@ def action_of(tool_name):
 def check_send(tool_input, report_email):
     if not report_email or not report_email.strip():
         return "REPORT_EMAIL is not set, so sending is blocked"
+    if not PLAIN_ADDRESS.match(report_email.strip()):
+        return "REPORT_EMAIL must be one plain address (no lists, names or brackets), so sending is blocked"
     if not isinstance(tool_input, dict):
         return "tool_input is not an object"
     extra = sorted(set(tool_input) - ALLOWED_KEYS)
@@ -40,11 +52,13 @@ def check_send(tool_input, report_email):
         to = [to]
     if not isinstance(to, list) or len(to) != 1 or not isinstance(to[0], str):
         return "exactly one recipient in `to` is required"
-    if to[0].strip().lower() != report_email.strip().lower():
+    if CONTROL.search(to[0]) or _ascii_lower(to[0].strip()) != report_email.strip().lower():
         return "the recipient is not the configured report address"
     subject = tool_input.get("subject")
     if not isinstance(subject, str) or not subject.startswith(SUBJECT_PREFIX):
         return 'the subject must start with "%s"' % SUBJECT_PREFIX
+    if CONTROL.search(subject):
+        return "the subject must not contain line breaks or control characters"
     for k in ("body", "htmlBody"):
         if k in tool_input and not isinstance(tool_input[k], str):
             return "%s must be text" % k
@@ -58,7 +72,7 @@ def decide(event, report_email):
     action = action_of(event.get("tool_name", ""))
     if action == "send_message":
         return check_send(event.get("tool_input"), report_email)
-    if action.startswith(READ_PREFIXES):
+    if action.startswith(READ_PREFIXES) and not any(w in action for w in WRITE_WORDS):
         return None
     return "Gmail tool %r is not allowed (only send_message to the report address and read tools)" % action
 
