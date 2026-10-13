@@ -10,8 +10,6 @@ and talk to the engine only through files in this repo. You see one email a day 
 This page is the index. Each picture is a standalone HTML file next to its PNG (in
 [`architecture/`](architecture/)), so it can be edited and re-rendered.
 
-> Thrift mode, the DeepSeek fallback, the billing check and the Daybook Inbox are described as designed. The
-> thrift and fallback code lives on another branch, so check the details against it once merged.
 
 ---
 
