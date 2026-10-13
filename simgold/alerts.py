@@ -85,7 +85,7 @@ _NORMALISERS = [
     (re.compile(r"\b\d{1,2}:\d{2}(:\d{2})?\b"), " "),
     (re.compile(r"(?:[a-z]:)?(?:[\\/][\w.\-~@+]+){2,}"), " "),                                       # paths
     (re.compile(r"0x[0-9a-f]+|\b[0-9a-f]{7,40}\b"), " "),                                            # hashes / addresses
-    (re.compile(r"[\d][\d,._]*"), " "),                                                              # numbers
+    (re.compile(r"\w*\d[\w,.]*"), " "),          # numbers and any token holding a digit (uuids, run ids, 30s, py311)
     (re.compile(r"[^a-z_ ]+"), " "),
 ]
 
@@ -104,6 +104,8 @@ def error_class(text: str) -> str:
     if m:
         return m[-1].lower()
     low = s.lower()
+    if "timed out" in low:          # "GOLDBEES.NS: timed out" and "SILVERBEES.NS: timed out" are one incident
+        return "timeout"
     for key in ("timed_out", "timeout", "startup_failure", "rejected", "non-fast-forward"):
         if key in low:
             return key
@@ -236,7 +238,13 @@ def raise_alert(state_dir, component: str, step: str, category: str, detail: str
             out["new"] = True
         e.update({"last_seen": now, "detail": str(detail)[:1500], "severity": sev, "category": category})
         e["count"] += 1
-        if not out["new"]:
+        if not out["new"] and e.get("deferred") and e["status"] == "open" and sev != LOW and wake \
+                and budget_left(st, now, cfg):
+            # it was held back only because the day's budget was used up; the budget is back (e.g. a new IST day)
+            record_fire(st, now, high=sev == HIGH)
+            e["deferred"] = False
+            out.update(fire=True, reason="deferred incident still open; the fire budget is available again")
+        elif not out["new"]:
             out["reason"] = "same fingerprint, already an open incident"
         elif sev == LOW and not cfg.get("low_wakes_routine", False):
             out["reason"] = "LOW: recorded only; the next routine run will pick it up"
@@ -269,7 +277,8 @@ def raise_batch(state_dir, items: list[dict], now: float | None = None, cfg: dic
     cfg = cfg or params()
     st = load_state(state_dir)
     decisions = [raise_alert(state_dir, wake=False, st=st, now=now, cfg=cfg, **it) for it in items]
-    new = [d for d, it in zip(decisions, items) if d["new"] and not (d["severity"] == LOW)]
+    new = [d for d, it in zip(decisions, items) if not (d["severity"] == LOW) and (
+        d["new"] or (st["alerts"][d["fingerprint"]].get("deferred") and st["alerts"][d["fingerprint"]]["status"] == "open"))]
     fire = False
     reason = "nothing new"
     if new:
@@ -284,6 +293,8 @@ def raise_batch(state_dir, items: list[dict], now: float | None = None, cfg: dic
                 st["alerts"][d["fingerprint"]]["deferred"] = True; _pend(st, d["fingerprint"])
         else:
             record_fire(st, now, high=top == HIGH)
+            for d in new:
+                st["alerts"][d["fingerprint"]]["deferred"] = False
             fire, reason = True, "new incident(s)"
     else:
         for d in decisions:

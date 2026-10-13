@@ -22,7 +22,7 @@ def test_fingerprint_ignores_timestamps_numbers_paths():
     assert a == b == "market hours paper trading|run loop|runtimeerror"
     assert A.fingerprint("a", "b", "boom 1") != A.fingerprint("a", "c", "boom 1")
     assert A.fingerprint("a", "b", "ValueError: x") != A.fingerprint("a", "b", "KeyError: x")
-    assert A.normalise("took 12.5s at 10:41 in /usr/lib/python3.11/site.py") == "took s at in"
+    assert A.normalise("took 12.5s at 10:41 in /usr/lib/python3.11/site.py") == "took at in"     # "12.5s" holds a digit: dropped whole
 
 
 # ---- severity table ----------------------------------------------------------------
