@@ -70,17 +70,16 @@
    "deferred": false,
    "detail": "last tick row is 6 min old (limit 5)",
    "emails": [],
-   "first_seen": 1791963113.9150083,
+   "first_seen": 1791971219.6062202,
    "fp": "watchdog|ticks_stale|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1791963113.9150083,
-   "resolved_at": 1791966247.0117145,
+   "last_seen": 1791971219.6062202,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "ticks_stale"
   },
   "watchdog|watchdog_stale|": {
@@ -107,14 +106,15 @@
  },
  "fires": {
   "date": "2026-10-14",
-  "n": 3,
+  "n": 4,
   "ts": [
    1791953207.7118247,
    1791955046.1956058,
-   1791963113.9150083
+   1791963113.9150083,
+   1791971219.6062202
   ]
  },
- "last_high_fire": 1791963113.9150083,
+ "last_high_fire": 1791971219.6062202,
  "pending": [],
  "version": 1
 }
