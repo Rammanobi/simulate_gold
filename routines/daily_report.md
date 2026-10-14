@@ -75,6 +75,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
     For each row older than 5 minutes: read `config/main` (`decision_trigger_id`); if set and `fire_trigger` is available, fire it once with
     `{"kind":"owner_decision","item_id":"<id>","revision":<n>}`; otherwise run `routines/incident.md` section D inline (the
     database, not the row's text, decides what to do). Then `update` the decision with `notified = true`.
+9d. **Dashboard day.** As hourly step 2c (url = `$(cat config/dashboard_url.txt)`, collection `days`, doc_id `D`,
+    `file_path` from `python tools/dashboard.py --date D`, `if_version` when it exists). Not for a market-closed day.
 10. **Commit and push:**
     ```bash
     git add -- $(git ls-files -mo --exclude-standard -- state/market_today.json state/tomorrow.txt state/budget.json memory reports/daily)
@@ -88,7 +90,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 ## Output contract
 
-Writes: `items/daily-D` in the Inbox database (ArtifactData), `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
+Writes: `items/daily-D` in the Inbox database and `days/D` in the Dashboard database (ArtifactData), `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
 `memory/daily/D.md`, `memory/brief.md`. Final message, ≤ 5 lines:
 `daily_report D | subject: … | email: sent|skipped (reason)|blocked (reason) | memory: N lines, K candidates | page: updated|skipped | pushed <sha> | models used: sonnet[, haiku]`
 

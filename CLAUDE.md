@@ -34,7 +34,7 @@ HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: green (≥ ₹1,00,000) a
 
 | Owner | Paths |
 |---|---|
-| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` |
+| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` (incl. `logs/dashboard-D.json`) |
 | Routines (via tools) | `state/guidance.json`, `state/fastlane.json`, `state/events.json`, `state/market_today.json`, `state/tomorrow.txt`, `state/budget.json` |
 | Routines (direct writes) | `memory/**`, `reports/daily/**`, `reports/weekly/**` (weekly review only) |
 | Fallback workflow (`fallback.yml`, DeepSeek, only when Claude is silent) | `state/guidance.json` (via `tools/guidance.py set` only), `state/fallback.json`, `reports/daily/**` of a fallback report |
@@ -73,6 +73,7 @@ unless the playbook says so.
 | `python tools/daily_memory.py --date D` | fact skeleton for `memory/daily/D.md` |
 | `python tools/send_report.py --date D` | builds the report, prints JSON {subject, html_path, text_path, page_path} |
 | `python tools/write_brief.py` | regenerates `memory/brief.md` |
+| `python tools/dashboard.py --date D` | Daybook Dashboard day JSON in /tmp (copy it with ArtifactData `set` + `file_path`; URL in `config/dashboard_url.txt`) |
 | `python tools/inbox.py item-from-incident\|item-from-daily\|bump …` | Daybook Inbox item JSON (written with ArtifactData; URL in `config/inbox_url.txt`) |
 
 Useful one-liners (repo root):

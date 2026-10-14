@@ -22,6 +22,15 @@ from run_report import generate
 from simgold import brief, report
 
 
+def dashboard_link(root: Path, date: str) -> str | None:
+    """The email's button opens this day on the Daybook Dashboard (config/dashboard_url.txt), when configured."""
+    try:
+        url = (Path(root) / "config" / "dashboard_url.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return f"{url}#{date}" if url.startswith("https://claude.ai/") else None
+
+
 def make(date: str, root: Path, report_url: str | None = None) -> dict:
     root = Path(root)
     day, paths = generate(date, root, report_url=report_url)
@@ -44,7 +53,7 @@ def main(argv=None) -> int:
     except ValueError:
         ap.error("--date must look like 2026-10-13")
     utf8_stdout()
-    out = make(a.date, Path(a.root), a.report_url)
+    out = make(a.date, Path(a.root), a.report_url or dashboard_link(Path(a.root), a.date))
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
 

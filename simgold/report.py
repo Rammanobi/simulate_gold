@@ -872,7 +872,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
         button = (f'<tr><td align="center" style="padding:28px 20px 8px 20px;"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
                   f'<td align="center" bgcolor="#1f2937" style="border-radius:8px;"><a href="{_html.escape(link, quote=True)}" style="display:inline-block;padding:15px 28px;'
                   f'font-family:{FONT};font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
-                  f'Open the interactive report</a></td></tr></table></td></tr>\n')
+                  f'Open this day on the dashboard</a></td></tr></table></td></tr>\n')
     ib = inbox_link(inbox_url or (SAMPLE_INBOX_URL if sample else None), daily_item_id(day["date"]))
     inbox = ""
     if ib:
