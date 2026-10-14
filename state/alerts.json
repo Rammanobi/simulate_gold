@@ -1,5 +1,25 @@
 {
  "alerts": {
+  "system|safe mode|": {
+   "acked": false,
+   "category": "system_unstable",
+   "component": "system",
+   "count": 1,
+   "deferred": false,
+   "detail": "HIGH incident not fixed within 30 min: ticks_missing",
+   "emails": [],
+   "first_seen": 1791955046.1956058,
+   "fp": "system|safe mode|",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1791955046.1956058,
+   "resolved_emailed": false,
+   "severity": "high",
+   "status": "open",
+   "step": "safe-mode"
+  },
   "watchdog|routines_silent|": {
    "acked": false,
    "category": "routines_silent",
@@ -64,12 +84,13 @@
  },
  "fires": {
   "date": "2026-10-14",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1791953207.7118247
+   1791953207.7118247,
+   1791955046.1956058
   ]
  },
- "last_high_fire": 1791953207.7118247,
+ "last_high_fire": 1791955046.1956058,
  "pending": [],
  "version": 1
 }

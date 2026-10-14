@@ -1,0 +1,5 @@
+{
+ "on": true,
+ "since": "2026-10-14T10:47:26+05:30",
+ "reason": "HIGH incident not fixed within 30 min: ticks_missing"
+}
