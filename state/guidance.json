@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-14T13:16:33+05:30",
+ "updated": "2026-10-14T14:16:18+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD: US CPI 18:00 IST today, yields up, gold -1.3%, no favour. SILVER: -2.8% shock, CPI risk, neutral. COPPER: no new facts, neutral.",
+ "note": "GOLD: US CPI 18:00 IST, gold -1.3%, no favour. SILVER: -2.8% shock, CPI risk, neutral. COPPER: no new facts, neutral.",
  "prices_at_update": {
-  "GOLDBEES": 119.65,
-  "SILVERBEES": 202.9,
-  "HINDCOPPER": 467.5
+  "GOLDBEES": 119.69,
+  "SILVERBEES": 202.72,
+  "HINDCOPPER": 468.25
  }
 }
