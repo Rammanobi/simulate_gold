@@ -14,12 +14,15 @@ into `memory/`, so it cannot come back later as trusted memory.
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step.
-1. Call the `get_session` tool of the claude-code-remote MCP server with no arguments. Read
-   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`).
+1. If a `get_session` tool of the claude-code-remote MCP server is in your tool list, call it with no arguments and read
+   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`). Routine sessions usually do NOT have it
+   (14 Oct 2026: absent in every routine); that is expected, not an error: go straight to point 3.
 2. `python tools/budget.py mode --rate-limit-type "<rateLimitType>" --overage <true|false>`. It prints NORMAL or THRIFT
    and writes `state/budget.json` (routine-owned; commit it with your other files). "ccr_promotional" is NORMAL;
    anything else, an empty value or an unknown one is THRIFT.
-3. `get_session` unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is THRIFT).
+3. `get_session` missing, unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is
+   THRIFT) and carry on silently. Do not search for the tool more than once, do not retry it, and do not report its
+   absence as a failure or flag; the final message just says THRIFT.
 4. THRIFT rules for this routine: unchanged, except do the memory note yourself instead of spawning a Haiku subagent.
 Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md applies unchanged.
 
@@ -28,9 +31,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 1. **Clock.** `TZ=Asia/Kolkata date '+%F %a %H:%M'`. Saturday/Sunday → final message `daily_report: weekend, nothing sent.` and stop. D = today.
 2. **Wait for the engine**, then sync. Check for a running market-hours run:
    ```bash
-   gh api "repos/Rammanobi/simulate_gold/actions/runs?status=in_progress&per_page=5" --jq '[.workflow_runs[]|select(.path|test("market-hours"))]|length'
+   gh api "repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status == "in_progress")] | length'
    ```
-   If > 0, re-check every 60 s (use the Monitor tool with an until-loop if a plain `sleep` is refused) for
+   (exactly as written, one Bash call; it is pre-approved in that form). If > 0, re-check every 60 s (use the Monitor tool with an until-loop if a plain `sleep` is refused) for
    at most 12 minutes, then go on regardless and add a warning. Then `git pull --rebase --autostash -q`.
 3. **Trading day?** `python -c "from simgold.market import is_trading_day as t;import datetime as d;print(t(d.date.fromisoformat('D')))"`.
    If False (holiday): run step 6 only; if its subject or files say "Market closed", send it (step 9),
@@ -51,10 +54,17 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    at 11:40; gaps may fade." No candidates when the day taught nothing; never invent.
 8. **Brief.** `python tools/write_brief.py`.
 9. **Email.** `echo "$REPORT_EMAIL"`. Empty → skip the email and note it. Otherwise read `html_path` and
-   `text_path` and call the Gmail `send_message` tool with only:
-   `to` = that one address, `subject` = the JSON subject (starts "Metals Daybook"), `body` = text file
-   contents, `htmlBody` = HTML file contents. One send only. If the hook blocks it: report the reason and
-   stop sending; do not retry with changes. Never write the address anywhere.
+   `text_path` in full (Read tool, all lines) and call the Gmail `send_message` tool with only:
+   `to` = that one address, `subject` = the JSON subject exactly (starts "Metals Daybook"),
+   `body` = the text file's contents, `htmlBody` = the HTML file's contents.
+   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar, decision list; see
+   `templates/email_report.sample.html`). Pass both files character for character: never summarise, shorten,
+   restyle, "clean up", re-format or write your own HTML or text, even if the file is long (40+ KB on a busy day is
+   normal) or looks repetitive. Do not add or remove anything (no notes, no links, no greeting). Anything you want
+   to say goes in the final message, not the email. On 14 Oct 2026 the routine sent a 4 KB rewrite instead of the
+   42 KB report; the Gmail hook now blocks any daily report whose `htmlBody`/`body` differ from the generated files.
+   One send only. If the hook blocks it: report the reason and stop sending; do not retry with changes. Never write
+   the address anywhere.
 9b. **Publish to the Inbox.** Mandatory: the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing (then say so in the final message). `INBOX=$(cat config/inbox_url.txt)`; the report
     email already links to `$INBOX#daily-D`. Write the day's item:
     `python tools/inbox.py item-from-daily --date D [--report-url URL] --out /tmp/item.json` (URL = contents of
@@ -69,8 +79,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
     ```bash
     git add -- $(git ls-files -mo --exclude-standard -- state/market_today.json state/tomorrow.txt state/budget.json memory reports/daily)
     git diff --cached --quiet || git commit -qm "routine(daily_report): D"
-    for i in 1 2 3; do git pull --rebase --autostash -q || { git rebase --abort; break; }; git push -q && break; sleep 5; done
     ```
+    Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
+    push is rejected, repeat the pair, at most 3 tries in all. If the pull fails: `git rebase --abort`, report, stop.
 11. **Interactive page (optional).** If an Artifact tool is available AND `config/report_artifact_url.txt`
     exists, republish `page_path` to the URL in that file (update in place). Otherwise skip silently. A
     failure here never fails the run; just note it.
@@ -90,5 +101,6 @@ Writes: `items/daily-D` in the Inbox database (ArtifactData), `state/market_toda
 
 ## Token thrift
 
-Do not read logs, code or the full report files except to pass HTML/text to the email. ≤ 3 web calls, only
+Do not read logs, code or the full report files except to pass HTML/text to the email (there you read them in
+full and pass them unchanged: that cost is required). ≤ 3 web calls, only
 when market-today is missing. No analysis beyond the lesson candidates.

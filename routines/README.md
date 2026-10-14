@@ -51,6 +51,8 @@ PR that is listed in the incident record and has green CI. A Reject's reason may
 ## Thrift mode and the fallback
 
 Every playbook starts with step 0 (budget check): `get_session` -> `python tools/budget.py mode --rate-limit-type T`.
+Routine sessions usually have no `get_session` tool (seen on 14 Oct 2026); the playbooks then run THRIFT silently, which is
+acceptable: it only lowers spending (no hourly Opus subagent, no premarket Haiku fan-out), never a safety rule.
 On the promotional cloud-session credits (`ccr_promotional`) the mode is NORMAL; on plan limits (anything else, or
 unknown) it is THRIFT and the playbooks spend less (no hourly Opus, no premarket Haiku fan-out, short weekly review,
 Opus in incidents only for HIGH/COMPLEX). The engine also caps fast-lane wake-ups at 2 a day in THRIFT

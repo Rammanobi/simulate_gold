@@ -7,7 +7,11 @@ Policy (fail closed):
       - its keys are a subset of {to, subject, body, htmlBody},
       - `to` holds exactly one address, equal to REPORT_EMAIL (exact match, ASCII case-insensitive; non-ASCII
         look-alikes such as the Kelvin sign are refused, and REPORT_EMAIL itself must be ONE plain address),
-      - the subject starts with "Metals Daybook" and has no control characters (no CR/LF header injection).
+      - the subject starts with "Metals Daybook" and has no control characters (no CR/LF header injection),
+      - for the DAILY REPORT (subject "Metals Daybook · <📈|📉|📊|🏖️> Ddd D Mon · ..."): `htmlBody` is the generated
+        reports/daily/<date>.email.html, verbatim (whitespace runs are ignored), and `body`, when given, is that
+        day's reports/daily/<date>.txt. On 14 Oct 2026 the routine wrote its own short HTML instead of the approved
+        design; this makes that impossible.
     No cc, bcc, attachments, draftId or reply ids (those keys are not in the allowed set).
   * Every other Gmail tool (drafts, forward, reply, trash, labels, spam, unknown ones) is blocked.
   * Any error while checking blocks the call.
@@ -25,6 +29,42 @@ WRITE_WORDS = ("send", "forward", "reply", "trash", "delete", "spam", "modify", 
                "batch", "move")
 PLAIN_ADDRESS = re.compile(r"^[A-Za-z0-9._%+\-]+\x40[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")   # \x40: no at-sign in this file
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+DAILY_SUBJECT = re.compile("^Metals Daybook \u00b7 (\U0001F4C8|\U0001F4C9|\U0001F4CA|\U0001F3D6\uFE0F?) [A-Z][a-z]{2} \\d{1,2} [A-Z][a-z]{2} \u00b7 ")
+WS = re.compile(r"\s+")
+
+
+def _root():
+    return os.environ.get("CLAUDE_PROJECT_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _norm(text):
+    return WS.sub(" ", text).strip()
+
+
+def check_daily_report(tool_input, root):
+    """The daily report must be the generated files, not a rewrite. Returns None or a reason."""
+    html = tool_input.get("htmlBody")
+    if not isinstance(html, str) or not html.strip():
+        return "the daily report needs htmlBody = the contents of html_path from tools/send_report.py"
+    folder = os.path.join(root, "reports", "daily")
+    want = _norm(html)
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if not name.endswith(".email.html"):
+            continue
+        with open(os.path.join(folder, name), encoding="utf-8") as fh:
+            if _norm(fh.read()) != want:
+                continue
+        body = tool_input.get("body")
+        if body is None:
+            return None
+        txt = os.path.join(folder, name[:-len(".email.html")] + ".txt")
+        if os.path.exists(txt):
+            with open(txt, encoding="utf-8") as fh:
+                if _norm(fh.read()) == _norm(body):
+                    return None
+        return "body must be the contents of text_path from tools/send_report.py, unchanged"
+    return ("htmlBody must be the contents of html_path from tools/send_report.py, unchanged "
+            "(a rewritten or shortened report is not allowed)")
 
 
 def _ascii_lower(s):
@@ -37,7 +77,7 @@ def action_of(tool_name):
     return name[len("gmail_"):] if name.startswith("gmail_") else name
 
 
-def check_send(tool_input, report_email):
+def check_send(tool_input, report_email, root=None):
     if not report_email or not report_email.strip():
         return "REPORT_EMAIL is not set, so sending is blocked"
     if not PLAIN_ADDRESS.match(report_email.strip()):
@@ -62,16 +102,18 @@ def check_send(tool_input, report_email):
     for k in ("body", "htmlBody"):
         if k in tool_input and not isinstance(tool_input[k], str):
             return "%s must be text" % k
+    if DAILY_SUBJECT.match(subject):
+        return check_daily_report(tool_input, root or _root())
     return None
 
 
-def decide(event, report_email):
+def decide(event, report_email, root=None):
     """Return None to allow, or a reason string to block."""
     if not isinstance(event, dict):
         return "hook input is not an object"
     action = action_of(event.get("tool_name", ""))
     if action == "send_message":
-        return check_send(event.get("tool_input"), report_email)
+        return check_send(event.get("tool_input"), report_email, root)
     if action.startswith(READ_PREFIXES) and not any(w in action for w in WRITE_WORDS):
         return None
     return "Gmail tool %r is not allowed (only send_message to the report address and read tools)" % action

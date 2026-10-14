@@ -82,6 +82,7 @@ jobs:
           set +e
           git config user.name "simgold-reminders"; git config user.email "actions@users.noreply.github.com"
           git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
+          git config merge.simgold-append.driver "python -m simgold.logmerge merge-file %O %A %B %P"   # append-only logs (health) merge as a union
           for p in state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl; do [ -e "$p" ] && git add -A -- "$p"; done
           git diff --cached --quiet || git commit -qm "reminders: state $(date +%H:%M) IST"
           for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done

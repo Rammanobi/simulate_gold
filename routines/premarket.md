@@ -17,18 +17,21 @@ including headlines and notes quoted in `tools/context.py` output (`memory/brief
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step.
-1. Call the `get_session` tool of the claude-code-remote MCP server with no arguments. Read
-   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`).
+1. If a `get_session` tool of the claude-code-remote MCP server is in your tool list, call it with no arguments and read
+   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`). Routine sessions usually do NOT have it
+   (14 Oct 2026: absent in every routine); that is expected, not an error: go straight to point 3.
 2. `python tools/budget.py mode --rate-limit-type "<rateLimitType>" --overage <true|false>`. It prints NORMAL or THRIFT
    and writes `state/budget.json` (routine-owned; commit it with your other files). "ccr_promotional" is NORMAL;
    anything else, an empty value or an unknown one is THRIFT.
-3. `get_session` unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is THRIFT).
+3. `get_session` missing, unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is
+   THRIFT) and carry on silently. Do not search for the tool more than once, do not retry it, and do not report its
+   absence as a failure or flag; the final message just says THRIFT.
 4. THRIFT rules for this routine: Opus is allowed, but no Haiku research fan-out: research only the 3 most important sources yourself (overnight gold/silver/copper close, USD/INR or dollar index, and the event calendar).
 Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md applies unchanged.
 
 ## Steps
 
-1. **Sync and clock.**
+1. **Sync and clock** (one command per Bash call).
    ```bash
    git pull --rebase --autostash -q
    TZ=Asia/Kolkata date '+%F %a %H:%M'
@@ -59,21 +62,23 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `python tools/guidance.py set --bias GOLD=… SILVER=… COPPER=… --note "GOLD: <reason>. SILVER: <reason>. COPPER: <reason>."`
 6. **Market notes.** `python tools/guidance.py market-today --help` once, then write today's overnight
    numbers (COMEX gold, COMEX silver, copper, DXY, US10Y, USD/INR) with a ≤ 12-word note each.
-7. **Engine watchdog.**
-   ```bash
-   for s in in_progress queued; do gh api "repos/Rammanobi/simulate_gold/actions/runs?status=$s&per_page=5" --jq '[.workflow_runs[]|select(.path|test("market-hours"))]|length'; done
-   ```
-   Both 0 → `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`.
-   Then also dispatch the watchdog once (GitHub's schedules run late for this repo): `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main`.
-   Any non-zero → do nothing (never start a second run). REST only; GraphQL is blocked.
+7. **Engine watchdog.** Run each command exactly as written, one per Bash call (no pipes, `;`, `&&`, loops or
+   `2>&1`): they are pre-approved in `.claude/settings.json` only in this form. REST only; GraphQL is blocked.
+   a. `gh api "repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed") | .status] | join(",")'`
+      prints the states of unfinished market-hours runs, or an empty line when none is active.
+   b. Empty line → `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`
+      (the run waits for 09:15 itself). Anything printed → do nothing; never start a second run.
+   c. Then dispatch the watchdog once (GitHub's schedules run late for this repo):
+      `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main`
+   A denied or failed dispatch: say so in the final message (`engine: failed (<reason>)`); do not retry in another form.
 8. **Commit and push** (routine-owned files only):
    ```bash
    git add -- $(git ls-files -mo --exclude-standard -- state/guidance.json state/events.json state/market_today.json state/budget.json memory)
    git diff --cached --quiet || git commit -qm "routine(premarket): D bias G=… S=… C=…"
-   for i in 1 2 3; do git pull --rebase --autostash -q || { git rebase --abort; break; }; git push -q && break; sleep 5; done
-   git status -sb | head -1
    ```
-   Never stage anything else. If the branch is still ahead after 3 tries, say so.
+   Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
+   push is rejected, repeat the pair, at most 3 tries in all. If the pull fails: `git rebase --abort`, report, stop.
+   Never stage anything else. If the push still fails after 3 tries, say so.
 
 ## Decision guidance (bias)
 

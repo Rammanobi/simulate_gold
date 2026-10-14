@@ -20,12 +20,15 @@ and carry on with this playbook.
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step.
-1. Call the `get_session` tool of the claude-code-remote MCP server with no arguments. Read
-   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`).
+1. If a `get_session` tool of the claude-code-remote MCP server is in your tool list, call it with no arguments and read
+   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`). Routine sessions usually do NOT have it
+   (14 Oct 2026: absent in every routine); that is expected, not an error: go straight to point 3.
 2. `python tools/budget.py mode --rate-limit-type "<rateLimitType>" --overage <true|false>`. It prints NORMAL or THRIFT
    and writes `state/budget.json` (routine-owned; commit it with your other files). "ccr_promotional" is NORMAL;
    anything else, an empty value or an unknown one is THRIFT.
-3. `get_session` unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is THRIFT).
+3. `get_session` missing, unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is
+   THRIFT) and carry on silently. Do not search for the tool more than once, do not retry it, and do not report its
+   absence as a failure or flag; the final message just says THRIFT.
 4. THRIFT rules for this routine: unchanged. The fast lane is already minimal and defensive; do not skip or shorten it.
 Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md applies unchanged.
 
@@ -47,8 +50,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 7. **Commit and push fast:**
    ```bash
    git add state/fastlane.json && git commit -qm "routine(fastlane): SYM <action>"
-   for i in 1 2 3; do git pull --rebase --autostash -q || { git rebase --abort; break; }; git push -q && break; sleep 3; done
    ```
+   Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
+   push is rejected, repeat the pair, at most 3 tries in all. If the pull fails: `git rebase --abort`, report, stop.
 
 ## Defensive menu
 

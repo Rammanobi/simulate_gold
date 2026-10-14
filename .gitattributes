@@ -2,3 +2,11 @@
 # merge it as JSON (simgold/alerts.py merge-file). The driver is configured by simgold/gitsync.py and the
 # workflows; without it git falls back to a normal text merge.
 state/alerts.json merge=simgold-alerts
+# The daily logs are append-only, written by the engine (and health by the watchdog). Merge them as a union of rows,
+# never by picking one side (`-X theirs` dropped the whole morning of 14 Oct 2026). Driver: simgold/logmerge.py,
+# configured by simgold/gitsync.py and the workflows.
+logs/ticks-*.csv merge=simgold-append
+logs/decisions-*.jsonl merge=simgold-append
+logs/incidents-*.jsonl merge=simgold-append
+logs/health-*.jsonl merge=simgold-append
+logs/advice-rejected-*.jsonl merge=simgold-append

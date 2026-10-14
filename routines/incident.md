@@ -30,12 +30,15 @@ The Gmail hook allows only subjects that start with "Metals Daybook", so use the
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step.
-1. Call the `get_session` tool of the claude-code-remote MCP server with no arguments. Read
-   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`).
+1. If a `get_session` tool of the claude-code-remote MCP server is in your tool list, call it with no arguments and read
+   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`). Routine sessions usually do NOT have it
+   (14 Oct 2026: absent in every routine); that is expected, not an error: go straight to point 3.
 2. `python tools/budget.py mode --rate-limit-type "<rateLimitType>" --overage <true|false>`. It prints NORMAL or THRIFT
    and writes `state/budget.json` (routine-owned; commit it with your other files). "ccr_promotional" is NORMAL;
    anything else, an empty value or an unknown one is THRIFT.
-3. `get_session` unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is THRIFT).
+3. `get_session` missing, unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is
+   THRIFT) and carry on silently. Do not search for the tool more than once, do not retry it, and do not report its
+   absence as a failure or flag; the final message just says THRIFT.
 4. THRIFT rules for this routine: use an Opus subagent only for HIGH severity or COMPLEX incidents; TRIVIAL and STANDARD ones stay with Sonnet (and its Sonnet subagent).
 Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md applies unchanged.
 
@@ -60,7 +63,10 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 `logs/decisions-*.jsonl`, `state/`. Never print secrets.
 
 ## 4. SAFE fixes (you may do these on main)
-Re-dispatch the engine workflow (`gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`);
+Re-dispatch the engine workflow, only when
+`gh api "repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed") | .status] | join(",")'`
+prints an empty line (no run in progress or waiting): `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/dispatches -f ref=main -f 'inputs[session]=auto'`
+(each exactly as written, one per Bash call; pre-approved in that form);
 restore a corrupted state file from git history or `state/portfolio.backup.json`; add a missing NSE holiday; fix an obviously
 broken data fetch with a fallback that has a test; re-run a failed job (`gh run rerun <id> --failed`).
 `python -m pytest -q` must be green BEFORE you push. One fix per commit, then
