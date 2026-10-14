@@ -54,10 +54,17 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    at 11:40; gaps may fade." No candidates when the day taught nothing; never invent.
 8. **Brief.** `python tools/write_brief.py`.
 9. **Email.** `echo "$REPORT_EMAIL"`. Empty → skip the email and note it. Otherwise read `html_path` and
-   `text_path` and call the Gmail `send_message` tool with only:
-   `to` = that one address, `subject` = the JSON subject (starts "Metals Daybook"), `body` = text file
-   contents, `htmlBody` = HTML file contents. One send only. If the hook blocks it: report the reason and
-   stop sending; do not retry with changes. Never write the address anywhere.
+   `text_path` in full (Read tool, all lines) and call the Gmail `send_message` tool with only:
+   `to` = that one address, `subject` = the JSON subject exactly (starts "Metals Daybook"),
+   `body` = the text file's contents, `htmlBody` = the HTML file's contents.
+   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar, decision list; see
+   `templates/email_report.sample.html`). Pass both files character for character: never summarise, shorten,
+   restyle, "clean up", re-format or write your own HTML or text, even if the file is long (40+ KB on a busy day is
+   normal) or looks repetitive. Do not add or remove anything (no notes, no links, no greeting). Anything you want
+   to say goes in the final message, not the email. On 14 Oct 2026 the routine sent a 4 KB rewrite instead of the
+   42 KB report; the Gmail hook now blocks any daily report whose `htmlBody`/`body` differ from the generated files.
+   One send only. If the hook blocks it: report the reason and stop sending; do not retry with changes. Never write
+   the address anywhere.
 9b. **Publish to the Inbox.** Mandatory: the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing (then say so in the final message). `INBOX=$(cat config/inbox_url.txt)`; the report
     email already links to `$INBOX#daily-D`. Write the day's item:
     `python tools/inbox.py item-from-daily --date D [--report-url URL] --out /tmp/item.json` (URL = contents of
@@ -94,5 +101,6 @@ Writes: `items/daily-D` in the Inbox database (ArtifactData), `state/market_toda
 
 ## Token thrift
 
-Do not read logs, code or the full report files except to pass HTML/text to the email. ≤ 3 web calls, only
+Do not read logs, code or the full report files except to pass HTML/text to the email (there you read them in
+full and pass them unchanged: that cost is required). ≤ 3 web calls, only
 when market-today is missing. No analysis beyond the lesson candidates.
