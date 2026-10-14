@@ -212,6 +212,17 @@ Categories: monetary policy, inflation data, US jobs, geopolitics, dollar/rupee,
 
 Replace "powell" with "fed chair".
 
+Tuning after 14 Oct 2026 (proposal `docs/proposals/2026-10-14-news-trigger-tuning.md`):
+
+- **Monetary policy is urgency 3**, raised to **5** only by a decision word ("cuts rates", "raises/hikes rates",
+  "hikes repo rate", "holds rates", "rate decision", "emergency", "surprise", "unscheduled", "intermeeting").
+- Only categories at urgency ≥ 3 count toward "two or more categories", and only they give the instruments
+  to block (a dollar/rupee mention no longer pauses HINDCOPPER on a Fed or RBI story).
+- Previews, outlooks, explainers and personal-finance pieces (`context_phrases`: "ahead of", "outlook", "how to",
+  "EMI", …) never wake the lane unless a category reaches urgency 5.
+- A category blocks the same instrument at most once per **2 hours** (per urgency level, so a decision after
+  earlier commentary still blocks).
+
 ### 5.3 What happens
 
 1. **Straight away, with no AI:** when a shock fires, the engine blocks new buys in that instrument for 30 minutes. Stops and the tripwire keep running. The engine **never waits** for Opus to protect the money.

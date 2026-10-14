@@ -18,8 +18,36 @@ global_rules:
       - max_category_urgency_gte: 4      # any single category at urgency 4 or 5
       - categories_matched_gte: 2        # 2+ different categories match the same headline
   ignore_precedence: true                # ignore list beats every keyword match
-  dedupe_window_minutes: 30              # same story from several outlets wakes the lane once
+  dedupe_window_minutes: 30              # same story from several outlets wakes the lane once (not implemented; see cooldown_minutes)
   max_fast_lane_wakes_per_hour: 6        # safety cap on Opus calls
+  # --- tuning after 14 Oct 2026 (docs/proposals/2026-10-14-news-trigger-tuning.md) ---
+  count_min_urgency: 3                   # only categories at urgency >= 3 count toward categories_matched_gte
+  cooldown_minutes: 120                  # engine: one block per (category, urgency, symbol) per 2 h
+
+# Previews, outlooks, explainers and personal-finance pieces: they never wake the fast lane unless a category
+# reaches urgency 5 (a decision word, a market halt). Matched like keywords (whole words, case-insensitive).
+context_phrases:
+  - ahead of
+  - focus turns to
+  - looms
+  - brace for
+  - in focus
+  - all eyes on
+  - preview
+  - outlook
+  - explainer
+  - explained
+  - what to expect
+  - forecast
+  - full transcript
+  - how to
+  - check how
+  - where they stand
+  - what it means
+  - fixed deposit
+  - fixed deposits
+  - emi
+  - home loan
 
 categories:
   monetary_policy:
@@ -36,7 +64,31 @@ categories:
       - repo rate
       - repo rates
     affects: [GOLDBEES, SILVERBEES]
-    urgency: 4
+    urgency: 3          # was 4: every Fed/RBI comment woke the lane (30 of 31 blocks on 14 Oct 2026)
+    escalate:           # a decision, or a surprise, is what moves gold: back to urgency 5 for these
+      urgency: 5
+      phrases:
+        - cuts rates
+        - cut rates
+        - raises rates
+        - hikes rates
+        - cuts interest rates
+        - raises interest rates
+        - hikes interest rates
+        - cuts repo rate
+        - raises repo rate
+        - hikes repo rate
+        - holds rates
+        - keeps rates unchanged
+        - leaves rates unchanged
+        - keeps repo rate unchanged
+        - rate decision
+        - policy decision
+        - emergency
+        - surprise
+        - surprises
+        - unscheduled
+        - intermeeting
 
   inflation_data:
     keywords:
