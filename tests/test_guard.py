@@ -508,6 +508,29 @@ def test_news_trigger_uses_matcher_and_blocks(tmp_path):
     assert 'Headline: "Fed holds rates"' in why and "category: monetary_policy" in why     # shown on the dashboard
 
 
+def test_news_cooldown_blocks_a_category_once_per_window(tmp_path):
+    """14 Oct 2026: the same Fed/RBI theme re-blocked gold and silver every ~10 minutes all afternoon."""
+    def matcher(text):
+        lvl = 5 if "cuts rates" in text else 3
+        return {"urgency": lvl, "categories": ["monetary_policy", "inflation_data"],
+                "levels": {"monetary_policy": lvl, "inflation_data": 3},
+                "wake_categories": ["monetary_policy", "inflation_data"], "symbols": ["GOLDBEES"], "wake": True,
+                "cooldown_minutes": 120}
+    env = Env(tmp_path / "s", tmp_path / "l", P, match_headline=matcher, environ={})
+    pf = newpf()
+    pf.liquidbees, pf.last_accrual = 100000.0, D_MID.isoformat()
+
+    def tick(h, m, title):
+        now = at(h, m)
+        mk = Market(now, {"GOLDBEES": 100.0}, {"GOLDBEES": now}, {}, headlines=[{"title": title}])
+        return [r for r in run_tick(pf, mk, env) if r["action"] == "BLOCK" and r["trigger"] == "News trigger"]
+    assert len(tick(10, 0, "Fed talk and CPI")) == 1
+    assert tick(10, 10, "More Fed talk and CPI") == []           # same categories, same level: cooled down
+    assert len(tick(11, 0, "Fed cuts rates")) == 1               # a decision (level 5) is a new key
+    assert tick(11, 50, "Yet more Fed talk and CPI") == []
+    assert len(tick(12, 1, "Fed talk and CPI again")) == 1       # 2 h later: blocks again
+
+
 def test_portfolio_trigger(tmp_path):
     from simgold import fastlane
     now = at(11, 0)

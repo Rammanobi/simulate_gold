@@ -86,7 +86,7 @@ def test_brief_shows_only_new_headlines(tmp_path):
     news(root, [h("a1", "Fed signals rate cut as CPI cools"), h("a2", "Gold edges higher")])
     first = brief.build_brief(root, NOW, P)
     assert "Fed signals rate cut" in first and "Gold edges higher" in first
-    assert "[u4 " in first                                     # tagged with urgency and categories
+    assert "[u3 " in first                                     # tagged with urgency and categories (Fed talk is u3 since 14 Oct 2026)
     seen = json.loads((root / "state" / "seen_headlines.json").read_text())
     assert set(seen["seen"]) == {"a1", "a2"}
     second = brief.build_brief(root, NOW + timedelta(minutes=5), P)

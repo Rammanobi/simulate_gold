@@ -327,6 +327,9 @@ class Engine:
             events.append((pt, "Price shock"))
             self.rt["portfolio_trigger_until"] = (now + timedelta(minutes=30)).isoformat()
         if self.env.match_headline:
+            cool = self.rt.setdefault("news_cooldown", {})
+            for k in [k for k, v in cool.items() if not (_dt(v, now.tzinfo) or now) > now]:
+                cool.pop(k, None)                      # expired
             for h in self.mkt.headlines:
                 try:
                     m = self.env.match_headline(h.get("title", ""))
@@ -335,8 +338,19 @@ class Engine:
                     continue
                 if m and m.get("wake"):
                     syms = [config.symbol_of(s) for s in m.get("symbols") or []] or ["ALL"]
+                    cd_min = int(m.get("cooldown_minutes") or 0)
+                    levels = m.get("levels") or {}
+                    cats = m.get("wake_categories") or m.get("categories") or []
                     for s in syms:
                         if s == "ALL" or s in self.syms:
+                            # a category (at the same urgency) blocks a symbol at most once per cooldown: the same
+                            # Fed/RBI story from ten outlets no longer re-blocks every 10 minutes (14 Oct 2026)
+                            keys = [f"{c}@{levels.get(c, '')}|{s}" for c in cats]
+                            if cd_min > 0 and keys and all(k in cool for k in keys):
+                                continue
+                            if cd_min > 0:
+                                for k in keys:
+                                    cool[k] = (now + timedelta(minutes=cd_min)).isoformat()
                             events.append(({"kind": "news", "symbol": s, "headline": h.get("title", "")[:140],
                                             "urgency": m.get("urgency"), "categories": m.get("categories"),
                                             "detail": f"News headline matched a trigger ({', '.join(m.get('categories') or [])}): "
