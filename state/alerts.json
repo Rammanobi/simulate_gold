@@ -20,16 +20,56 @@
    "severity": "high",
    "status": "resolved",
    "step": "routines_silent"
+  },
+  "watchdog|ticks_missing|": {
+   "acked": false,
+   "category": "engine_not_running",
+   "component": "watchdog",
+   "count": 1,
+   "deferred": false,
+   "detail": "logs/ticks-2026-10-14.csv does not exist yet today",
+   "emails": [],
+   "first_seen": 1791953207.7118247,
+   "fp": "watchdog|ticks_missing|",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1791953207.7118247,
+   "resolved_emailed": false,
+   "severity": "high",
+   "status": "open",
+   "step": "ticks_missing"
+  },
+  "watchdog|watchdog_stale|": {
+   "acked": false,
+   "category": "watchdog_stale",
+   "component": "watchdog",
+   "count": 1,
+   "deferred": false,
+   "detail": "the last healthcheck ran 175 min ago (limit 75)",
+   "emails": [],
+   "first_seen": 1791953207.7118247,
+   "fp": "watchdog|watchdog_stale|",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1791953207.7118247,
+   "resolved_emailed": false,
+   "severity": "high",
+   "status": "open",
+   "step": "watchdog_stale"
   }
  },
  "fires": {
-  "date": "2026-10-13",
+  "date": "2026-10-14",
   "n": 1,
   "ts": [
-   1791897576.1283863
+   1791953207.7118247
   ]
  },
- "last_high_fire": 1791897576.1283863,
+ "last_high_fire": 1791953207.7118247,
  "pending": [],
  "version": 1
 }
