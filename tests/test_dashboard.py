@@ -108,3 +108,23 @@ def test_email_button_opens_the_day_on_the_dashboard(tmp_path):
     assert send_report.dashboard_link(tmp_path, D) == f"https://claude.ai/artifact/abc#{D}"
     (tmp_path / "config" / "dashboard_url.txt").write_text("https://evil.example/x\n")
     assert send_report.dashboard_link(tmp_path, D) is None
+
+
+def test_minute_checks_are_compact_and_complete(tmp_path):
+    root = make_root(tmp_path)
+    lines = []
+    for i in range(375):
+        hh, mm = divmod(9 * 60 + 15 + i, 60)
+        lines.append(json.dumps({"ts": f"{D}T{hh:02d}:{mm:02d}:00+05:30", "time": f"{hh:02d}:{mm:02d}", "value": 100000 + i,
+                                 "checks": {"GOLDBEES": f"Score 0.{i % 100:02d} is below the 0.70 needed to buy. " + "x" * 150,
+                                            "SILVERBEES": "Buys paused until 13:21 (News trigger). Checked; nothing to do.",
+                                            "HINDCOPPER": "Checked; nothing to do."}}))
+    lines.append(lines[0])                                           # a duplicate from a merge is shown once
+    (root / "logs" / f"checks-{D}.jsonl").write_text("\n".join(lines) + "\n")
+    path = dashboard.write(D, root, NOW)
+    doc = json.loads(path.read_text())
+    ch = doc["checks"]
+    assert ch["syms"] == ["GOLDBEES", "SILVERBEES", "HINDCOPPER"] and len(ch["rows"]) == 375
+    assert ch["rows"][0][0] == "09:15" and ch["rows"][-1][0] == "15:29"
+    assert ch["texts"][ch["rows"][5][2][1]].startswith("Buys paused until 13:21")
+    assert len(ch["texts"]) <= 102 and path.stat().st_size < 200 * 1024

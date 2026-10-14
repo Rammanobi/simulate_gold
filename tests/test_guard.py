@@ -501,6 +501,9 @@ def test_news_trigger_uses_matcher_and_blocks(tmp_path):
     assert {(r["symbol"], r["trigger"]) for r in recs if r["action"] == "BLOCK"} == {("GOLDBEES", "News trigger"), ("SILVERBEES", "News trigger")}
     assert set(pf.cooldowns["block_until"]) == {"GOLDBEES", "SILVERBEES"}
     why = next(r["reason"] for r in recs if r["action"] == "BLOCK")
+    chk = json.loads((tmp_path / "l" / f"checks-{D_MID.isoformat()}.jsonl").read_text().splitlines()[-1])
+    assert chk["time"] == "11:00" and set(chk["checks"]) >= {"GOLDBEES", "SILVERBEES"}
+    assert "Buys paused until" in chk["checks"]["GOLDBEES"] and "News trigger" in chk["checks"]["GOLDBEES"]
     assert 'Headline: "Fed holds rates"' in why and "category: monetary_policy" in why     # shown on the dashboard
 
 

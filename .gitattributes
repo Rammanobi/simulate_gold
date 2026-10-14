@@ -7,6 +7,7 @@ state/alerts.json merge=simgold-alerts
 # configured by simgold/gitsync.py and the workflows.
 logs/ticks-*.csv merge=simgold-append
 logs/decisions-*.jsonl merge=simgold-append
+logs/checks-*.jsonl merge=simgold-append
 logs/incidents-*.jsonl merge=simgold-append
 logs/health-*.jsonl merge=simgold-append
 logs/advice-rejected-*.jsonl merge=simgold-append
