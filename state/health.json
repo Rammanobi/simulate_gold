@@ -1,12 +1,6 @@
 {
- "last_run": "2026-10-14T10:16:45+05:30",
+ "last_run": "2026-10-14T10:17:12+05:30",
  "results": [
-  {
-   "check": "watchdog_stale",
-   "severity": "high",
-   "category": "watchdog_stale",
-   "detail": "the last healthcheck ran 175 min ago (limit 75)"
-  },
   {
    "check": "ticks_missing",
    "severity": "high",
