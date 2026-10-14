@@ -133,6 +133,7 @@ class Engine:
         self.day = self.now.date()
         self.syms = list(self.p["instruments"])
         self.log: list[dict] = []
+        self.check: dict[str, str] = {}     # one plain line per symbol per minute: logs/checks-DATE.jsonl
         self.rt = pf.runtime
         self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
         self.fast_cap = budget.fastlane_cap(self.p, env.state_dir)   # thrift mode (state/budget.json) lowers it
@@ -569,11 +570,18 @@ class Engine:
             score = self.mkt.scores.get(sym)
             if px is None or score is None:
                 streaks.pop(sym, None)
+                self.check[sym] = "No fresh price or score this minute, so no buy check."
                 continue
             b = self.effective_bias(sym, bias, fresh, upd)
             thr = guard.score_threshold(sym, b, fresh, p)
-            if thr is None or score < thr - 1e-9:
+            if thr is None:
                 streaks.pop(sym, None)
+                self.check[sym] = f"Score {score:.2f}; Claude's bias for this metal is block, so no buys."
+                continue
+            if score < thr - 1e-9:
+                streaks.pop(sym, None)
+                self.check[sym] = (f"Score {score:.2f} is below the {thr:.2f} needed to buy ({b} bias"
+                                   f"{'' if fresh else ', guidance stale'}), so no buy.")
                 continue
             st = streaks.get(sym)
             max_gap = max(p["engine"]["streak_max_gap_sec"], 2.5 * self.env.tick_seconds)
@@ -582,8 +590,12 @@ class Engine:
                 st = streaks[sym] = {"start": now.isoformat(), "last": now.isoformat()}
             st["last"] = now.isoformat()
             held_secs = (now - _dt(st["start"], now.tzinfo)).total_seconds()
-            if held_secs < p["entry"]["score_confirm_minutes"] * 60 - 5:
+            need = p["entry"]["score_confirm_minutes"]
+            if held_secs < need * 60 - 5:
+                self.check[sym] = (f"Score {score:.2f} reached the {thr:.2f} needed; waiting for it to hold "
+                                   f"{need} minutes ({int(held_secs // 60) + 1} of {need}).")
                 continue
+            self.check[sym] = f"Score {score:.2f} held above {thr:.2f} for {need} minutes; buy checks run."
             self.try_buy(sym, px, score, thr)
 
     def try_buy(self, sym: str, px: float, score: float, thr: float):
@@ -598,6 +610,7 @@ class Engine:
         t = now.time()
 
         def skip(why, trig="Minute check", kind="SKIP"):
+            self.check[sym] = why
             self._noisy_skip(kind, sym, why, trig, px)
 
         age = (now - self.mkt.price_ts[sym]).total_seconds() / 60 if sym in self.mkt.price_ts else 0.0
@@ -681,11 +694,39 @@ class Engine:
                 fh.write(row + "\n")
         except OSError:
             log.exception("could not write tick snapshot")
+        self.write_checks()
         self.write_last_prices()
         vh = self.rt.setdefault("value_hist", [])
         vh.append([self.now.isoformat(timespec="seconds"), round(self.value(), 2)])
         cutoff = self.now - timedelta(minutes=self.p["fast_lane"]["portfolio_drop_window_min"] + 5)
         self.rt["value_hist"] = [x for x in vh if _dt(x[0], self.now.tzinfo) >= cutoff]
+
+    def write_checks(self):
+        """logs/checks-DATE.jsonl: what the engine concluded for each symbol this minute, even when it did nothing.
+        Decisions (BUY/SELL/SKIP/BLOCK/HOLD) stay in decisions-DATE.jsonl; this is the 'why nothing happened' trail."""
+        now, out = self.now, {}
+        for sym in self.syms:
+            parts = []
+            pos = self.pf.positions.get(sym)
+            if pos and pos.qty > 0:
+                parts.append(f"Holding {pos.qty} at avg {pos.avg_cost:.2f}, stop {pos.stop:.2f}.")
+            for key in (sym, "ALL"):
+                until = _dt(self.cd.get("block_until", {}).get(key), now.tzinfo)
+                if until and until > now and not self.check.get(sym, "").startswith("Buying"):
+                    src = self.cd.get("block_src", {}).get(key, "Price shock")
+                    parts.append(f"Buys paused until {until:%H:%M} ({src}).")
+                    break
+            for d in self.log:
+                if d.get("symbol") == sym:
+                    parts.append(f"{d['action']}: see decision.")
+            parts.append(self.check.get(sym) or "Checked; nothing to do.")
+            out[sym] = " ".join(parts)[:300]
+        rec = {"ts": now.isoformat(timespec="seconds"), "time": f"{now:%H:%M}", "value": round(self.value(), 2), "checks": out}
+        try:
+            with open(self.env.logs_dir / f"checks-{self.day.isoformat()}.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except OSError:
+            log.exception("could not write the minute checks")
 
     def write_last_prices(self):
         """state/last_prices.json: {symbol: {price, ts, prev_close}}, read by the memory brief and tools/should_think.py."""

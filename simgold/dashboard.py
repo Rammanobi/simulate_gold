@@ -3,7 +3,8 @@
 Shape (all keys always present): date, weekday, updated, live, open, close, pnl, pnl_pct, floor, cushion,
 liquid_income, costs, summary, tomorrow, counts{BUY,SELL,SKIP,BLOCK,HOLD}, alloc{GOLDBEES,SILVERBEES,HINDCOPPER,
 LIQUIDBEES}, holdings[], ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
-amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift.
+amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift,
+checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened).
 
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
 logs/dashboard-DATE.json at every git sync, so the dashboard page (which reads it from the public repo) shows each
@@ -29,6 +30,7 @@ DEC_KEYS = ("time", "action", "symbol", "qty", "price", "amount", "pnl", "reason
             "value_after")
 MAX_TICKS = 140         # keeps a document far below the 256 KiB database limit
 MAX_NOTES = 30
+MAX_CHECK_CHARS = 220
 NOTE_SOURCES = (("guidance.json", "note"), ("fastlane.json", "note"))
 
 
@@ -66,6 +68,37 @@ def _raw_decisions(path: Path) -> list[dict]:
             out.append({k: r.get(k) for k in DEC_KEYS})
     out.sort(key=lambda d: str(d.get("time") or ""))
     return out
+
+
+def _checks(path: Path) -> dict:
+    """Every minute's check, compact: repeated sentences are stored once ({"texts": [...], "rows": [[time, value,
+    [text index per symbol in SYMS order]], ...]})."""
+    texts: list[str] = []
+    index: dict[str, int] = {}
+    rows = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {"syms": list(SYMS), "texts": texts, "rows": rows}
+    seen = set()
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or not isinstance(r.get("checks"), dict) or r.get("time") in seen:
+            continue
+        seen.add(r.get("time"))
+        ids = []
+        for s in SYMS:
+            txt = str(r["checks"].get(s) or "")[:MAX_CHECK_CHARS]
+            if txt not in index:
+                index[txt] = len(texts)
+                texts.append(txt)
+            ids.append(index[txt])
+        rows.append([str(r.get("time"))[:5], _f(r.get("value")), ids])
+    rows.sort(key=lambda x: x[0])
+    return {"syms": list(SYMS), "texts": texts, "rows": rows}
 
 
 def _who(ts: str) -> str:
@@ -122,6 +155,7 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "counts": counts, "alloc": alloc, "holdings": holdings,
         "ticks": _ticks(root / "logs" / f"ticks-{date}.csv"), "decisions": decisions,
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
+        "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
     }
 
 
