@@ -85,3 +85,16 @@ def test_missing_routine_secrets_are_handled():
     assert fastlane.fire({}, {"x": 1}) == (False, "ROUTINE_FIRE_URL / ROUTINE_FIRE_TOKEN not set")
     assert alerts.post_routine("x", "", "") is False                       # used to raise ValueError
     assert alerts.post_routine("x", "example.invalid/fire", "tok") is False   # secret pasted without https://
+
+
+def test_fire_strips_whitespace_from_pasted_secrets():
+    from simgold import fastlane
+    seen = {}
+
+    def post(url, headers, body, timeout=10):
+        seen["url"], seen["auth"] = url, headers["Authorization"]
+        return 200
+    env = {"ROUTINE_FIRE_URL": " https://api.anthropic.com/v1/x/fire\n", "ROUTINE_FIRE_TOKEN": "tok123 \n"}
+    assert fastlane.fire(env, {"x": 1}, post=post) == (True, "HTTP 200")
+    assert seen == {"url": "https://api.anthropic.com/v1/x/fire", "auth": "Bearer tok123"}
+    assert fastlane.fire({"ROUTINE_FIRE_URL": "  ", "ROUTINE_FIRE_TOKEN": "t"}, {})[0] is False
