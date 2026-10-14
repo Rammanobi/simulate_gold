@@ -500,6 +500,8 @@ def test_news_trigger_uses_matcher_and_blocks(tmp_path):
     assert seen == ["Fed holds rates", "Quiet day"]
     assert {(r["symbol"], r["trigger"]) for r in recs if r["action"] == "BLOCK"} == {("GOLDBEES", "News trigger"), ("SILVERBEES", "News trigger")}
     assert set(pf.cooldowns["block_until"]) == {"GOLDBEES", "SILVERBEES"}
+    why = next(r["reason"] for r in recs if r["action"] == "BLOCK")
+    assert 'Headline: "Fed holds rates"' in why and "category: monetary_policy" in why     # shown on the dashboard
 
 
 def test_portfolio_trigger(tmp_path):

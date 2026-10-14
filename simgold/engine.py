@@ -356,8 +356,11 @@ class Engine:
             seen.add(key)
             where = "all instruments" if t["symbol"] == "ALL" else t["symbol"]
             if src == "News trigger":
+                head = " ".join(str(t.get("headline") or "").split())[:140]
+                cats = ", ".join(str(c) for c in (t.get("categories") or []))
                 why = (f"A news headline looks market-moving, so new buys in {where} are paused for {mins} minutes "
-                       f"while the AI reviews it.")
+                       f"while the AI reviews it." + (f' Headline: "{head}"' if head else "")
+                       + (f" (category: {cats})." if cats else ""))
             elif t["kind"] == "portfolio":
                 why = (f"The portfolio lost a large part of its safety cushion within 15 minutes, so new buys are paused "
                        f"for {mins} minutes.")
