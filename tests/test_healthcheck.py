@@ -45,9 +45,14 @@ def test_healthy(tmp_path):
 
 
 def test_engine_missing_and_stale_ticks_are_high(tmp_path):
-    p = run(setup(tmp_path, tick_age_min=9), gh=gh_idle)
+    p = run(setup(tmp_path, tick_age_min=15), gh=gh_idle)
     assert {"engine_run_missing", "ticks_stale"} <= checks(p)
     assert all(x["severity"] == "high" and x["category"] == "engine_not_running" for x in p)
+
+
+def test_a_tick_row_one_sync_interval_old_is_not_stale(tmp_path):
+    """14 Oct 2026, 15:16 IST: a row 6 min old (normal with a 5-min git sync) raised ticks_stale and a duplicate run."""
+    assert "ticks_stale" not in checks(run(setup(tmp_path, tick_age_min=7)))
 
 
 def test_ticks_row_is_hhmm_ist(tmp_path):

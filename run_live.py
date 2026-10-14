@@ -20,7 +20,7 @@ from pathlib import Path
 import os
 import shutil
 
-from simgold import alerts, brief, config, gitsync, market
+from simgold import alerts, brief, config, gitsync, market, runguard
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -190,10 +190,19 @@ def main():
         log.info("already past --until %s IST - nothing to do", args.until)
         return
 
+    other = runguard.older_engine_run(os.environ)
+    if other:          # a duplicate dispatch or a late cron: the older run owns the session, this one stops cleanly
+        log.warning("another engine run holds this session (run %s, %s, started %s) - exiting without trading",
+                    other.get("id"), other.get("event"), other.get("created_at"))
+        return
     lock = acquire_lock(STATE / ".engine.lock")
     if lock is None:
         log.error("another engine run holds state/.engine.lock - not starting a second one")
         return
+    if gitsync.enabled(os.environ):
+        # start from the tip of main, not from the commit this run was dispatched on (it may have waited hours
+        # in the concurrency queue): otherwise the engine trades on an old portfolio and overwrites newer logs
+        gitsync.pull_latest(ROOT)
     if args.safe_mode:
         alerts.set_safe_mode(STATE, args.safe_mode, notify=False)    # idempotent; the incident pipeline alerts separately
         log.error("SAFE MODE requested on the command line (%s): no new buys this session", args.safe_mode)

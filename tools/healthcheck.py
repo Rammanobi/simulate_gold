@@ -27,7 +27,9 @@ from simgold.market import IST, is_trading_day  # noqa: E402
 
 ENGINE_WORKFLOW = "market-hours.yml"
 WINDOW = (dtime(9, 10), dtime(15, 40))
-TICK_MAX_AGE_MIN = 5
+# ticks reach main with the engine's git sync, every 5 min (run_live --sync-every), so a row 5-7 min old is normal
+# on main. 5 raised a false ticks_stale at 15:16 IST on 14 Oct 2026 (row 6 min old) and a duplicate dispatch.
+TICK_MAX_AGE_MIN = 12
 BRIEF_MAX, LESSONS_MAX, CONTEXT_MAX, LOGS_MAX = 8 * 1024, 60, 25 * 1024, 200 * 1024 * 1024
 FLOOR_SLACK = 100
 LIQUID_MIN = 0.30

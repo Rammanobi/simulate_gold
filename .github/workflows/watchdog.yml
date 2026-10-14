@@ -78,12 +78,15 @@ jobs:
         if: steps.hc.outputs.rc == '4' && steps.hc.outputs.missing != '0'
         run: |
           set +e
-          queued=$(gh api "repos/$GH_REPO/actions/workflows/market-hours.yml/runs?status=queued&per_page=1" --jq .total_count 2>/dev/null)
-          if [ "${queued:-0}" = "0" ]; then
+          # Any market-hours run that is not completed (in_progress, queued, pending, waiting, requested) owns the
+          # session. Before 14 Oct 2026 only `queued` was checked, so a run that had just started (no ticks yet) or a
+          # tick row 6 min old made this step dispatch a duplicate (10:16:47 and 15:16:59 IST).
+          active=$(gh api "repos/$GH_REPO/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null)
+          if [ "${active:-x}" = "0" ]; then
             gh api -X POST "repos/$GH_REPO/actions/workflows/market-hours.yml/dispatches" -f ref=main -f 'inputs[session]=auto' \
               && echo "Re-dispatched market-hours.yml (session=auto)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "market-hours.yml already queued; not re-dispatching" >> "$GITHUB_STEP_SUMMARY"
+            echo "market-hours.yml has ${active:-an unknown number of} active run(s); not re-dispatching" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit 0
 
@@ -117,6 +120,7 @@ jobs:
           set +e
           git config user.name "simgold-watchdog"; git config user.email "actions@users.noreply.github.com"
           git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
+          git config merge.simgold-append.driver "python -m simgold.logmerge merge-file %O %A %B %P"   # append-only logs (health) merge as a union
           for p in state/alerts.json state/safe_mode.json state/health.json logs/health-*.jsonl; do [ -e "$p" ] && git add -A -- "$p"; done
           git diff --cached --quiet || git commit -qm "watchdog: health $(date +%H:%M) IST"
           for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done

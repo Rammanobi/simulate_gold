@@ -4,7 +4,8 @@ name: market-hours paper trading
 # Two sessions per day (a job is capped at 6 h), 60-second ticks inside each:
 #   morning   starts 09:00 / 09:10 IST, loops until 12:20 IST
 #   afternoon starts 12:15 IST (backup cron), loops until 15:35 IST
-# The engine skips weekends and NSE holidays itself.
+# The engine skips weekends and NSE holidays itself, and exits at once (success) when an older run of this
+# workflow is still in progress (simgold/runguard.py), so a duplicate dispatch or a late cron never trades twice.
 on:
   schedule:
     - cron: "30 3 * * 1-5"   # 09:00 IST (backup for a late 09:10 run; the concurrency group + state/.engine.lock stop doubles)
@@ -20,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: read       # simgold/runguard.py: is an older engine run already in progress? then this one exits
 
 concurrency:
   group: paper-trader
@@ -36,13 +38,19 @@ jobs:
       ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}   # optional; may be empty
       ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}       # optional; engine incident webhook
       ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}   # optional; may be empty
+      GH_TOKEN: ${{ github.token }}     # read-only use: the run guard lists this workflow's in-progress runs
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the tip of main when the job STARTS, not the commit it was dispatched on: a run that waited in the
+          # concurrency queue for hours otherwise starts on old state and its sync overwrites newer logs (14 Oct 2026)
+          ref: main
       - name: Git identity
         run: |
           git config user.name "simgold-engine"
           git config user.email "actions@users.noreply.github.com"
           git config merge.simgold-alerts.driver "python -m simgold.alerts merge-file %O %A %B"   # state/alerts.json is merged as JSON (.gitattributes)
+          git config merge.simgold-append.driver "python -m simgold.logmerge merge-file %O %A %B %P"   # append-only logs: union of rows
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -72,8 +80,8 @@ jobs:
           esac
       - name: Final sync
         if: always()
-        # same path as the in-loop sync: add -> commit -> pull --rebase (-X theirs) -> push, 3 tries, and a merge
-        # fallback when a rebase cannot finish, so the session's portfolio state always reaches main
+        # same path as the in-loop sync: add -> commit -> pull --rebase (-X theirs; the append-only logs use the
+        # simgold-append union driver instead) -> push, 3 tries, and a merge fallback when a rebase cannot finish
         run: |
           python -c "import pathlib, sys; from simgold import gitsync; sys.exit(0 if gitsync.sync(pathlib.Path('.')) else 1)"
       - name: Fail the run so the incident pipeline alerts (pytest failed on main)
