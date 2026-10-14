@@ -39,6 +39,7 @@ def sync(root: Path, runner=subprocess.run, now: datetime | None = None, retries
 
 SYNC_DIRS = ("state", "logs", "reports", "memory")
 MERGE_DRIVER = "simgold-alerts"        # .gitattributes: state/alerts.json merge=simgold-alerts
+APPEND_DRIVER = "simgold-append"       # .gitattributes: logs/ticks-*.csv, logs/*-DATE.jsonl merge=simgold-append
 
 
 def configure_merge_driver(root: Path, runner=subprocess.run) -> None:
@@ -47,6 +48,29 @@ def configure_merge_driver(root: Path, runner=subprocess.run) -> None:
     _git(root, "config", f"merge.{MERGE_DRIVER}.name", "union merge of simgold alert state", runner=runner)
     _git(root, "config", f"merge.{MERGE_DRIVER}.driver",
          f'"{sys.executable}" -m simgold.alerts merge-file %O %A %B', runner=runner)
+    # the append-only daily logs: union of rows (simgold/logmerge.py), so no merge ever drops ticks or decisions
+    _git(root, "config", f"merge.{APPEND_DRIVER}.name", "union merge of append-only simgold logs", runner=runner)
+    _git(root, "config", f"merge.{APPEND_DRIVER}.driver",
+         f'"{sys.executable}" -m simgold.logmerge merge-file %O %A %B %P', runner=runner)
+
+
+def pull_latest(root: Path, runner=subprocess.run) -> bool:
+    """Bring the checkout up to the tip of its branch BEFORE the engine loads any state.
+
+    A run that waited in the `paper-trader` concurrency queue was checked out at the commit it was dispatched on,
+    hours old. It then traded on that old portfolio and its first sync replaced the newer ticks and decisions
+    (14 Oct 2026). Never raises; False means the pull failed and the engine starts on what it has."""
+    try:
+        configure_merge_driver(root, runner)
+        p = _git(root, "pull", "--rebase", "--autostash", runner=runner)
+        if p.returncode != 0:
+            log.warning("start-up git pull failed: %s", (p.stderr or p.stdout).strip()[:200])
+            _git(root, "rebase", "--abort", runner=runner)
+            return False
+        return True
+    except Exception as e:      # noqa: BLE001
+        log.warning("start-up git pull error: %s", e)
+        return False
 
 
 def _unmerged(root: Path, runner) -> list[str]:

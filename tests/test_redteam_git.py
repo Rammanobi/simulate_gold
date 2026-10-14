@@ -247,3 +247,83 @@ def test_lock_and_temp_files_are_never_committed():
     ign = (ROOT / ".gitignore").read_text()
     assert "state/.engine.lock" in ign and "state/.*.tmp" in ign
     assert "state/alerts.json merge=simgold-alerts" in (ROOT / ".gitattributes").read_text()
+
+
+# ------------------------------------------------------------------ append-only logs (14 Oct 2026)
+HEAD_T = "time,value,floor,cash,liquidbees,GOLDBEES,SILVERBEES,HINDCOPPER\n"
+
+
+def _tick(hhmm: str) -> str:
+    return f"{hhmm},100017.26,99500.00,0.00,100017.26,120.15,204.65,467.55\n"
+
+
+def _dec(hhmm: str, action: str = "BLOCK") -> str:
+    return json.dumps({"ts": f"2026-10-14T{hhmm}:00+05:30", "time": hhmm, "action": action}) + "\n"
+
+
+def test_stale_run_never_replaces_the_morning_ticks(repos):
+    """14 Oct 2026: a run queued behind the morning session started on the 10:16 commit (no ticks file yet), wrote
+    its own ticks from 12:21, and its first sync (`pull --rebase -X theirs`) replaced the 124 morning rows on main."""
+    origin, eng, rout = repos
+    morning = rout          # plays the morning engine run, which pushed first
+    (morning / "logs" / "ticks-2026-10-14.csv").write_text(HEAD_T + "".join(_tick(f"10:{m:02d}") for m in range(17, 60)))
+    (morning / "logs" / "decisions-2026-10-14.jsonl").write_text(_dec("10:20") + _dec("11:05", "SKIP"))
+    g(morning, "add", "-A"); g(morning, "commit", "-qm", "paper-trade: 12:20 IST"); g(morning, "push", "-q")
+    # the stale afternoon run: its checkout predates the file (add/add on the rebase)
+    (eng / "logs" / "ticks-2026-10-14.csv").write_text(HEAD_T + _tick("12:21") + _tick("12:22"))
+    (eng / "logs" / "decisions-2026-10-14.jsonl").write_text(_dec("12:21"))
+    assert gitsync.sync(eng)
+    rows = _origin_file(origin, "logs/ticks-2026-10-14.csv").splitlines()
+    assert rows[0] == HEAD_T.strip() and rows.count(HEAD_T.strip()) == 1
+    times = [r.split(",")[0] for r in rows[1:]]
+    assert times[0] == "10:17" and times[-2:] == ["12:21", "12:22"] and len(times) == 43 + 2
+    assert times == sorted(times)
+    dec = _origin_file(origin, "logs/decisions-2026-10-14.jsonl").splitlines()
+    assert [json.loads(x)["time"] for x in dec] == ["10:20", "11:05", "12:21"]
+    _no_markers(eng)
+
+
+def test_concurrent_appends_to_the_same_ticks_file_keep_both_sides(repos):
+    """14 Oct 2026, 14:59: a run started on the 14:25 commit appended from 14:54 while main had 14:26-14:49 from the
+    previous run; `-X theirs` kept only one side, leaving a 14:26-14:53 gap."""
+    origin, eng, rout = repos
+    for d in (eng, rout):
+        g(d, "pull", "-q")
+    (rout / "logs" / "ticks-2026-10-14.csv").write_text(HEAD_T + _tick("14:25"))
+    g(rout, "add", "-A"); g(rout, "commit", "-qm", "14:25"); g(rout, "push", "-q")
+    g(eng, "pull", "-q")
+    with open(rout / "logs" / "ticks-2026-10-14.csv", "a") as fh:
+        fh.write(_tick("14:26") + _tick("14:49"))
+    g(rout, "add", "-A"); g(rout, "commit", "-qm", "14:49"); g(rout, "push", "-q")
+    with open(eng / "logs" / "ticks-2026-10-14.csv", "a") as fh:
+        fh.write(_tick("14:54") + _tick("14:55"))
+    assert gitsync.sync(eng)
+    times = [r.split(",")[0] for r in _origin_file(origin, "logs/ticks-2026-10-14.csv").splitlines()[1:]]
+    assert times == ["14:25", "14:26", "14:49", "14:54", "14:55"]
+    _no_markers(eng)
+
+
+def test_engine_start_pulls_main_before_loading_state(repos):
+    origin, eng, rout = repos
+    pf = Portfolio.load(rout / "state" / "portfolio.json")
+    pf.liquidbees = 42424.0
+    pf.save(rout / "state" / "portfolio.json")
+    (rout / "logs" / "ticks-2026-10-14.csv").write_text(HEAD_T + _tick("10:17"))
+    g(rout, "add", "-A"); g(rout, "commit", "-qm", "morning"); g(rout, "push", "-q")
+    assert gitsync.pull_latest(eng)
+    assert Portfolio.load(eng / "state" / "portfolio.json").liquidbees == 42424.0
+    assert (eng / "logs" / "ticks-2026-10-14.csv").exists()
+
+
+def test_pull_latest_never_raises(tmp_path):
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired("git", 90)
+    assert gitsync.pull_latest(tmp_path, runner=boom) is False
+
+
+def test_append_logs_use_the_union_driver():
+    attrs = (ROOT / ".gitattributes").read_text()
+    for pat in ("logs/ticks-*.csv", "logs/decisions-*.jsonl", "logs/health-*.jsonl"):
+        assert f"{pat} merge=simgold-append" in attrs
+    for wf in ("market-hours", "watchdog", "reminders", "incident"):
+        assert "merge.simgold-append.driver" in (ROOT / ".github" / "workflows" / f"{wf}.yml").read_text()
