@@ -504,6 +504,7 @@ def test_news_trigger_uses_matcher_and_blocks(tmp_path):
     chk = json.loads((tmp_path / "l" / f"checks-{D_MID.isoformat()}.jsonl").read_text().splitlines()[-1])
     assert chk["time"] == "11:00" and set(chk["checks"]) >= {"GOLDBEES", "SILVERBEES"}
     assert "Buys paused until" in chk["checks"]["GOLDBEES"] and "News trigger" in chk["checks"]["GOLDBEES"]
+    assert chk["checks"]["GOLDBEES"].startswith("Price ₹100.00.")                 # market price each minute
     assert 'Headline: "Fed holds rates"' in why and "category: monetary_policy" in why     # shown on the dashboard
 
 
