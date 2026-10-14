@@ -77,9 +77,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1791971247.5069447,
+   "resolved_at": 1791986164.9460285,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "ticks_stale"
   },
   "watchdog|watchdog_stale|": {
