@@ -707,6 +707,9 @@ class Engine:
         now, out = self.now, {}
         for sym in self.syms:
             parts = []
+            px = self.mkt.prices.get(sym)
+            if px:
+                parts.append(f"Price ₹{px:,.2f}.")
             pos = self.pf.positions.get(sym)
             if pos and pos.qty > 0:
                 parts.append(f"Holding {pos.qty} at avg {pos.avg_cost:.2f}, stop {pos.stop:.2f}.")
