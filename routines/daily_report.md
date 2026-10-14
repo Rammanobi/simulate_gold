@@ -14,12 +14,15 @@ into `memory/`, so it cannot come back later as trusted memory.
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step.
-1. Call the `get_session` tool of the claude-code-remote MCP server with no arguments. Read
-   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`).
+1. If a `get_session` tool of the claude-code-remote MCP server is in your tool list, call it with no arguments and read
+   `external_metadata.rate_limit_info.rateLimitType` (and `isUsingOverage`). Routine sessions usually do NOT have it
+   (14 Oct 2026: absent in every routine); that is expected, not an error: go straight to point 3.
 2. `python tools/budget.py mode --rate-limit-type "<rateLimitType>" --overage <true|false>`. It prints NORMAL or THRIFT
    and writes `state/budget.json` (routine-owned; commit it with your other files). "ccr_promotional" is NORMAL;
    anything else, an empty value or an unknown one is THRIFT.
-3. `get_session` unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is THRIFT).
+3. `get_session` missing, unavailable or failing: run `python tools/budget.py mode --rate-limit-type ""` (that is
+   THRIFT) and carry on silently. Do not search for the tool more than once, do not retry it, and do not report its
+   absence as a failure or flag; the final message just says THRIFT.
 4. THRIFT rules for this routine: unchanged, except do the memory note yourself instead of spawning a Haiku subagent.
 Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md applies unchanged.
 
@@ -28,9 +31,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 1. **Clock.** `TZ=Asia/Kolkata date '+%F %a %H:%M'`. Saturday/Sunday → final message `daily_report: weekend, nothing sent.` and stop. D = today.
 2. **Wait for the engine**, then sync. Check for a running market-hours run:
    ```bash
-   gh api "repos/Rammanobi/simulate_gold/actions/runs?status=in_progress&per_page=5" --jq '[.workflow_runs[]|select(.path|test("market-hours"))]|length'
+   gh api "repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status == "in_progress")] | length'
    ```
-   If > 0, re-check every 60 s (use the Monitor tool with an until-loop if a plain `sleep` is refused) for
+   (exactly as written, one Bash call; it is pre-approved in that form). If > 0, re-check every 60 s (use the Monitor tool with an until-loop if a plain `sleep` is refused) for
    at most 12 minutes, then go on regardless and add a warning. Then `git pull --rebase --autostash -q`.
 3. **Trading day?** `python -c "from simgold.market import is_trading_day as t;import datetime as d;print(t(d.date.fromisoformat('D')))"`.
    If False (holiday): run step 6 only; if its subject or files say "Market closed", send it (step 9),
@@ -69,8 +72,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
     ```bash
     git add -- $(git ls-files -mo --exclude-standard -- state/market_today.json state/tomorrow.txt state/budget.json memory reports/daily)
     git diff --cached --quiet || git commit -qm "routine(daily_report): D"
-    for i in 1 2 3; do git pull --rebase --autostash -q || { git rebase --abort; break; }; git push -q && break; sleep 5; done
     ```
+    Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
+    push is rejected, repeat the pair, at most 3 tries in all. If the pull fails: `git rebase --abort`, report, stop.
 11. **Interactive page (optional).** If an Artifact tool is available AND `config/report_artifact_url.txt`
     exists, republish `page_path` to the URL in that file (update in place). Otherwise skip silently. A
     failure here never fails the run; just note it.
