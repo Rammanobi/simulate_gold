@@ -1,10 +1,10 @@
 {
- "updated": "2026-10-14T08:51:38+05:30",
+ "updated": "2026-10-14T10:17:09+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD: US CPI tonight 18:00 IST; Kitco spot 4154.7 at Oct-13 close, slipping from 4201 high, no favour before CPI. SILVER: CPI tonight; spot 58.83 off 60.85 high, no clear tailwind. COPPER: no verified overnight LME/HG data, not knowing is neutral.",
+ "note": "GOLD: US CPI tonight 18:00 IST, event within 24h so no favour; stay neutral. SILVER: same CPI risk, neutral. COPPER: no new facts, neutral.",
  "prices_at_update": {}
 }
