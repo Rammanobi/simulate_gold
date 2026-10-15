@@ -268,3 +268,88 @@ def test_fixed_today_and_system_health_sections(tmp_path):
     assert "Fixed today" in h and "Feed &lt;down&gt;" in h and "see incidents" in h
     assert report._ops_html({"fixed_today": [], "system_health": ""}) == ""          # hidden when empty
     assert "FIXED TODAY" in "\n".join(report._ops_text(day)) and report._ops_text({}) == []
+
+
+GLANCE_DAY = "2026-10-15"
+
+
+def _glance_root(tmp_path, checks=True, ticks=True):
+    decisions = [{**row("10:18", "BLOCK", "SILVERBEES", 0, 195.99, 0, None, "Price shock pause.", "Price shock"), "ts": "2026-10-15T10:18:52+05:30"},
+                 {**row("10:18", "BLOCK", "GOLDBEES", 0, 119.55, 0, None, "News pause.", "News trigger"), "ts": "2026-10-15T10:18:52+05:30"},
+                 {**row("13:31", "BLOCK", "GOLDBEES", 0, 119.7, 0, None, "News pause.", "News trigger"), "ts": "2026-10-15T13:31:32+05:30"}]
+    root = make_root(tmp_path, GLANCE_DAY, decisions, None,
+                     {"positions": {}, "floor": 99500, "liquidbees": 100034.52, "liquidbees_income_today": 17.26,
+                      "day_open_value": 100017.26, "day_costs": 0, "day_costs_date": GLANCE_DAY}, [("2026-10-14", 100017.26)])
+    if ticks:
+        rows = ["time,value,floor,cash,liquidbees,GOLDBEES,SILVERBEES,HINDCOPPER",
+                "10:18,100034.52,99500.00,0.00,100034.52,119.55,195.99,459.00",
+                "10:19,100034.52,99500.00,0.00,100034.52,,,",
+                "12:00,100034.52,99500.00,0.00,100034.52,119.20,198.10,",
+                "15:29,100034.52,99500.00,0.00,100034.52,119.82,197.65,452.00"]
+        (root / "logs" / f"ticks-{GLANCE_DAY}.csv").write_text("\n".join(rows) + "\n")
+    if checks:
+        lines = [json.dumps({"ts": f"2026-10-15T{t}:52+05:30", "time": t, "value": 100034.52}) for t in ("10:18", "10:19", "12:00", "15:29")]
+        (root / "logs" / f"checks-{GLANCE_DAY}.jsonl").write_text("\n".join(lines + ["not json"]) + "\n")
+    return root
+
+
+def test_day_at_a_glance_counts_and_prices(tmp_path):
+    day = report.build_day(GLANCE_DAY, _glance_root(tmp_path))
+    g = day["glance"]
+    assert g["engine"] == {"first": "10:18", "last": "15:29", "count": 4, "source": "checks", "late": True}
+    assert g["decisions"]["blocked"] == 3 and g["decisions"]["blocked_by"] == {"news": 2, "price shock": 1}
+    assert g["decisions"]["allowed"] == 0
+    gold = next(i for i in g["instruments"] if i["symbol"] == "GOLDBEES")
+    assert (gold["open"], gold["close"], gold["low"], gold["high"]) == (119.55, 119.82, 119.2, 119.82)
+    assert gold["change_pct"] == pytest.approx(0.23)
+    assert g["money"]["split"] == [{"name": "LIQUIDBEES (cash)", "pct": 100}]
+    email = report.render_email(day, report_url="https://claude.ai/artifact/abc#2026-10-15")
+    sec = email[email.index("Day at a glance"):email.index("What I did")]
+    assert "Ran 10:18–15:29 IST · 4 minute checks (started late)" in sec
+    assert "Allowed 0 (buys 0, sells 0) · Blocked 3 (news 2, price shock 1) · Skipped 0 · Held 0" in sec
+    assert "₹119.55 → ₹119.82 · +0.23% · low ₹119.20 – high ₹119.82" in sec
+    assert "₹459.00 → ₹452.00 · −1.53%" in sec
+    assert "Value ₹1,00,034.52 · day +₹17.26 · 100% in LIQUIDBEES (cash)" in sec
+    assert "No trades today." in sec
+    assert 'href="https://claude.ai/artifact/abc#2026-10-15"' in sec and "open the dashboard" in sec
+    assert email.index("Day at a glance") < email.index("What I did")
+    assert "open the dashboard" not in report.render_email(day)          # no URL, no link line
+
+
+def test_day_at_a_glance_missing_files(tmp_path):
+    root = _glance_root(tmp_path, checks=False)
+    g = report.build_day(GLANCE_DAY, root)["glance"]
+    assert g["engine"]["source"] == "ticks" and g["engine"]["count"] == 4
+    (root / "logs" / f"ticks-{GLANCE_DAY}.csv").unlink()
+    day = report.build_day(GLANCE_DAY, root)
+    assert "engine" not in day["glance"] and "instruments" not in day["glance"]
+    assert "decisions" in day["glance"]
+    email = report.render_email(day)
+    assert "Day at a glance" in email and "Ran " not in email
+    # no logs at all: still no exception
+    (tmp_path / "e").mkdir()
+    empty = make_root(tmp_path / "e", GLANCE_DAY, None, None, {"positions": {}}, [])
+    assert "engine" not in report.build_day(GLANCE_DAY, empty)["glance"]
+    report.render_email(report.build_day(GLANCE_DAY, empty))
+    # older day dicts without a glance key render without the section
+    old = dict(day)
+    old.pop("glance")
+    assert "Day at a glance" not in report.render_email(old)
+
+
+def test_day_at_a_glance_in_text(tmp_path):
+    day = report.build_day(GLANCE_DAY, _glance_root(tmp_path))
+    paths = report.write_reports(day, tmp_path / "out", GLANCE_DAY, TEMPLATE, report_url="https://claude.ai/artifact/abc#2026-10-15")
+    text = paths["txt"].read_text(encoding="utf-8")
+    assert "DAY AT A GLANCE" in text and "Engine: Ran 10:18–15:29 IST · 4 minute checks (started late)" in text
+    assert "SILVERBEES: ₹195.99 → ₹197.65" in text
+    assert "open the dashboard: https://claude.ai/artifact/abc#2026-10-15" in text
+    assert json.loads(paths["json"].read_text(encoding="utf-8"))["glance"]["decisions"]["blocked"] == 3
+
+
+def test_glance_shortens_long_no_trade_note():
+    long_note = "No trades today. The system waited because " + "; ".join(["reason number %d is quite long indeed" % i for i in range(9)]) + "."
+    short = report._short_note(long_note)
+    assert len(short) < len(long_note) and short.endswith("more reasons under What I did.")
+    assert "reason number 0" in short and "reason number 1" not in short
+    assert report._short_note("No trades today.") == "No trades today."

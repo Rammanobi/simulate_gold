@@ -330,8 +330,158 @@ def system_health(date: str, root: Path) -> str:
     return f"Watchdog: {runs} checks today, {len(bad)} {'problem' if len(bad) == 1 else 'problems'}, see incidents"
 
 
+# ----------------------------------------------------------- day at a glance
+MARKET_OPEN = "09:15"
+LATE_START_MIN = 20          # engine counts as "started late" this many minutes after the open
+GLANCE_SYMBOLS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
+TRIGGER_LABELS = {"news trigger": "news", "price shock": "price shock"}
+
+
+def _glance_engine(date: str, root: Path) -> dict | None:
+    """First/last minute and count of the engine's checks (logs/checks-DATE.jsonl, else ticks rows)."""
+    times, source = [], "checks"
+    try:
+        for ln in (root / "logs" / f"checks-{date}.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            t = (_hhmm(r.get("time")) or _hhmm(r.get("ts"))) if isinstance(r, dict) else None
+            if t:
+                times.append(t)
+    except OSError:
+        times = []
+    if not times:
+        source = "ticks"
+        times = [t["t"] for t in (load_ticks(root / "logs" / f"ticks-{date}.csv") or [])]
+    if not times:
+        return None
+    times.sort(key=_mins)
+    late = _mins(times[0]) - _mins(MARKET_OPEN) > LATE_START_MIN
+    return {"first": times[0], "last": times[-1], "count": len(times), "source": source, "late": late}
+
+
+def _glance_instruments(date: str, root: Path) -> list[dict]:
+    """Open/close/low/high per metal from the price columns of logs/ticks-DATE.csv."""
+    seen: dict[str, list[tuple[int, float]]] = {}
+    try:
+        with (root / "logs" / f"ticks-{date}.csv").open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                t = _hhmm(row.get("time"))
+                if not t:
+                    continue
+                for sym in GLANCE_SYMBOLS:
+                    v = _num(row.get(sym))
+                    if v is not None and v > 0:
+                        seen.setdefault(sym, []).append((_mins(t), v))
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
+    out = []
+    for sym in GLANCE_SYMBOLS:
+        pts = sorted(seen.get(sym, []), key=lambda p: p[0])
+        if not pts:
+            continue
+        o, c = pts[0][1], pts[-1][1]
+        vals = [v for _, v in pts]
+        out.append({"symbol": sym, "open": o, "close": c, "change_pct": round((c / o - 1) * 100, 2),
+                    "low": min(vals), "high": max(vals)})
+    return out
+
+
+def _glance_decisions(decisions: list[dict]) -> dict:
+    n = lambda a: sum(1 for d in decisions if d.get("action") == a)
+    by: dict[str, int] = {}
+    for d in decisions:
+        if d.get("action") == "BLOCK":
+            trig = str(d.get("trigger") or "Engine").strip()
+            label = TRIGGER_LABELS.get(trig.lower(), _lowfirst(trig))
+            by[label] = by.get(label, 0) + 1
+    buys, sells = n("BUY"), n("SELL")
+    return {"allowed": buys + sells, "buys": buys, "sells": sells, "blocked": n("BLOCK"),
+            "blocked_by": dict(sorted(by.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "skipped": n("SKIP"), "held": n("HOLD")}
+
+
+def _glance_money(day: dict) -> dict:
+    p = day.get("portfolio", {})
+    parts = [(h["symbol"], _num(h.get("value"), 0.0) or 0.0) for h in day.get("holdings_close", [])]
+    parts.append(("LIQUIDBEES (cash)", _num(p.get("cash_in_liquidbees"), 0.0) or 0.0))
+    total = sum(v for _, v in parts)
+    split = [{"name": name, "pct": round(v / total * 100)} for name, v in parts if v > 0] if total > 0 else []
+    return {"value": p.get("close"), "day_pnl": p.get("day_pnl"), "split": split}
+
+
+def day_glance(date: str, root: Path, day: dict) -> dict:
+    """The 'Day at a glance' data, built only from repo files and the day dict. Missing pieces are left out."""
+    root = Path(root)
+    g: dict = {}
+    for key, fn in (("engine", lambda: _glance_engine(date, root)),
+                    ("decisions", lambda: _glance_decisions(day.get("decisions", []))),
+                    ("instruments", lambda: _glance_instruments(date, root)),
+                    ("money", lambda: _glance_money(day))):
+        try:
+            v = fn()
+        except Exception:      # a broken log line must never stop the report
+            v = None
+        if v:
+            g[key] = v
+    if day.get("no_trade_note"):
+        g["why_no_trades"] = _short_note(day["no_trade_note"])
+    return g
+
+
+def _short_note(note: str, limit: int = 180) -> str:
+    """The no-trade note, cut to its first reason when it is long (the full list stays under 'What I did')."""
+    if len(note) <= limit:
+        return note
+    head = note.split("; ", 1)[0].rstrip(". ")
+    if len(head) > limit:
+        head = head[:limit].rsplit(" ", 1)[0].rstrip(".,;: ")
+    return head + "; more reasons under What I did."
+
+
+def glance_lines(day: dict) -> list[tuple[str, str]]:
+    """(label, text) rows of the 'Day at a glance' section; shared by the email and the text mail."""
+    g = day.get("glance") or {}
+    out = []
+    e = g.get("engine")
+    if e:
+        what = "minute checks" if e.get("source") == "checks" else "minute ticks logged"
+        out.append(("Engine", f"Ran {e['first']}–{e['last']} IST · {e['count']} {what}"
+                              + (" (started late)" if e.get("late") else "")))
+    d = g.get("decisions")
+    if d:
+        blocked = f"Blocked {d['blocked']}"
+        if d.get("blocked_by"):
+            blocked += " (" + ", ".join(f"{k} {v}" for k, v in d["blocked_by"].items()) + ")"
+        out.append(("Decisions", f"Allowed {d['allowed']} (buys {d['buys']}, sells {d['sells']}) · {blocked}"
+                                 f" · Skipped {d['skipped']} · Held {d['held']}"))
+    for i in g.get("instruments") or []:
+        out.append((i["symbol"], f"{inr(i['open'], 2)} → {inr(i['close'], 2)} · {pc(i['change_pct'], 2)}"
+                                 f" · low {inr(i['low'], 2)} – high {inr(i['high'], 2)}"))
+    m = g.get("money")
+    if m and m.get("value") is not None:
+        s = f"Value {inr(m['value'], 2)}"
+        if m.get("day_pnl") is not None:
+            s += f" · day {sg(m['day_pnl'], 2)}"
+        split = m.get("split") or []
+        if len(split) == 1:
+            s += f" · 100% in {split[0]['name']}"
+        elif split:
+            s += " · " + ", ".join(f"{x['pct']}% {x['name']}" for x in split)
+        out.append(("Money", s))
+    if g.get("why_no_trades"):
+        out.append(("Why no trades", g["why_no_trades"]))
+    return out
+
+
+GLANCE_LINK_TEXT = "Every decision, every minute and the market price at each decision: open the dashboard"
+
+
 def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     day = _build_day(date, root, holiday)
+    if not day.get("closed"):
+        day["glance"] = day_glance(date, root, day)
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -746,6 +896,23 @@ def _money_row(label: str, amount: float, border: bool = False, bold: bool = Fal
             f'<td align="right" style="padding:7px 0;font-family:{FONT};font-size:15px;font-weight:700;color:{_tone_color(amount)};{b}">{sg(amount)}</td></tr>')
 
 
+def _glance_html(day: dict, link: str | None) -> str:
+    rows = glance_lines(day)
+    if not rows:
+        return ""
+    h = ""
+    for label, text in rows:
+        h += (f'<tr><td width="104" valign="top" style="padding:6px 10px 6px 0;font-family:{FONT};font-size:13px;line-height:20px;'
+              f'color:#6b7280;font-weight:700;">{esc(label)}</td>'
+              f'<td valign="top" style="padding:6px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{esc(text)}</td></tr>\n')
+    if link:
+        h += (f'<tr><td colspan="2" style="padding:10px 0 0 0;font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;">'
+              f'<a href="{_html.escape(link, quote=True)}" style="color:#8a6d12;font-weight:700;text-decoration:underline;">'
+              f'{esc(GLANCE_LINK_TEXT)} &rarr;</a></td></tr>\n')
+    return (_section("Day at a glance") + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" '
+            f'cellpadding="0" cellspacing="0">\n{h}</table></td></tr>\n')
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
@@ -820,6 +987,9 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
              f'<div style="font-size:12px;color:#6b7280;padding-top:6px;line-height:17px;">Dark marker = today\'s value ({inr(p["close"])}). '
              f'At {inr(nxt)} the floor moves up to {inr(nf)}.</div></td></tr>\n')
 
+    link = report_url or ("https://claude.ai/artifact/REPORT_LINK" if sample else None)
+    glance = _glance_html(day, link)
+
     market = ""
     if day["market"]:
         market = _section("Market today") + "".join(_market_row(m) for m in day["market"]) + "\n"
@@ -866,7 +1036,6 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
 
     tom = _section("Tomorrow") + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n'
 
-    link = report_url or ("https://claude.ai/artifact/REPORT_LINK" if sample else None)
     button = ""
     if link:
         button = (f'<tr><td align="center" style="padding:28px 20px 8px 20px;"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
@@ -881,7 +1050,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + hero + tiles + gauge + glance + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -890,7 +1059,7 @@ def _inbox_text(day: dict, inbox_url: str | None, sample: bool) -> list[str]:
     return [f"{INBOX_LABEL}: {ib}", ""] if ib else []
 
 
-def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -> str:
+def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, report_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
@@ -913,6 +1082,13 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -
           f"Next step:          {p['floor_next_step'][:1].lower() + p['floor_next_step'][1:]}" if p.get("floor_next_step") else "Next step:          n/a",
           f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",
           f"Costs paid today:   {inr(p['costs_paid'])}", ""]
+    gl = glance_lines(day)
+    if gl:
+        L.append("DAY AT A GLANCE")
+        L += [f"{label}: {text}" for label, text in gl]
+        if report_url:
+            L.append(f"{GLANCE_LINK_TEXT}: {report_url}")
+        L.append("")
     if day["market"]:
         L.append("MARKET TODAY")
         w = max(len(m["name"]) for m in day["market"])
@@ -965,6 +1141,6 @@ def write_reports(day: dict, out_dir: Path, stem: str, template_path: Path,
     clean = {k: v for k, v in day.items() if sample or k != "_note"}
     paths["json"].write_text(json.dumps(clean, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     paths["email"].write_text(render_email(clean, report_url, sample, inbox_url), encoding="utf-8")
-    paths["txt"].write_text(render_text(clean, sample, inbox_url), encoding="utf-8")
+    paths["txt"].write_text(render_text(clean, sample, inbox_url, report_url), encoding="utf-8")
     paths["page"].write_text(render_page(clean, template_path, sample), encoding="utf-8")
     return paths
