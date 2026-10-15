@@ -97,7 +97,8 @@ def http_post(url: str, headers: dict, body: dict, timeout: float = 10) -> int:
 
 def fire(environ, summary: dict, post=http_post) -> tuple[bool, str]:
     """POST the summary to the routine. Returns (attempted, note). Never raises."""
-    url, token = environ.get("ROUTINE_FIRE_URL"), environ.get("ROUTINE_FIRE_TOKEN")
+    # a pasted secret often carries a trailing newline or space; that made urllib raise ValueError on 14 Oct 2026
+    url, token = (environ.get("ROUTINE_FIRE_URL") or "").strip(), (environ.get("ROUTINE_FIRE_TOKEN") or "").strip()
     if not url or not token:
         return False, "ROUTINE_FIRE_URL / ROUTINE_FIRE_TOKEN not set"
     headers = {"Authorization": f"Bearer {token}", "anthropic-beta": BETA,

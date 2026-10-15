@@ -87,6 +87,18 @@ def test_missing_routine_secrets_are_handled():
     assert alerts.post_routine("x", "example.invalid/fire", "tok") is False   # secret pasted without https://
 
 
+def test_fire_strips_whitespace_from_pasted_secrets():
+    from simgold import fastlane
+    seen = {}
+
+    def post(url, headers, body, timeout=10):
+        seen["url"], seen["auth"] = url, headers["Authorization"]
+        return 200
+    env = {"ROUTINE_FIRE_URL": " https://api.anthropic.com/v1/x/fire\n", "ROUTINE_FIRE_TOKEN": "tok123 \n"}
+    assert fastlane.fire(env, {"x": 1}, post=post) == (True, "HTTP 200")
+    assert seen == {"url": "https://api.anthropic.com/v1/x/fire", "auth": "Bearer tok123"}
+    assert fastlane.fire({"ROUTINE_FIRE_URL": "  ", "ROUTINE_FIRE_TOKEN": "t"}, {})[0] is False
+
 def test_engine_kick_starts_the_engine_on_a_routine_guidance_push():
     """15 Oct 2026: the premarket dispatch was denied and the 09:00/09:10 crons ran ~5 h late (first tick 10:18 IST).
     The premarket push of state/guidance.json must start the engine from GitHub's side."""
