@@ -121,3 +121,24 @@ def test_engine_kick_path_is_one_the_premarket_routine_commits():
     step8 = premarket[premarket.index("**Commit and push**"):]
     assert "state/guidance.json" in step8.split("```")[1]
     assert "engine-kick.yml" in premarket
+
+
+def test_report_retry_backup_email_step_is_gated_and_uses_the_right_secrets():
+    text, doc = WF["report-retry.yml"]
+    steps = doc["jobs"]["retry"]["steps"]
+    b = next(s for s in steps if s.get("name", "").startswith("Backup email"))
+    assert b["if"] == "steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'"
+    assert b["env"]["SMTP_USER"] == "${{ secrets.SMTP_USER }}"
+    assert b["env"]["SMTP_APP_PASSWORD"] == "${{ secrets.SMTP_APP_PASSWORD }}"
+    assert b["env"]["REPORT_EMAIL"] == "${{ secrets.REPORT_EMAIL }}"
+    assert b["env"]["DEEPSEEK_API_KEY"] == "${{ secrets.DEEPSEEK_API_KEY }}"
+    run = b["run"]
+    assert 'status --date "$DAY")" = "backup_sent"' in run                      # never twice
+    assert "Backup email not configured: add SMTP_USER, SMTP_APP_PASSWORD, REPORT_EMAIL secrets" in run
+    assert run.index("tools/backup_email.py") < run.index("mark-backup")
+    assert "--dry-run" not in run and "echo \"$SMTP" not in run and "echo \"$REPORT_EMAIL" not in run
+    # the secrets live only on that step, not on the job (the incident wake step never sees them)
+    assert "SMTP_APP_PASSWORD" not in str(doc["jobs"]["retry"]["env"])
+    assert _on(doc)["workflow_dispatch"]["inputs"]["force_backup"]["type"] == "boolean"
+    commit = next(s for s in steps if s.get("name") == "Commit the retry state")
+    assert commit["if"] == "always()" and "state/report_retry.json" in commit["run"]

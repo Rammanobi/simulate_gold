@@ -182,6 +182,9 @@ fixed rules (it never needed Claude), but guidance goes stale and no daily repor
    them and opens/updates the issue **"Daily report <date> (fallback mode)"**. If the secrets `SMTP_HOST`, `SMTP_USER`,
    `SMTP_PASS` (and optionally `SMTP_PORT`) exist, the same email is also sent with the subject "Metals Daybook · (fallback) ...".
    The Daybook Inbox needs Claude, so no Inbox item is created in fallback mode. Incidents get alerts only, never AI code fixes.
+4. **Backup email.** If the missed daily report is still not sent 90 min after the 8th retry, `report-retry.yml` sends it once
+   by Gmail SMTP (`tools/backup_email.py`, subject "... · backup (Claude unavailable)"). Setup: `docs/BACKUP_EMAIL.md`
+   (secrets `SMTP_USER`, `SMTP_APP_PASSWORD`, `REPORT_EMAIL`).
 
 **Setup (one step).** Add the secret **`DEEPSEEK_API_KEY`**: GitHub, Settings, Secrets and variables, Actions, New repository
 secret. Never put the key in a file in the repo (it is public). For local testing copy `.env.example` to `.env` (git-ignored); real

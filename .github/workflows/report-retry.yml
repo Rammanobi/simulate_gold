@@ -4,15 +4,26 @@ name: report-retry
 # Every 30 min after the close this checks whether the day's report was pushed ("routine(daily_report): D"); if not,
 # it wakes the incident routine with {"kind": "daily_report_retry"}, using exponential backoff
 # (30 min, then 60, then every 120 min; at most 8 attempts). tools/report_retry.py decides; no AI runs here.
+# BACKUP EMAIL: when the 8th attempt was fired more than 90 min ago and the report is still not pushed (verdict GIVE_UP),
+# tools/backup_email.py sends the deterministic report once by Gmail SMTP to REPORT_EMAIL (subject "... · backup (Claude
+# unavailable)"; a DeepSeek summary paragraph is added when DEEPSEEK_API_KEY is set and Claude wrote no market notes),
+# then `report_retry.py mark-backup` sets the status "backup_sent" so it is never sent twice. Secrets: SMTP_USER,
+# SMTP_APP_PASSWORD (Gmail app password), REPORT_EMAIL; optional DEEPSEEK_API_KEY. See docs/BACKUP_EMAIL.md.
+# Manual test: Run workflow with force_backup = true and a date sends the backup for that date immediately.
 on:
   schedule:
     - cron: "15,45 10-23 * * *"     # 15:45-05:15 IST every 30 min (GitHub may run it late; the tool uses real times)
+    - cron: "15,45 0-2 * * *"       # 05:45-08:15 IST: the 8th attempt (~05:45) and the backup ~90 min later
   workflow_dispatch:
     inputs:
       date:
         description: "Trading day to retry (YYYY-MM-DD); empty = the latest day whose report is due"
         required: false
         default: ""
+      force_backup:
+        description: "Send the backup email for `date` now (testing); the safety rules still apply"
+        type: boolean
+        default: false
 
 permissions:
   contents: write     # commits state/report_retry.json
@@ -24,12 +35,13 @@ concurrency:
 jobs:
   retry:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       TZ: Asia/Kolkata
       ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}
       ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
       RETRY_DATE: ${{ github.event.inputs.date }}
+      FORCE_BACKUP: ${{ github.event.inputs.force_backup }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,11 +50,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -q pyyaml
+          cache: pip
+      - run: pip install -q -r requirements.txt
 
       - name: Decide
         id: decide
         run: |
+          if [ "$FORCE_BACKUP" = "true" ]; then
+            if ! echo "$RETRY_DATE" | grep -Eq '^20[0-9]{2}-[0-9]{2}-[0-9]{2}$'; then
+              echo "force_backup needs a date (YYYY-MM-DD)" >> "$GITHUB_STEP_SUMMARY"; exit 1
+            fi
+            echo "verdict=FORCE_BACKUP" >> "$GITHUB_OUTPUT"; echo "day=$RETRY_DATE" >> "$GITHUB_OUTPUT"
+            echo "**report-retry:** FORCE_BACKUP $RETRY_DATE" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
           if [ -n "$RETRY_DATE" ]; then out=$(python tools/report_retry.py step --date "$RETRY_DATE"); else out=$(python tools/report_retry.py step); fi
           echo "$out"
           echo "verdict=$(echo "$out" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
@@ -67,6 +87,30 @@ jobs:
           ok = alerts.post_routine(text, os.environ["ROUTINE_INCIDENT_URL"].strip(), os.environ["ROUTINE_INCIDENT_TOKEN"].strip())
           print("fired" if ok else "POST failed (the next attempt follows the backoff)")
           PY
+
+      - name: Backup email (after 8 failed retries, or force_backup)
+        if: steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'
+        env:
+          DAY: ${{ steps.decide.outputs.day }}
+          VERDICT: ${{ steps.decide.outputs.verdict }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ "$VERDICT" = "GIVE_UP" ] && [ "$(python tools/report_retry.py status --date "$DAY")" = "backup_sent" ]; then
+            echo "Backup email for $DAY was already sent" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          if [ -z "$SMTP_USER" ] || [ -z "$SMTP_APP_PASSWORD" ] || [ -z "$REPORT_EMAIL" ]; then
+            echo "Backup email not configured: add SMTP_USER, SMTP_APP_PASSWORD, REPORT_EMAIL secrets" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          set +e
+          python tools/backup_email.py --date "$DAY" > "$RUNNER_TEMP/backup.txt" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/backup.txt"; cat "$RUNNER_TEMP/backup.txt" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ]; then echo "Backup email failed (exit $code); the next run tries again" >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+          python tools/report_retry.py mark-backup --date "$DAY"
 
       - name: Commit the retry state
         if: always()
