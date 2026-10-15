@@ -174,11 +174,10 @@
  "one_line_summary": "Small green day: +₹17. No trades. The floor is ₹535 away.",
  "subject": "Metals Daybook · 📈 Thu 15 Oct · +₹17 (green)",
  "fixed_today": [],
- "system_health": "Watchdog: 14 checks today, 5 problems, see incidents",
+ "system_health": "Watchdog: 18 checks today, 5 problems, see incidents",
  "thrift": true,
  "fallback_dates": [
-  "2026-10-13"
- ],
- "fallback": true,
- "fallback_summary": "On 2026-10-15 the market was open and the portfolio closed at ₹100,034.52, a small green day of +₹17.26. No buys and no sells were made. The floor sits at ₹99,500, just ₹535 away, and there were no warnings."
+  "2026-10-13",
+  "2026-10-15"
+ ]
 }
