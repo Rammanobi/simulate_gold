@@ -43,8 +43,10 @@ No scheduled events on the calendar for tomorrow; normal rules apply.
 
 💡 Thrift mode: running on plan limits
 
-Fallback was used on 2026-10-13 (Claude routines were not running).
+Fallback was used on 2026-10-13, 2026-10-15 (Claude routines were not running).
 
-Watchdog: 14 checks today, 5 problems, see incidents
+Watchdog: 18 checks today, 5 problems, see incidents
+
+Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-15
 
 This is a paper simulation. No real money or orders were placed.
