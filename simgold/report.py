@@ -560,6 +560,10 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     day = _build_day(date, root, holiday)
     if not day.get("closed"):
         day["glance"] = day_glance(date, root, day)
+        try:
+            day["pnl_story"] = pnl_story(day)
+        except Exception:      # rendering recomputes it; never fail the report over this
+            pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -882,6 +886,62 @@ def subject_line(day: dict) -> str:
     return f"Metals Daybook · 📊 {label} · ₹0 (flat)"
 
 
+# ---------------------------------------------------------------- P&L story
+def _total_phrase(total: float, start: bool = True) -> str:
+    r = _round(total)
+    tail = " since the start" if start else ""
+    if r > 0:
+        return f"Total profit {inr(total)}{tail}"
+    if r < 0:
+        return f"Total loss {inr(total)}{tail}"
+    return f"No total profit or loss yet{tail}"
+
+
+def pnl_story(day: dict) -> dict:
+    """Plain-words P&L for the email hero: total since the start first, today's change second,
+    where today's change came from, and how the total moved since the previous trading day."""
+    p, b = day["portfolio"], day.get("pnl_breakdown") or {}
+    start = _num(day.get("start_capital"), START_CAPITAL) or START_CAPITAL
+    close, open_ = _num(p.get("close"), start), _num(p.get("open"), start)
+    total, prev_total, pnl = close - start, open_ - start, _num(p.get("day_pnl"), close - open_)
+    r = _round(pnl)
+    today = f"up {inr(pnl)} today" if r > 0 else f"down {inr(pnl)} today" if r < 0 else "flat today"
+
+    traded = any(d.get("action") in ("BUY", "SELL") for d in day.get("decisions", []))
+    realized = _num(b.get("realized_trades"), 0.0) or 0.0
+    unrealized = _num(b.get("unrealized_open"), 0.0) or 0.0
+    lb = _num(b.get("liquidbees_income"), 0.0) or 0.0
+    if r == 0:
+        source = "No change today" + ("." if traded else ": no trades were made.")
+    elif not traded and _round(realized) == 0 and _round(unrealized) == 0:
+        source = f"Today's {sg(pnl)} is only LIQUIDBEES interest on idle cash — no trades were made."
+    else:
+        parts = [(realized, "from closed trades"), (unrealized, "from open positions"), (lb, "LIQUIDBEES interest")]
+        bits = [f"{sg(v)} {label}" for v, label in parts if _round(v) != 0]
+        source = f"Today's {sg(pnl)}: " + ", ".join(bits) + ("." if traded else "; no trades were made.")
+
+    a, z = _round(prev_total), _round(total)
+    if a >= 0 and z >= 0:
+        if r > 0:
+            vs = f"Profit increased by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        elif r < 0:
+            vs = f"Profit decreased by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        else:
+            vs = f"Profit stayed flat since the previous trading day at {inr(total, 2)}."
+    elif a <= 0 and z <= 0:
+        if r < 0:
+            vs = f"Loss grew by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        elif r > 0:
+            vs = f"Loss shrank by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        else:
+            vs = f"Loss stayed flat since the previous trading day at {inr(total, 2)}."
+    else:
+        vs = (f"Total moved from {'profit' if a > 0 else 'loss'} {inr(prev_total, 2)} to {'profit' if z > 0 else 'loss'} "
+              f"{inr(total, 2)} since the previous trading day ({sg(pnl, 2)}).")
+    return {"total": round(total, 2), "total_text": _total_phrase(total), "today_text": today,
+            "source": source, "vs_previous": vs}
+
+
 # ------------------------------------------------------------------ helpers
 def prepare(day: dict) -> dict:
     """Fill derived fields on a day dict (also used for the sample JSON)."""
@@ -1030,13 +1090,10 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
 
     pnl = p["day_pnl"]
     r = _round(pnl)
-    color = _tone_color(pnl)
-    if r > 0:
-        headline = f'You\'re in the green: <span style="white-space:nowrap;">{sg(pnl)}</span> today'
-    elif r < 0:
-        headline = f'You\'re in the red: <span style="white-space:nowrap;">{sg(pnl)}</span> today'
-    else:
-        headline = 'You\'re flat today: <span style="white-space:nowrap;">₹0</span>'
+    story = pnl_story(day)
+    headline = (f'<span style="color:{_tone_color(story["total"])};">{esc(story["total_text"])}</span>'
+                f'<div style="font-size:20px;line-height:26px;padding-top:4px;color:{_tone_color(pnl)};">'
+                f'{esc(story["today_text"][:1].upper() + story["today_text"][1:])}</div>')
     extra = ""
     if r < 0:
         if p["distance_to_floor"] > 0:
@@ -1048,13 +1105,14 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  + note + '</div>')
     for w in day["warnings"]:
         extra += f'<div style="font-size:13px;line-height:19px;color:#8a6d12;padding-top:8px;">Note: {esc(w)}</div>'
-    hero = (f'<tr><td style="padding:14px 20px 4px 20px;font-family:{FONT};"><div style="font-size:30px;line-height:36px;font-weight:800;color:{color};">{headline}</div>'
-            f'<div style="font-size:16px;line-height:24px;color:#1f2937;padding-top:10px;">{esc(day["one_line_summary"])}</div>{extra}</td></tr>\n')
+    hero = (f'<tr><td style="padding:14px 20px 4px 20px;font-family:{FONT};"><div style="font-size:26px;line-height:33px;font-weight:800;color:{INK};">{headline}</div>'
+            f'<div style="font-size:16px;line-height:24px;color:#1f2937;padding-top:10px;">{esc(story["source"])}</div>'
+            f'<div style="font-size:15px;line-height:22px;color:#4b5563;padding-top:6px;">{esc(story["vs_previous"])}</div>{extra}</td></tr>\n')
 
     dist = p["distance_to_floor"]
     tiles = ('<tr><td style="padding:20px 16px 0 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>\n'
              + _tile("Portfolio value", inr(p["close"]), INK, f"started at {inr(day['start_capital'])}") + "\n"
-             + _tile("Month so far", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), pc(p["month_pnl_pct"], 2)) + "\n"
+             + _tile("Total this month", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), pc(p["month_pnl_pct"], 2) + " since the 1st") + "\n"
              + _tile("Distance to safety floor", inr(abs(dist)), GREEN if dist > 0 else RED,
                      f"{'above' if dist >= 0 else 'below'} {inr(p['floor'])}")
              + "\n</tr></table></td></tr>\n")
@@ -1156,9 +1214,11 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
               "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),
               "This is a paper simulation. No real money or orders were placed."]
         return "\n".join(L) + "\n"
-    L += ["HEADLINE", f"Day P&L:      {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)})",
-          f"Month P&L:    {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)})",
-          f"Portfolio:    {inr(p['close'])} (opened the day at {inr(p['open'])})", day["one_line_summary"], ""]
+    story = pnl_story(day)
+    L += ["HEADLINE", f"{story['total_text']} · {story['today_text']}", story["source"], story["vs_previous"], "",
+          f"Total since the start: {sg(story['total'])} (value {inr(p['close'])} vs {inr(day.get('start_capital', START_CAPITAL))} at the start)",
+          f"Today:                 {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)}; opened the day at {inr(p['open'])})",
+          f"Total this month:      {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)} since the 1st)", ""]
     for w in day["warnings"]:
         L.append("Note: " + w)
     if day["warnings"]:
