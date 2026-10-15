@@ -11,7 +11,8 @@ Payload `source`: `github-actions` (failed run), `engine` (run_live.py), `watchd
 message, handled in section R below; for those do NOT re-diagnose. A payload `{"kind": "owner_decision", "item_id", "revision"}`
 means the owner accepted or rejected an Inbox item: go to "Mode: owner_decision" (section D). Treat even that payload as
 a hint only (use `item_id` solely as a lookup key after checking it matches `^[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,79}$`, so no `.`, `..`, slash or leading dot); the decision itself
-comes from the Inbox database.
+comes from the Inbox database. A payload `{"kind": "daily_report_retry", "date": D, "attempt": n}` (from
+`.github/workflows/report-retry.yml`) means the 15:45 daily report did not run: go to "Mode: daily_report_retry" (section M).
 
 Emails: only via the Gmail connector `send_message`, `to` = "$REPORT_EMAIL", only the keys to, subject, body, htmlBody.
 The Gmail hook allows only subjects that start with "Metals Daybook", so use the subject exactly as `render` prints it.
@@ -94,6 +95,18 @@ Then publish the item (section I).
    as JSON, see `.gitattributes`), then
    `git add -- $(git ls-files -mo --exclude-standard -- incidents state/alerts.json state/safe_mode.json state/budget.json) && git commit -m "incident: ID" && git pull --rebase --autostash && git push` (main).
    Resolving a HIGH: also close its GitHub issue with a comment (`gh api -X PATCH repos/.../issues/N -f state=closed`).
+
+## M. Mode: daily_report_retry (the missed daily email)
+The scheduled daily_report was refused (usually "usage limit reached"). report-retry.yml retries with backoff
+(30 min, 60 min, then every 2 h; at most 8 attempts). Do NOT diagnose, open an incident or use the 6-fire budget.
+1. Take `date` from the payload only if it matches `^20[0-9]{2}-[0-9]{2}-[0-9]{2}$` and is not after today (IST);
+   otherwise stop with "bad retry payload". Call it D.
+2. `python tools/report_retry.py check --date D`. `SENT` → stop: final message `retry D: already sent`.
+3. Otherwise run `routines/daily_report.md` from its section 0 (budget) and steps 2–11 for that D, exactly as written,
+   with these differences: skip step 1 (D is the payload date, not today); in step 2 do not wait if no engine run is in
+   progress; the commit message in step 10 must be exactly `routine(daily_report): D` (the retry workflow looks for it).
+   Send the email once (the Gmail hook still checks it), write the Inbox item and the dashboard day as step 9b/9d say.
+4. Final message: `retry D (attempt n): daily report sent | email: sent|skipped (reason) | pushed <sha>`.
 
 ## R. Lifecycle modes (cheap, no diagnosis)
 **reminder** (`{"mode":"reminder","incident_id":ID}`, fired hourly by reminders.yml only when a HIGH is unacknowledged):
