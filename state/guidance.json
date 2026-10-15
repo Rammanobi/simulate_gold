@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-14T15:16:45+05:30",
+ "updated": "2026-10-15T08:51:52+05:30",
  "bias": {
   "GOLD": "neutral",
-  "SILVER": "neutral",
+  "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "GOLD: US CPI 18:00 IST, after 14:30 no favour, neutral. SILVER: CPI risk after -2.8% shock, neutral. COPPER: no new facts, neutral.",
+ "note": "GOLD: spot -1.5% to ~4099 on hot US CPI 3.7%, US10Y ~5.27%; GOLDBEES already -1.15% Wed, no favour. SILVER: spot -6.2% to ~55.4, gap far above 2.7%, NSE pricing unclear, block. COPPER: COMEX ~6.6/lb, off 3-week high on hike bets; no HC results in 2 days, neutral.",
  "prices_at_update": {
-  "GOLDBEES": 119.72,
-  "SILVERBEES": 202.8,
-  "HINDCOPPER": 467.7
+  "GOLDBEES": 119.85,
+  "SILVERBEES": 203.05,
+  "HINDCOPPER": 467.75
  }
 }

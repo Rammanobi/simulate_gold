@@ -1,0 +1,15 @@
+{
+ "date": "2026-10-15",
+ "market": [
+  {
+   "name": "Gold (COMEX/spot)",
+   "move_pct": -1.47,
+   "note": "Fell below 4100 after hot US CPI lifted Fed hike bets"
+  },
+  {
+   "name": "Silver (COMEX/spot)",
+   "move_pct": -6.16,
+   "note": "Plunged to about 55.4 on hot CPI and stronger dollar"
+  }
+ ]
+}
