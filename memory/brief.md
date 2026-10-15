@@ -1,4 +1,4 @@
-# Brief 2026-10-15 15:30 IST (Thu) | NSE CLOSED (session over)
+# Brief 2026-10-15 15:32 IST (Thu) | NSE CLOSED (session over)
 
 ## Portfolio
 value ₹100,035 | floor ₹99,500 | cushion ₹535 | best profit ₹35 | day P&L +₹17
@@ -24,7 +24,7 @@ HINDCOPPER 452.0 (as of 15:29) | vs prev close -3.35% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=block, COPPER=neutral | 74 min old
+GOLD=neutral, SILVER=block, COPPER=neutral | 76 min old STALE for the engine
 note: GOLD: hot US CPI, GOLDBEES -1.3% on day, no favour. SILVERBEES -5.6% vs prev close, mixed evidence after big…
 
 ## Fast-lane requests today
