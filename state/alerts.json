@@ -35,9 +35,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792039634.435514,
+   "resolved_at": 1792043181.7685404,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "engine_run_missing"
   },
   "watchdog|routines_silent|": {
@@ -76,9 +77,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792039664.207718,
+   "resolved_at": 1792043181.7696574,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "ticks_missing"
   },
   "watchdog|ticks_stale|": {
@@ -117,9 +119,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792039634.435514,
+   "resolved_at": 1792043181.7703812,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "watchdog_stale"
   }
  },
