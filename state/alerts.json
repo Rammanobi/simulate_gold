@@ -47,19 +47,18 @@
    "component": "watchdog",
    "count": 1,
    "deferred": false,
-   "detail": "no daily report reports/daily/2026-10-13.json after 16:30 IST: the Claude routines are not running (usage limit or credits?)",
+   "detail": "no daily report reports/daily/2026-10-15.json after 16:30 IST: the Claude routines are not running (usage limit or credits?)",
    "emails": [],
-   "first_seen": 1791897576.1283863,
+   "first_seen": 1792070373.5165007,
    "fp": "watchdog|routines_silent|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1791897576.1283863,
-   "resolved_at": 1791901886.231341,
+   "last_seen": 1792070373.5165007,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "routines_silent"
   },
   "watchdog|ticks_missing|": {
@@ -128,13 +127,14 @@
  },
  "fires": {
   "date": "2026-10-15",
-  "n": 2,
+  "n": 3,
   "ts": [
    1792039634.435514,
-   1792048929.586671
+   1792048929.586671,
+   1792070373.5165007
   ]
  },
- "last_high_fire": 1792048929.586671,
+ "last_high_fire": 1792070373.5165007,
  "pending": [],
  "version": 1
 }
