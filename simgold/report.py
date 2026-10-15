@@ -388,6 +388,75 @@ def _glance_instruments(date: str, root: Path) -> list[dict]:
     return out
 
 
+_SCORE_RES = (
+    (re.compile(r"Score (\d+(?:\.\d+)?) is below the (\d+(?:\.\d+)?) needed"), False),
+    (re.compile(r"Score (\d+(?:\.\d+)?) reached the (\d+(?:\.\d+)?) needed"), True),
+    (re.compile(r"Score (\d+(?:\.\d+)?) held above (\d+(?:\.\d+)?)"), True),
+)
+_SCORE_BLOCK = re.compile(r"Score (\d+(?:\.\d+)?); Claude's bias for this metal is block")
+
+
+def _glance_scores(date: str, root: Path) -> dict:
+    """Best score of the day per metal and the level it needed, from the text of logs/checks-DATE.jsonl."""
+    out: dict[str, dict] = {}
+    try:
+        lines = (root / "logs" / f"checks-{date}.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        checks = r.get("checks") if isinstance(r, dict) else None
+        if not isinstance(checks, dict):
+            continue
+        for sym, text in checks.items():
+            sym, text = _norm_symbol(sym), str(text or "")
+            score, needs, reached = None, None, False
+            m = _SCORE_BLOCK.search(text)
+            if m:
+                score = float(m.group(1))
+            else:
+                for rx, ok in _SCORE_RES:
+                    m = rx.search(text)
+                    if m:
+                        score, needs = float(m.group(1)), float(m.group(2))
+                        reached = ok or score >= needs - 1e-9
+                        break
+            if score is None:
+                continue
+            cur = out.get(sym)
+            if cur is None or score >= cur["best"]:      # ties: keep the later check
+                out[sym] = {"best": score, "needs": needs, "block": needs is None,
+                            "reached": reached or bool(cur and cur["reached"])}
+            elif reached:
+                cur["reached"] = True
+    return out
+
+
+def _score_bit(sc: dict) -> str:
+    need = "bias: block" if sc.get("block") else f"needs {sc['needs']:.2f}"
+    return f"best score {sc['best']:.2f} ({need})"
+
+
+def _why_from_scores(scores: dict, blocks: int) -> str | None:
+    """'No metal reached the buy level' sentence, or None when some metal did (or nothing was parsed)."""
+    if not scores or any(v.get("reached") for v in scores.values()):
+        return None
+    bits = []
+    for sym in GLANCE_SYMBOLS + tuple(s for s in scores if s not in GLANCE_SYMBOLS):
+        sc = scores.get(sym)
+        if not sc:
+            continue
+        name = ETF_NAMES.get(sym, sym)
+        bits.append(f"{name} blocked by Claude's bias" if sc.get("block") else f"{name} {sc['best']:.2f} of {sc['needs']:.2f}")
+    s = f"No metal's score reached the buy level (best: {', '.join(bits)})"
+    if blocks:
+        s += "; pauses from news/price shocks did not change the outcome"
+    return s + "."
+
+
 def _glance_decisions(decisions: list[dict]) -> dict:
     n = lambda a: sum(1 for d in decisions if d.get("action") == a)
     by: dict[str, int] = {}
@@ -418,7 +487,8 @@ def day_glance(date: str, root: Path, day: dict) -> dict:
     for key, fn in (("engine", lambda: _glance_engine(date, root)),
                     ("decisions", lambda: _glance_decisions(day.get("decisions", []))),
                     ("instruments", lambda: _glance_instruments(date, root)),
-                    ("money", lambda: _glance_money(day))):
+                    ("money", lambda: _glance_money(day)),
+                    ("scores", lambda: _glance_scores(date, root))):
         try:
             v = fn()
         except Exception:      # a broken log line must never stop the report
@@ -426,7 +496,12 @@ def day_glance(date: str, root: Path, day: dict) -> dict:
         if v:
             g[key] = v
     if day.get("no_trade_note"):
-        g["why_no_trades"] = _short_note(day["no_trade_note"])
+        why = None
+        try:
+            why = _why_from_scores(g.get("scores") or {}, sum(1 for d in day.get("decisions", []) if d.get("action") == "BLOCK"))
+        except Exception:
+            why = None
+        g["why_no_trades"] = why or _short_note(day["no_trade_note"])
     return g
 
 
@@ -456,9 +531,12 @@ def glance_lines(day: dict) -> list[tuple[str, str]]:
             blocked += " (" + ", ".join(f"{k} {v}" for k, v in d["blocked_by"].items()) + ")"
         out.append(("Decisions", f"Allowed {d['allowed']} (buys {d['buys']}, sells {d['sells']}) · {blocked}"
                                  f" · Skipped {d['skipped']} · Held {d['held']}"))
+    scores = g.get("scores") or {}
     for i in g.get("instruments") or []:
+        sc = scores.get(i["symbol"])
         out.append((i["symbol"], f"{inr(i['open'], 2)} → {inr(i['close'], 2)} · {pc(i['change_pct'], 2)}"
-                                 f" · low {inr(i['low'], 2)} – high {inr(i['high'], 2)}"))
+                                 f" · low {inr(i['low'], 2)} – high {inr(i['high'], 2)}"
+                                 + (f" · {_score_bit(sc)}" if sc else "")))
     m = g.get("money")
     if m and m.get("value") is not None:
         s = f"Value {inr(m['value'], 2)}"
@@ -896,6 +974,14 @@ def _money_row(label: str, amount: float, border: bool = False, bold: bool = Fal
             f'<td align="right" style="padding:7px 0;font-family:{FONT};font-size:15px;font-weight:700;color:{_tone_color(amount)};{b}">{sg(amount)}</td></tr>')
 
 
+def _glance_value_html(text: str) -> str:
+    """Keep each short ' · ' segment on one line so a value never breaks mid-phrase."""
+    parts = text.split(" · ")
+    if len(parts) == 1:
+        return esc(text)
+    return " · ".join(f'<span style="white-space:nowrap;">{esc(x)}</span>' if len(x) <= 40 else esc(x) for x in parts)
+
+
 def _glance_html(day: dict, link: str | None) -> str:
     rows = glance_lines(day)
     if not rows:
@@ -904,7 +990,7 @@ def _glance_html(day: dict, link: str | None) -> str:
     for label, text in rows:
         h += (f'<tr><td width="104" valign="top" style="padding:6px 10px 6px 0;font-family:{FONT};font-size:13px;line-height:20px;'
               f'color:#6b7280;font-weight:700;">{esc(label)}</td>'
-              f'<td valign="top" style="padding:6px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{esc(text)}</td></tr>\n')
+              f'<td valign="top" style="padding:6px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{_glance_value_html(text)}</td></tr>\n')
     if link:
         h += (f'<tr><td colspan="2" style="padding:10px 0 0 0;font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;">'
               f'<a href="{_html.escape(link, quote=True)}" style="color:#8a6d12;font-weight:700;text-decoration:underline;">'

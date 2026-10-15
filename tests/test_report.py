@@ -304,14 +304,16 @@ def test_day_at_a_glance_counts_and_prices(tmp_path):
     assert gold["change_pct"] == pytest.approx(0.23)
     assert g["money"]["split"] == [{"name": "LIQUIDBEES (cash)", "pct": 100}]
     email = report.render_email(day, report_url="https://claude.ai/artifact/abc#2026-10-15")
-    sec = email[email.index("Day at a glance"):email.index("What I did")]
+    raw = email[email.index("Day at a glance"):email.index("What I did")]
+    sec = re.sub(r"</?span[^>]*>", "", raw)
+    assert '<span style="white-space:nowrap;">' in raw
     assert "Ran 10:18–15:29 IST · 4 minute checks (started late)" in sec
     assert "Allowed 0 (buys 0, sells 0) · Blocked 3 (news 2, price shock 1) · Skipped 0 · Held 0" in sec
     assert "₹119.55 → ₹119.82 · +0.23% · low ₹119.20 – high ₹119.82" in sec
     assert "₹459.00 → ₹452.00 · −1.53%" in sec
     assert "Value ₹1,00,034.52 · day +₹17.26 · 100% in LIQUIDBEES (cash)" in sec
     assert "No trades today." in sec
-    assert 'href="https://claude.ai/artifact/abc#2026-10-15"' in sec and "open the dashboard" in sec
+    assert 'href="https://claude.ai/artifact/abc#2026-10-15"' in raw and "open the dashboard" in sec
     assert email.index("Day at a glance") < email.index("What I did")
     assert "open the dashboard" not in report.render_email(day)          # no URL, no link line
 
@@ -353,3 +355,48 @@ def test_glance_shortens_long_no_trade_note():
     assert len(short) < len(long_note) and short.endswith("more reasons under What I did.")
     assert "reason number 0" in short and "reason number 1" not in short
     assert report._short_note("No trades today.") == "No trades today."
+
+
+def _write_checks(root, rows):
+    lines = [json.dumps({"ts": f"2026-10-15T{t}:52+05:30", "time": t, "value": 100034.52, "checks": c}) for t, c in rows]
+    (root / "logs" / f"checks-{GLANCE_DAY}.jsonl").write_text("\n".join(lines + ["garbage"]) + "\n", encoding="utf-8")
+
+
+def test_glance_best_scores_and_why_line(tmp_path):
+    root = _glance_root(tmp_path)
+    _write_checks(root, [
+        ("10:18", {"GOLDBEES": "Price ₹119.55. Score 0.30 is below the 0.70 needed to buy (neutral bias), so no buy.",
+                   "SILVERBEES": "Price ₹195.99. Score 0.20; Claude's bias for this metal is block, so no buys.",
+                   "HINDCOPPER": "Score 0.30 is below the 0.80 needed to buy (neutral bias), so no buy."}),
+        ("12:00", {"GOLDBEES": "Score 0.45 is below the 0.75 needed to buy (neutral bias, guidance stale), so no buy.",
+                   "SILVERBEES": "Score 0.35; Claude's bias for this metal is block, so no buys.",
+                   "HINDCOPPER": "No fresh price or score this minute, so no buy check."}),
+    ])
+    day = report.build_day(GLANCE_DAY, root)
+    sc = day["glance"]["scores"]
+    assert sc["GOLDBEES"] == {"best": 0.45, "needs": 0.75, "block": False, "reached": False}
+    assert sc["SILVERBEES"]["block"] and sc["SILVERBEES"]["best"] == 0.35
+    lines = dict(report.glance_lines(day))
+    assert lines["GOLDBEES"].endswith("· best score 0.45 (needs 0.75)")
+    assert lines["SILVERBEES"].endswith("· best score 0.35 (bias: block)")
+    assert lines["HINDCOPPER"].endswith("· best score 0.30 (needs 0.80)")
+    assert lines["Why no trades"] == ("No metal's score reached the buy level (best: gold 0.45 of 0.75, silver blocked by "
+                                      "Claude's bias, copper 0.30 of 0.80); pauses from news/price shocks did not change the outcome.")
+    assert "best score 0.45 (needs 0.75)" in report.render_text(day)
+    assert "pauses from news/price shocks" in html.unescape(report.render_email(day))
+
+
+def test_glance_why_line_keeps_note_when_a_score_reached_the_level(tmp_path):
+    root = _glance_root(tmp_path)
+    _write_checks(root, [("11:00", {"GOLDBEES": "Score 0.71 reached the 0.70 needed; waiting for it to hold 3 minutes (1 of 3).",
+                                    "SILVERBEES": "Score 0.20 is below the 0.80 needed to buy (neutral bias), so no buy."})])
+    day = report.build_day(GLANCE_DAY, root)
+    assert day["glance"]["scores"]["GOLDBEES"]["reached"]
+    assert day["glance"]["why_no_trades"].startswith("No trades today.")
+
+
+def test_glance_no_scores_without_checks_file(tmp_path):
+    day = report.build_day(GLANCE_DAY, _glance_root(tmp_path, checks=False))
+    assert "scores" not in day["glance"]
+    assert "best score" not in dict(report.glance_lines(day))["GOLDBEES"]
+    assert day["glance"]["why_no_trades"].startswith("No trades today.")
