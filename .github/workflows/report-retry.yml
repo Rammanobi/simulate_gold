@@ -1,0 +1,77 @@
+name: report-retry
+
+# The 15:45 daily_report routine can be refused when the Claude plan's usage limit is reached (15 Oct 2026: no email).
+# Every 30 min after the close this checks whether the day's report was pushed ("routine(daily_report): D"); if not,
+# it wakes the incident routine with {"kind": "daily_report_retry"}, using exponential backoff
+# (30 min, then 60, then every 120 min; at most 8 attempts). tools/report_retry.py decides; no AI runs here.
+on:
+  schedule:
+    - cron: "15,45 10-23 * * *"     # 15:45-05:15 IST every 30 min (GitHub may run it late; the tool uses real times)
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Trading day to retry (YYYY-MM-DD); empty = the latest day whose report is due"
+        required: false
+        default: ""
+
+permissions:
+  contents: write     # commits state/report_retry.json
+
+concurrency:
+  group: report-retry
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Kolkata
+      ROUTINE_INCIDENT_URL: ${{ secrets.ROUTINE_INCIDENT_URL }}
+      ROUTINE_INCIDENT_TOKEN: ${{ secrets.ROUTINE_INCIDENT_TOKEN }}
+      RETRY_DATE: ${{ github.event.inputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 600           # enough history to see today's routine commits
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -q pyyaml
+
+      - name: Decide
+        id: decide
+        run: |
+          if [ -n "$RETRY_DATE" ]; then out=$(python tools/report_retry.py step --date "$RETRY_DATE"); else out=$(python tools/report_retry.py step); fi
+          echo "$out"
+          echo "verdict=$(echo "$out" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "attempt=$(echo "$out" | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "day=$(echo "$out" | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "**report-retry:** $out" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wake the incident routine
+        if: steps.decide.outputs.verdict == 'FIRE'
+        env:
+          DAY: ${{ steps.decide.outputs.day }}
+          ATTEMPT: ${{ steps.decide.outputs.attempt }}
+        run: |
+          if [ -z "$ROUTINE_INCIDENT_URL" ] || [ -z "$ROUTINE_INCIDENT_TOKEN" ]; then
+            echo "ROUTINE_INCIDENT_URL / ROUTINE_INCIDENT_TOKEN not set; cannot retry" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          python - <<'PY'
+          import json, os
+          from simgold import alerts
+          text = json.dumps({"kind": "daily_report_retry", "date": os.environ["DAY"], "attempt": int(os.environ["ATTEMPT"]),
+                             "of": 8, "source": "report-retry"})
+          ok = alerts.post_routine(text, os.environ["ROUTINE_INCIDENT_URL"].strip(), os.environ["ROUTINE_INCIDENT_TOKEN"].strip())
+          print("fired" if ok else "POST failed (the next attempt follows the backoff)")
+          PY
+
+      - name: Commit the retry state
+        if: always()
+        run: |
+          git config user.name "simgold-report-retry"; git config user.email "actions@users.noreply.github.com"
+          for p in state/report_retry.json; do [ -e "$p" ] && git add -A -- "$p"; done
+          git diff --cached --quiet || git commit -qm "report-retry: $(date +%H:%M) IST"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
