@@ -70,7 +70,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
       (the run waits for 09:15 itself). Anything printed → do nothing; never start a second run.
    c. Then dispatch the watchdog once (GitHub's schedules run late for this repo):
       `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main`
-   A denied or failed dispatch: say so in the final message (`engine: failed (<reason>)`); do not retry in another form.
+   A denied or failed dispatch: say so in the final message (`engine: push-kick (<reason>)`); do not retry in another form.
+   Step 8 still matters then: the push of `state/guidance.json` starts `.github/workflows/engine-kick.yml`, which
+   dispatches the engine itself when no run is active (15 Oct 2026: the dispatch was denied, first tick 10:18).
 8. **Commit and push** (routine-owned files only):
    ```bash
    git add -- $(git ls-files -mo --exclude-standard -- state/guidance.json state/events.json state/market_today.json state/budget.json memory)
@@ -103,7 +105,7 @@ threshold (favour −0.05, block = no buys); the engine also enforces all event 
 Writes: `state/guidance.json`, `state/events.json`, `state/market_today.json` (via tools). Final message,
 ≤ 8 lines:
 ```
-premarket D | bias GOLD=… SILVER=… COPPER=… | events added: … (or none) | engine: running|dispatched|failed
+premarket D | bias GOLD=… SILVER=… COPPER=… | events added: … (or none) | engine: running|dispatched|push-kick
 reasons: …
 flags: … (blocked sites, unsure dates, wrong existing events, tool failures)
 pushed: <short sha> | models used: opus[, haiku]
