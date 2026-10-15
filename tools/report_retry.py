@@ -5,13 +5,17 @@ Run by .github/workflows/report-retry.yml every 30 minutes after the close. It d
   SENT     the daily report was pushed (a commit "routine(daily_report): D" exists)  -> nothing to do
   WAIT     a retry is not due yet (backoff)                                           -> nothing to do
   FIRE n   wake the incident routine with {"kind": "daily_report_retry", "date": D, "attempt": n}
-  GIVE_UP  all attempts used                                                          -> nothing more
+  GIVE_UP  all 8 attempts used and the 8th was fired more than 90 minutes ago, still not SENT
+           -> the workflow sends the backup email (tools/backup_email.py) unless the status is already "backup_sent"
 Backoff after the 15:45 run: first retry 30 min after it, then waits of 60, 120, 120, ... minutes (exponential,
 capped at 2 h), at most 8 attempts. So retries run until the plan's 5-hour usage window has reset at least twice.
 State: state/report_retry.json {"date": D, "attempts": [iso, ...], "status": "..."} (written by the workflow only).
+Status: new, "attempt n of 8", sent, gave_up, backup_sent.
 
   python tools/report_retry.py step [--date D] [--now ISO] [--dry-run]   # prints one of the words above
   python tools/report_retry.py check --date D                             # prints SENT or MISSING
+  python tools/report_retry.py status --date D                            # prints the stored status of D
+  python tools/report_retry.py mark-backup --date D                       # status := backup_sent (after the backup email)
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ from simgold.market import IST, is_trading_day, now_ist
 MAX_ATTEMPTS = 8
 FIRST_DELAY_MIN = 30          # after the 15:45 routine (counted from 15:50, when it should be done)
 WAITS_MIN = [60, 120]          # then 60, then 120 for every further attempt (cap)
+GIVE_UP_AFTER_MIN = 90         # after the 8th attempt, wait this long for the routine before the backup email
 REPORT_DONE = time(15, 50)
 STATE = "state/report_retry.json"
 
@@ -68,7 +73,10 @@ def decide(state: dict, d: date, now: datetime) -> tuple[str, int]:
     tries = state["attempts"]
     n = len(tries) + 1
     if n > MAX_ATTEMPTS:
-        return "GIVE_UP", len(tries)
+        last = datetime.fromisoformat(tries[MAX_ATTEMPTS - 1])
+        if now >= last + timedelta(minutes=GIVE_UP_AFTER_MIN) - timedelta(minutes=2):
+            return "GIVE_UP", MAX_ATTEMPTS
+        return "WAIT", MAX_ATTEMPTS
     if not tries:
         due = datetime.combine(d, REPORT_DONE, IST) + timedelta(minutes=FIRST_DELAY_MIN)
     else:
@@ -84,7 +92,7 @@ def save(root: Path, state: dict) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["step", "check"])
+    ap.add_argument("cmd", choices=["step", "check", "status", "mark-backup"])
     ap.add_argument("--date")
     ap.add_argument("--now")
     ap.add_argument("--root", default=str(ROOT))
@@ -104,6 +112,16 @@ def main(argv=None) -> int:
         print("SENT" if sent(root, ds) else "MISSING")
         return 0
     state = load(root, ds)
+    if a.cmd == "status":
+        print(state["status"])
+        return 0
+    if a.cmd == "mark-backup":
+        state["status"] = "backup_sent"
+        state["backup_sent_at"] = now.isoformat(timespec="seconds")
+        if not a.dry_run:
+            save(root, state)
+        print(f"BACKUP_SENT {ds}")
+        return 0
     if sent(root, ds):
         if state["status"] != "sent" and state["attempts"]:
             state["status"] = "sent"
@@ -116,7 +134,7 @@ def main(argv=None) -> int:
         state["attempts"].append(now.isoformat(timespec="seconds"))
         state["status"] = f"attempt {n} of {MAX_ATTEMPTS}"
         save(root, state)
-    elif verdict == "GIVE_UP" and state["status"] != "gave_up" and not a.dry_run:
+    elif verdict == "GIVE_UP" and state["status"] not in ("gave_up", "backup_sent") and not a.dry_run:
         state["status"] = "gave_up"
         save(root, state)
     print(f"{verdict} {n} {ds}" if verdict != "GIVE_UP" else f"GIVE_UP {ds}")
