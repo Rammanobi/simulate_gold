@@ -2,10 +2,13 @@ GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
 Monday 12 Oct 2026 (sample data, not a real trading day)
 
 HEADLINE
-Day P&L:      +₹147 (+0.15%)
-Month P&L:    +₹147 (+0.15%)
-Portfolio:    ₹1,00,147 (opened the day at ₹1,00,000)
-Small green day: +₹147. Gold trade worked, a quick silver trade lost ₹44, and the floor is ₹647 away.
+Total profit ₹147 since the start · up ₹147 today
+Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest.
+Profit increased by ₹147.00 since the previous trading day (₹0.00 → ₹147.00).
+
+Total since the start: +₹147 (value ₹1,00,147 vs ₹1,00,000 at the start)
+Today:                 +₹147 (+0.15%; opened the day at ₹1,00,000)
+Total this month:      +₹147 (+0.15% since the 1st)
 
 PORTFOLIO AND FLOOR
 Floor:              ₹99,500
@@ -13,6 +16,14 @@ Distance to floor:  ₹647
 Next step:          floor moves to ₹1,00,000 once profit reaches ₹500
 Cash in LIQUIDBEES: ₹90,134 (LIQUIDBEES income today: ₹17)
 Costs paid today:   ₹26
+
+DAY AT A GLANCE
+Engine: Ran 09:15–15:29 IST · 375 minute checks
+Decisions: Allowed 4 (buys 2, sells 2) · Blocked 0 · Skipped 1 · Held 1
+GOLDBEES: ₹104.05 → ₹105.40 · +1.30% · low ₹103.90 – high ₹105.45
+SILVERBEES: ₹142.20 → ₹141.60 · −0.42% · low ₹141.10 – high ₹143.00
+HINDCOPPER: ₹312.40 → ₹313.35 · +0.30% · low ₹311.20 – high ₹314.10
+Money: Value ₹1,00,147.00 · day +₹147.00 · 10% GOLDBEES, 90% LIQUIDBEES (cash)
 
 MARKET TODAY
 Gold (global)     +0.8%  Weaker dollar after soft US jobs data

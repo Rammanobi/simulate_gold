@@ -330,8 +330,240 @@ def system_health(date: str, root: Path) -> str:
     return f"Watchdog: {runs} checks today, {len(bad)} {'problem' if len(bad) == 1 else 'problems'}, see incidents"
 
 
+# ----------------------------------------------------------- day at a glance
+MARKET_OPEN = "09:15"
+LATE_START_MIN = 20          # engine counts as "started late" this many minutes after the open
+GLANCE_SYMBOLS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
+TRIGGER_LABELS = {"news trigger": "news", "price shock": "price shock"}
+
+
+def _glance_engine(date: str, root: Path) -> dict | None:
+    """First/last minute and count of the engine's checks (logs/checks-DATE.jsonl, else ticks rows)."""
+    times, source = [], "checks"
+    try:
+        for ln in (root / "logs" / f"checks-{date}.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            t = (_hhmm(r.get("time")) or _hhmm(r.get("ts"))) if isinstance(r, dict) else None
+            if t:
+                times.append(t)
+    except OSError:
+        times = []
+    if not times:
+        source = "ticks"
+        times = [t["t"] for t in (load_ticks(root / "logs" / f"ticks-{date}.csv") or [])]
+    if not times:
+        return None
+    times.sort(key=_mins)
+    late = _mins(times[0]) - _mins(MARKET_OPEN) > LATE_START_MIN
+    return {"first": times[0], "last": times[-1], "count": len(times), "source": source, "late": late}
+
+
+def _glance_instruments(date: str, root: Path) -> list[dict]:
+    """Open/close/low/high per metal from the price columns of logs/ticks-DATE.csv."""
+    seen: dict[str, list[tuple[int, float]]] = {}
+    try:
+        with (root / "logs" / f"ticks-{date}.csv").open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                t = _hhmm(row.get("time"))
+                if not t:
+                    continue
+                for sym in GLANCE_SYMBOLS:
+                    v = _num(row.get(sym))
+                    if v is not None and v > 0:
+                        seen.setdefault(sym, []).append((_mins(t), v))
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
+    out = []
+    for sym in GLANCE_SYMBOLS:
+        pts = sorted(seen.get(sym, []), key=lambda p: p[0])
+        if not pts:
+            continue
+        o, c = pts[0][1], pts[-1][1]
+        vals = [v for _, v in pts]
+        out.append({"symbol": sym, "open": o, "close": c, "change_pct": round((c / o - 1) * 100, 2),
+                    "low": min(vals), "high": max(vals)})
+    return out
+
+
+_SCORE_RES = (
+    (re.compile(r"Score (\d+(?:\.\d+)?) is below the (\d+(?:\.\d+)?) needed"), False),
+    (re.compile(r"Score (\d+(?:\.\d+)?) reached the (\d+(?:\.\d+)?) needed"), True),
+    (re.compile(r"Score (\d+(?:\.\d+)?) held above (\d+(?:\.\d+)?)"), True),
+)
+_SCORE_BLOCK = re.compile(r"Score (\d+(?:\.\d+)?); Claude's bias for this metal is block")
+
+
+def _glance_scores(date: str, root: Path) -> dict:
+    """Best score of the day per metal and the level it needed, from the text of logs/checks-DATE.jsonl."""
+    out: dict[str, dict] = {}
+    try:
+        lines = (root / "logs" / f"checks-{date}.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        checks = r.get("checks") if isinstance(r, dict) else None
+        if not isinstance(checks, dict):
+            continue
+        for sym, text in checks.items():
+            sym, text = _norm_symbol(sym), str(text or "")
+            score, needs, reached = None, None, False
+            m = _SCORE_BLOCK.search(text)
+            if m:
+                score = float(m.group(1))
+            else:
+                for rx, ok in _SCORE_RES:
+                    m = rx.search(text)
+                    if m:
+                        score, needs = float(m.group(1)), float(m.group(2))
+                        reached = ok or score >= needs - 1e-9
+                        break
+            if score is None:
+                continue
+            cur = out.get(sym)
+            if cur is None or score >= cur["best"]:      # ties: keep the later check
+                out[sym] = {"best": score, "needs": needs, "block": needs is None,
+                            "reached": reached or bool(cur and cur["reached"])}
+            elif reached:
+                cur["reached"] = True
+    return out
+
+
+def _score_bit(sc: dict) -> str:
+    need = "bias: block" if sc.get("block") else f"needs {sc['needs']:.2f}"
+    return f"best score {sc['best']:.2f} ({need})"
+
+
+def _why_from_scores(scores: dict, blocks: int) -> str | None:
+    """'No metal reached the buy level' sentence, or None when some metal did (or nothing was parsed)."""
+    if not scores or any(v.get("reached") for v in scores.values()):
+        return None
+    bits = []
+    for sym in GLANCE_SYMBOLS + tuple(s for s in scores if s not in GLANCE_SYMBOLS):
+        sc = scores.get(sym)
+        if not sc:
+            continue
+        name = ETF_NAMES.get(sym, sym)
+        bits.append(f"{name} blocked by Claude's bias" if sc.get("block") else f"{name} {sc['best']:.2f} of {sc['needs']:.2f}")
+    s = f"No metal's score reached the buy level (best: {', '.join(bits)})"
+    if blocks:
+        s += "; pauses from news/price shocks did not change the outcome"
+    return s + "."
+
+
+def _glance_decisions(decisions: list[dict]) -> dict:
+    n = lambda a: sum(1 for d in decisions if d.get("action") == a)
+    by: dict[str, int] = {}
+    for d in decisions:
+        if d.get("action") == "BLOCK":
+            trig = str(d.get("trigger") or "Engine").strip()
+            label = TRIGGER_LABELS.get(trig.lower(), _lowfirst(trig))
+            by[label] = by.get(label, 0) + 1
+    buys, sells = n("BUY"), n("SELL")
+    return {"allowed": buys + sells, "buys": buys, "sells": sells, "blocked": n("BLOCK"),
+            "blocked_by": dict(sorted(by.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "skipped": n("SKIP"), "held": n("HOLD")}
+
+
+def _glance_money(day: dict) -> dict:
+    p = day.get("portfolio", {})
+    parts = [(h["symbol"], _num(h.get("value"), 0.0) or 0.0) for h in day.get("holdings_close", [])]
+    parts.append(("LIQUIDBEES (cash)", _num(p.get("cash_in_liquidbees"), 0.0) or 0.0))
+    total = sum(v for _, v in parts)
+    split = [{"name": name, "pct": round(v / total * 100)} for name, v in parts if v > 0] if total > 0 else []
+    return {"value": p.get("close"), "day_pnl": p.get("day_pnl"), "split": split}
+
+
+def day_glance(date: str, root: Path, day: dict) -> dict:
+    """The 'Day at a glance' data, built only from repo files and the day dict. Missing pieces are left out."""
+    root = Path(root)
+    g: dict = {}
+    for key, fn in (("engine", lambda: _glance_engine(date, root)),
+                    ("decisions", lambda: _glance_decisions(day.get("decisions", []))),
+                    ("instruments", lambda: _glance_instruments(date, root)),
+                    ("money", lambda: _glance_money(day)),
+                    ("scores", lambda: _glance_scores(date, root))):
+        try:
+            v = fn()
+        except Exception:      # a broken log line must never stop the report
+            v = None
+        if v:
+            g[key] = v
+    if day.get("no_trade_note"):
+        why = None
+        try:
+            why = _why_from_scores(g.get("scores") or {}, sum(1 for d in day.get("decisions", []) if d.get("action") == "BLOCK"))
+        except Exception:
+            why = None
+        g["why_no_trades"] = why or _short_note(day["no_trade_note"])
+    return g
+
+
+def _short_note(note: str, limit: int = 180) -> str:
+    """The no-trade note, cut to its first reason when it is long (the full list stays under 'What I did')."""
+    if len(note) <= limit:
+        return note
+    head = note.split("; ", 1)[0].rstrip(". ")
+    if len(head) > limit:
+        head = head[:limit].rsplit(" ", 1)[0].rstrip(".,;: ")
+    return head + "; more reasons under What I did."
+
+
+def glance_lines(day: dict) -> list[tuple[str, str]]:
+    """(label, text) rows of the 'Day at a glance' section; shared by the email and the text mail."""
+    g = day.get("glance") or {}
+    out = []
+    e = g.get("engine")
+    if e:
+        what = "minute checks" if e.get("source") == "checks" else "minute ticks logged"
+        out.append(("Engine", f"Ran {e['first']}–{e['last']} IST · {e['count']} {what}"
+                              + (" (started late)" if e.get("late") else "")))
+    d = g.get("decisions")
+    if d:
+        blocked = f"Blocked {d['blocked']}"
+        if d.get("blocked_by"):
+            blocked += " (" + ", ".join(f"{k} {v}" for k, v in d["blocked_by"].items()) + ")"
+        out.append(("Decisions", f"Allowed {d['allowed']} (buys {d['buys']}, sells {d['sells']}) · {blocked}"
+                                 f" · Skipped {d['skipped']} · Held {d['held']}"))
+    scores = g.get("scores") or {}
+    for i in g.get("instruments") or []:
+        sc = scores.get(i["symbol"])
+        out.append((i["symbol"], f"{inr(i['open'], 2)} → {inr(i['close'], 2)} · {pc(i['change_pct'], 2)}"
+                                 f" · low {inr(i['low'], 2)} – high {inr(i['high'], 2)}"
+                                 + (f" · {_score_bit(sc)}" if sc else "")))
+    m = g.get("money")
+    if m and m.get("value") is not None:
+        s = f"Value {inr(m['value'], 2)}"
+        if m.get("day_pnl") is not None:
+            s += f" · day {sg(m['day_pnl'], 2)}"
+        split = m.get("split") or []
+        if len(split) == 1:
+            s += f" · 100% in {split[0]['name']}"
+        elif split:
+            s += " · " + ", ".join(f"{x['pct']}% {x['name']}" for x in split)
+        out.append(("Money", s))
+    if g.get("why_no_trades"):
+        out.append(("Why no trades", g["why_no_trades"]))
+    return out
+
+
+GLANCE_LINK_TEXT = "Every decision, every minute and the market price at each decision: open the dashboard"
+
+
 def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     day = _build_day(date, root, holiday)
+    if not day.get("closed"):
+        day["glance"] = day_glance(date, root, day)
+        try:
+            day["pnl_story"] = pnl_story(day)
+        except Exception:      # rendering recomputes it; never fail the report over this
+            pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -654,6 +886,62 @@ def subject_line(day: dict) -> str:
     return f"Metals Daybook · 📊 {label} · ₹0 (flat)"
 
 
+# ---------------------------------------------------------------- P&L story
+def _total_phrase(total: float, start: bool = True) -> str:
+    r = _round(total)
+    tail = " since the start" if start else ""
+    if r > 0:
+        return f"Total profit {inr(total)}{tail}"
+    if r < 0:
+        return f"Total loss {inr(total)}{tail}"
+    return f"No total profit or loss yet{tail}"
+
+
+def pnl_story(day: dict) -> dict:
+    """Plain-words P&L for the email hero: total since the start first, today's change second,
+    where today's change came from, and how the total moved since the previous trading day."""
+    p, b = day["portfolio"], day.get("pnl_breakdown") or {}
+    start = _num(day.get("start_capital"), START_CAPITAL) or START_CAPITAL
+    close, open_ = _num(p.get("close"), start), _num(p.get("open"), start)
+    total, prev_total, pnl = close - start, open_ - start, _num(p.get("day_pnl"), close - open_)
+    r = _round(pnl)
+    today = f"up {inr(pnl)} today" if r > 0 else f"down {inr(pnl)} today" if r < 0 else "flat today"
+
+    traded = any(d.get("action") in ("BUY", "SELL") for d in day.get("decisions", []))
+    realized = _num(b.get("realized_trades"), 0.0) or 0.0
+    unrealized = _num(b.get("unrealized_open"), 0.0) or 0.0
+    lb = _num(b.get("liquidbees_income"), 0.0) or 0.0
+    if r == 0:
+        source = "No change today" + ("." if traded else ": no trades were made.")
+    elif not traded and _round(realized) == 0 and _round(unrealized) == 0:
+        source = f"Today's {sg(pnl)} is only LIQUIDBEES interest on idle cash — no trades were made."
+    else:
+        parts = [(realized, "from closed trades"), (unrealized, "from open positions"), (lb, "LIQUIDBEES interest")]
+        bits = [f"{sg(v)} {label}" for v, label in parts if _round(v) != 0]
+        source = f"Today's {sg(pnl)}: " + ", ".join(bits) + ("." if traded else "; no trades were made.")
+
+    a, z = _round(prev_total), _round(total)
+    if a >= 0 and z >= 0:
+        if r > 0:
+            vs = f"Profit increased by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        elif r < 0:
+            vs = f"Profit decreased by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        else:
+            vs = f"Profit stayed flat since the previous trading day at {inr(total, 2)}."
+    elif a <= 0 and z <= 0:
+        if r < 0:
+            vs = f"Loss grew by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        elif r > 0:
+            vs = f"Loss shrank by {inr(pnl, 2)} since the previous trading day ({inr(prev_total, 2)} → {inr(total, 2)})."
+        else:
+            vs = f"Loss stayed flat since the previous trading day at {inr(total, 2)}."
+    else:
+        vs = (f"Total moved from {'profit' if a > 0 else 'loss'} {inr(prev_total, 2)} to {'profit' if z > 0 else 'loss'} "
+              f"{inr(total, 2)} since the previous trading day ({sg(pnl, 2)}).")
+    return {"total": round(total, 2), "total_text": _total_phrase(total), "today_text": today,
+            "source": source, "vs_previous": vs}
+
+
 # ------------------------------------------------------------------ helpers
 def prepare(day: dict) -> dict:
     """Fill derived fields on a day dict (also used for the sample JSON)."""
@@ -746,6 +1034,31 @@ def _money_row(label: str, amount: float, border: bool = False, bold: bool = Fal
             f'<td align="right" style="padding:7px 0;font-family:{FONT};font-size:15px;font-weight:700;color:{_tone_color(amount)};{b}">{sg(amount)}</td></tr>')
 
 
+def _glance_value_html(text: str) -> str:
+    """Keep each short ' · ' segment on one line so a value never breaks mid-phrase."""
+    parts = text.split(" · ")
+    if len(parts) == 1:
+        return esc(text)
+    return " · ".join(f'<span style="white-space:nowrap;">{esc(x)}</span>' if len(x) <= 40 else esc(x) for x in parts)
+
+
+def _glance_html(day: dict, link: str | None) -> str:
+    rows = glance_lines(day)
+    if not rows:
+        return ""
+    h = ""
+    for label, text in rows:
+        h += (f'<tr><td width="104" valign="top" style="padding:6px 10px 6px 0;font-family:{FONT};font-size:13px;line-height:20px;'
+              f'color:#6b7280;font-weight:700;">{esc(label)}</td>'
+              f'<td valign="top" style="padding:6px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{_glance_value_html(text)}</td></tr>\n')
+    if link:
+        h += (f'<tr><td colspan="2" style="padding:10px 0 0 0;font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;">'
+              f'<a href="{_html.escape(link, quote=True)}" style="color:#8a6d12;font-weight:700;text-decoration:underline;">'
+              f'{esc(GLANCE_LINK_TEXT)} &rarr;</a></td></tr>\n')
+    return (_section("Day at a glance") + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" '
+            f'cellpadding="0" cellspacing="0">\n{h}</table></td></tr>\n')
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
@@ -777,13 +1090,10 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
 
     pnl = p["day_pnl"]
     r = _round(pnl)
-    color = _tone_color(pnl)
-    if r > 0:
-        headline = f'You\'re in the green: <span style="white-space:nowrap;">{sg(pnl)}</span> today'
-    elif r < 0:
-        headline = f'You\'re in the red: <span style="white-space:nowrap;">{sg(pnl)}</span> today'
-    else:
-        headline = 'You\'re flat today: <span style="white-space:nowrap;">₹0</span>'
+    story = pnl_story(day)
+    headline = (f'<span style="color:{_tone_color(story["total"])};">{esc(story["total_text"])}</span>'
+                f'<div style="font-size:20px;line-height:26px;padding-top:4px;color:{_tone_color(pnl)};">'
+                f'{esc(story["today_text"][:1].upper() + story["today_text"][1:])}</div>')
     extra = ""
     if r < 0:
         if p["distance_to_floor"] > 0:
@@ -795,13 +1105,14 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  + note + '</div>')
     for w in day["warnings"]:
         extra += f'<div style="font-size:13px;line-height:19px;color:#8a6d12;padding-top:8px;">Note: {esc(w)}</div>'
-    hero = (f'<tr><td style="padding:14px 20px 4px 20px;font-family:{FONT};"><div style="font-size:30px;line-height:36px;font-weight:800;color:{color};">{headline}</div>'
-            f'<div style="font-size:16px;line-height:24px;color:#1f2937;padding-top:10px;">{esc(day["one_line_summary"])}</div>{extra}</td></tr>\n')
+    hero = (f'<tr><td style="padding:14px 20px 4px 20px;font-family:{FONT};"><div style="font-size:26px;line-height:33px;font-weight:800;color:{INK};">{headline}</div>'
+            f'<div style="font-size:16px;line-height:24px;color:#1f2937;padding-top:10px;">{esc(story["source"])}</div>'
+            f'<div style="font-size:15px;line-height:22px;color:#4b5563;padding-top:6px;">{esc(story["vs_previous"])}</div>{extra}</td></tr>\n')
 
     dist = p["distance_to_floor"]
     tiles = ('<tr><td style="padding:20px 16px 0 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>\n'
              + _tile("Portfolio value", inr(p["close"]), INK, f"started at {inr(day['start_capital'])}") + "\n"
-             + _tile("Month so far", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), pc(p["month_pnl_pct"], 2)) + "\n"
+             + _tile("Total this month", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), pc(p["month_pnl_pct"], 2) + " since the 1st") + "\n"
              + _tile("Distance to safety floor", inr(abs(dist)), GREEN if dist > 0 else RED,
                      f"{'above' if dist >= 0 else 'below'} {inr(p['floor'])}")
              + "\n</tr></table></td></tr>\n")
@@ -819,6 +1130,9 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
              f'<td height="12" style="background:#e8e6df;border-radius:0 6px 6px 0;font-size:0;line-height:0;">&nbsp;</td></tr></table>\n'
              f'<div style="font-size:12px;color:#6b7280;padding-top:6px;line-height:17px;">Dark marker = today\'s value ({inr(p["close"])}). '
              f'At {inr(nxt)} the floor moves up to {inr(nf)}.</div></td></tr>\n')
+
+    link = report_url or ("https://claude.ai/artifact/REPORT_LINK" if sample else None)
+    glance = _glance_html(day, link)
 
     market = ""
     if day["market"]:
@@ -866,7 +1180,6 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
 
     tom = _section("Tomorrow") + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n'
 
-    link = report_url or ("https://claude.ai/artifact/REPORT_LINK" if sample else None)
     button = ""
     if link:
         button = (f'<tr><td align="center" style="padding:28px 20px 8px 20px;"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
@@ -881,7 +1194,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + hero + tiles + gauge + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + hero + tiles + gauge + glance + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -890,7 +1203,7 @@ def _inbox_text(day: dict, inbox_url: str | None, sample: bool) -> list[str]:
     return [f"{INBOX_LABEL}: {ib}", ""] if ib else []
 
 
-def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -> str:
+def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, report_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
@@ -901,9 +1214,11 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -
               "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),
               "This is a paper simulation. No real money or orders were placed."]
         return "\n".join(L) + "\n"
-    L += ["HEADLINE", f"Day P&L:      {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)})",
-          f"Month P&L:    {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)})",
-          f"Portfolio:    {inr(p['close'])} (opened the day at {inr(p['open'])})", day["one_line_summary"], ""]
+    story = pnl_story(day)
+    L += ["HEADLINE", f"{story['total_text']} · {story['today_text']}", story["source"], story["vs_previous"], "",
+          f"Total since the start: {sg(story['total'])} (value {inr(p['close'])} vs {inr(day.get('start_capital', START_CAPITAL))} at the start)",
+          f"Today:                 {sg(p['day_pnl'])} ({pc(p['day_pnl_pct'], 2)}; opened the day at {inr(p['open'])})",
+          f"Total this month:      {sg(p['month_pnl'])} ({pc(p['month_pnl_pct'], 2)} since the 1st)", ""]
     for w in day["warnings"]:
         L.append("Note: " + w)
     if day["warnings"]:
@@ -913,6 +1228,13 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None) -
           f"Next step:          {p['floor_next_step'][:1].lower() + p['floor_next_step'][1:]}" if p.get("floor_next_step") else "Next step:          n/a",
           f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",
           f"Costs paid today:   {inr(p['costs_paid'])}", ""]
+    gl = glance_lines(day)
+    if gl:
+        L.append("DAY AT A GLANCE")
+        L += [f"{label}: {text}" for label, text in gl]
+        if report_url:
+            L.append(f"{GLANCE_LINK_TEXT}: {report_url}")
+        L.append("")
     if day["market"]:
         L.append("MARKET TODAY")
         w = max(len(m["name"]) for m in day["market"])
@@ -965,6 +1287,6 @@ def write_reports(day: dict, out_dir: Path, stem: str, template_path: Path,
     clean = {k: v for k, v in day.items() if sample or k != "_note"}
     paths["json"].write_text(json.dumps(clean, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     paths["email"].write_text(render_email(clean, report_url, sample, inbox_url), encoding="utf-8")
-    paths["txt"].write_text(render_text(clean, sample, inbox_url), encoding="utf-8")
+    paths["txt"].write_text(render_text(clean, sample, inbox_url, report_url), encoding="utf-8")
     paths["page"].write_text(render_page(clean, template_path, sample), encoding="utf-8")
     return paths
