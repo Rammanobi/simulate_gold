@@ -1,12 +1,5 @@
 {
- "last_run": "2026-10-15T23:44:37+05:30",
- "results": [
-  {
-   "check": "routines_silent",
-   "severity": "high",
-   "category": "routines_silent",
-   "detail": "no daily report reports/daily/2026-10-15.json after 16:30 IST: the Claude routines are not running (usage limit or credits?)"
-  }
- ],
- "all_green": false
+ "last_run": "2026-10-16T03:42:45+05:30",
+ "results": [],
+ "all_green": true
 }
