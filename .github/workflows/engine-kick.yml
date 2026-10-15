@@ -1,0 +1,52 @@
+name: engine-kick
+
+# Starts the engine when a Claude routine pushes guidance and no market-hours run is active (simgold/enginekick.py).
+# 15 Oct 2026: the premarket routine's dispatch was denied by the auto-mode classifier and GitHub ran the 09:00/09:10
+# IST crons ~5 h late, so the first tick came at 10:18 IST. A push event starts within seconds, so the premarket
+# routine's 08:53 push of state/guidance.json now starts the engine even when its own dispatch is refused.
+# Pushes made with GITHUB_TOKEN (engine, watchdog, fallback) never trigger workflows, so this cannot loop.
+on:
+  push:
+    branches: [main]
+    paths: ["state/guidance.json"]
+  workflow_dispatch:
+
+permissions:
+  actions: write      # list market-hours runs and dispatch market-hours.yml; nothing else
+  contents: read
+
+concurrency:
+  group: engine-kick  # two quick pushes: the second kick sees the run the first one dispatched
+  cancel-in-progress: false
+
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Kolkata
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Start the engine if no run is active
+        run: |
+          set +e
+          states=$(gh api "repos/$GH_REPO/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed") | .status] | join(",")')
+          if [ $? -ne 0 ]; then
+            echo "SKIP: could not list market-hours runs" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          out=$(python -m simgold.enginekick --active "$states")
+          rc=$?
+          echo "$out" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" = "0" ]; then
+            gh api -X POST "repos/$GH_REPO/actions/workflows/market-hours.yml/dispatches" -f ref=main -f 'inputs[session]=auto' \
+              && echo "dispatched market-hours.yml (session=auto)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0

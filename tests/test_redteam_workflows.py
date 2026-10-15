@@ -98,3 +98,26 @@ def test_fire_strips_whitespace_from_pasted_secrets():
     assert fastlane.fire(env, {"x": 1}, post=post) == (True, "HTTP 200")
     assert seen == {"url": "https://api.anthropic.com/v1/x/fire", "auth": "Bearer tok123"}
     assert fastlane.fire({"ROUTINE_FIRE_URL": "  ", "ROUTINE_FIRE_TOKEN": "t"}, {})[0] is False
+
+def test_engine_kick_starts_the_engine_on_a_routine_guidance_push():
+    """15 Oct 2026: the premarket dispatch was denied and the 09:00/09:10 crons ran ~5 h late (first tick 10:18 IST).
+    The premarket push of state/guidance.json must start the engine from GitHub's side."""
+    text, doc = WF["engine-kick.yml"]
+    on = _on(doc)
+    assert on["push"]["branches"] == ["main"] and on["push"]["paths"] == ["state/guidance.json"]
+    assert "schedule" not in on                                  # schedules are what ran late
+    assert doc["permissions"] == {"actions": "write", "contents": "read"}
+    assert doc["concurrency"] == {"group": "engine-kick", "cancel-in-progress": False}
+    run = doc["jobs"]["kick"]["steps"][-1]["run"]
+    assert "python -m simgold.enginekick --active" in run and 'if [ "$rc" = "0" ]' in run
+    assert run.count("/dispatches") == 1
+    assert "actions/workflows/market-hours.yml/dispatches\" -f ref=main -f 'inputs[session]=auto'" in run
+    assert "select(.status != \"completed\")" in run             # any unfinished run (queued/pending too) blocks it
+    assert "git push" not in text and "contents: write" not in text
+
+
+def test_engine_kick_path_is_one_the_premarket_routine_commits():
+    premarket = (ROOT / "routines" / "premarket.md").read_text(encoding="utf-8")
+    step8 = premarket[premarket.index("**Commit and push**"):]
+    assert "state/guidance.json" in step8.split("```")[1]
+    assert "engine-kick.yml" in premarket
