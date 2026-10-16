@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-16T14:16:47+05:30",
+ "updated": "2026-10-16T15:16:21+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD: flat, no new facts. SILVER: +0.9% bounce since last update but still -1.6% on day after CPI crash; mixed evidence, neutral, no favour. COPPER: +1.1%, HINDCOPPER results date unknown; neutral. | 11:16 no material change | 12:17 no material change | 14:16 no material change",
+ "note": "...at, no new facts. SILVER: +0.9% bounce since last update but still -1.6% on day after CPI crash; mixed evidence, neutral, no favour. COPPER: +1.1%, HINDCOPPER results date unknown; neutral. | 11:16 no material change | 12:17 no material change | 14:16 no material change | 15:16 no material change",
  "prices_at_update": {
-  "GOLDBEES": 120.32,
-  "SILVERBEES": 200.09,
-  "HINDCOPPER": 459.2
+  "GOLDBEES": 120.21,
+  "SILVERBEES": 199.99,
+  "HINDCOPPER": 458.6
  }
 }
