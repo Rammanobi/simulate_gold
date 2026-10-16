@@ -1,4 +1,4 @@
-# Brief 2026-10-16 15:31 IST (Fri) | NSE CLOSED (session over)
+# Brief 2026-10-16 15:47 IST (Fri) | NSE CLOSED (session over)
 
 ## Portfolio
 value ₹100,052 | floor ₹99,500 | cushion ₹552 | best profit ₹52 | day P&L +₹17
@@ -27,7 +27,7 @@ HINDCOPPER 458.9 (as of 15:29) | vs prev close +1.29% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=neutral, COPPER=neutral | 15 min old
+GOLD=neutral, SILVER=neutral, COPPER=neutral | 31 min old
 note: ...at, no new facts. SILVER: +0.9% bounce since last update but still -1.6% on day after CPI crash; mixed evi…
 
 ## Fast-lane requests today
