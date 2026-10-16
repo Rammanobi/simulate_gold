@@ -1,8 +1,8 @@
 {
- "ts": "2026-10-16T15:28:13+05:30",
+ "ts": "2026-10-16T15:30:13+05:30",
  "prices": {
-  "GOLDBEES": 120.2,
-  "SILVERBEES": 200.1,
-  "HINDCOPPER": 458.75
+  "GOLDBEES": 120.21,
+  "SILVERBEES": 200.0,
+  "HINDCOPPER": 458.9
  }
 }
