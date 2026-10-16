@@ -26,7 +26,7 @@ from pathlib import Path
 
 from _common import ROOT, parse_now, utf8_stdout
 
-from simgold import brief, config, guard
+from simgold import brief, config, guard, memsafe, memstore, regime
 from simgold.broker import Portfolio
 
 KEYS = ("GOLD", "SILVER", "COPPER")
@@ -55,6 +55,11 @@ def clean_note(note: str | None) -> str:
     n = " ".join((note or "").split())
     if len(n) > MAX_NOTE:
         raise Refused(f"--note is {len(n)} characters; keep it under {MAX_NOTE}")
+    if n:
+        try:
+            memsafe.check_text(n, "bias_note", one_line=False)
+        except memsafe.Refused as e:
+            raise Refused(f"--note rejected: {e}")
     return n
 
 
@@ -73,6 +78,13 @@ def _current_bias(root: Path, p: dict) -> dict:
     return {k: prev.get(p["engine"]["aliases"][k], "neutral") for k in KEYS}
 
 
+def _alignment_states(root: Path, now: datetime) -> dict:
+    try:
+        return {m: r["state"] for m, r in memstore.current_alignment(root, now).items()}
+    except Exception:
+        return {}
+
+
 def _write_guidance(root: Path, now: datetime, bias: dict, note: str) -> None:
     prices = {}
     lp = brief.load_json(root / "state" / "last_prices.json", {})
@@ -80,7 +92,24 @@ def _write_guidance(root: Path, now: datetime, bias: dict, note: str) -> None:
         if isinstance(row, dict) and row.get("price"):
             prices[s] = row["price"]
     write_json(root / "state" / "guidance.json",
-               {"updated": now.isoformat(timespec="seconds"), "bias": bias, "note": note, "prices_at_update": prices})
+               {"updated": now.isoformat(timespec="seconds"), "bias": bias, "note": note, "prices_at_update": prices,
+                "alignment": _alignment_states(root, now)})
+
+
+def enforce_ceiling(root: Path, now: datetime, p: dict, bias: dict) -> list[str]:
+    """Lower any bias above the alignment ceiling, in place. Only ever lowers. Returns the printed downgrade lines.
+    Missing/stale memory means LTM FLAT, so the ceiling is neutral at most (the safe default)."""
+    try:
+        al = memstore.current_alignment(root, now, p)
+    except Exception:       # advisory: if alignment cannot be computed, fall back to the neutral ceiling
+        al = {k: {"ceiling": "neutral", "state": "UNKNOWN"} for k in KEYS}
+    down = []
+    for k in KEYS:
+        new, lowered = regime.apply_ceiling(bias[k], al.get(k, {}).get("ceiling", "neutral"))
+        if lowered:
+            down.append(f"downgraded {k} {bias[k]}->{new}: {al[k]['state']}")
+            bias[k] = new
+    return down
 
 
 def cmd_set(a, root: Path, now: datetime, p: dict) -> str:
@@ -93,8 +122,14 @@ def cmd_set(a, root: Path, now: datetime, p: dict) -> str:
         if v not in VALUES:
             raise Refused(f"bad value {v!r} for {k}: use one of {'/'.join(VALUES)}")
         out[k] = v
-    _write_guidance(root, now, out, clean_note(a.note))
-    return "guidance.json written: " + ", ".join(f"{k}={v}" for k, v in out.items())
+    note = clean_note(a.note)
+    down = enforce_ceiling(root, now, p, out)
+    if down:
+        tail = " | CEILING: " + "; ".join(down)
+        note = (note[:max(0, MAX_NOTE - len(tail))].rstrip() + tail)[:MAX_NOTE]
+    _write_guidance(root, now, out, note)
+    msg = "guidance.json written: " + ", ".join(f"{k}={v}" for k, v in out.items())
+    return msg + ("".join("\n" + d for d in down) if down else "")
 
 
 def cmd_touch(a, root: Path, now: datetime, p: dict) -> str:

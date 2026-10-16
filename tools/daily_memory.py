@@ -47,9 +47,18 @@ def skeleton(date: str, root: Path, now=None) -> str:
     g = brief.guidance_view(root, parse_now(None) if now is None else now)
     if g["exists"]:
         L.append("- Guidance: " + ", ".join(f"{k}={v}" for k, v in g["bias"].items()))
-    L.append("- WHY: <one line: what drove the day>")
-    L.append("- LEARNED: <one line, or 'nothing'>")
-    return "\n".join(L[:15]) + "\n"
+    stm = brief.load_json(root / "memory" / "stm" / "days" / f"{date}.json", {})
+    if isinstance(stm, dict) and stm:
+        bits = []
+        if stm.get("alignment"):
+            bits.append("alignment " + ", ".join(f"{k}={v}" for k, v in stm["alignment"].items()))
+        nm = [f"{n['sym']} {n['max_score']:.2f}/{n['need']:.2f}" for n in stm.get("near_misses", [])]
+        if nm:
+            bits.append("near-misses " + ", ".join(nm))
+        if bits:
+            L.append("- STM: " + "; ".join(bits))
+    tail = ["- WHY: <one line: what drove the day>", "- LEARNED: <one line, or 'nothing'>"]
+    return "\n".join(L[:13] + tail) + "\n"
 
 
 def main(argv=None) -> int:

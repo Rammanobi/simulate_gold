@@ -36,7 +36,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 1. `git pull --rebase --autostash -q` and `TZ=Asia/Kolkata date '+%F %H:%M'`.
    Market closed (after 15:30 or not a trading day), or payload `time` more than 25 min ago → no action.
-2. `python tools/context.py` (skim brief and lessons only), then the live floor and positions (read only):
+2. `python tools/context.py --view fastlane` (about 1.7 k tokens: alignment, brief, thesis invalidation lines, today's notes; skim only), then the live floor and positions (read only):
    `python -c "import json;p=json.load(open('state/portfolio.json'));print(p.get('floor'),{s:{k:v.get(k) for k in ('qty','avg_cost','stop','last_price')} for s,v in (p.get('positions') or {}).items()})"`
 3. **Validate** the payload against the brief and `state/portfolio.json`: symbol is GOLDBEES, SILVERBEES,
    HINDCOPPER or ALL; positions and stops match (trust the repo file if they differ); prices are plausible
@@ -46,10 +46,12 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 5. **Decide** from the menu below. Cushion = value − floor.
 6. **Write** (one call; omit unused flags):
    `python tools/guidance.py fastlane --symbol SYM [--block-minutes N] [--sell-fraction F] [--tighten-stop PRICE] [--halt-buys-today] --note "<one plain sentence>"`
-   No action → skip steps 6–7.
+   In `DEFENSIVE_SHOCK` the alignment prefers tighten-stop or sell over waiting. Then one STM note (fact + bare domain):
+   `python tools/memory_stm.py note --who fastlane --metal SILVER --text "SILVERBEES -5.6% at 10:18 after hot CPI; block 120 min set" --source reuters.com`
+   No action → skip steps 6–7 (a note is still fine if you learned something).
 7. **Commit and push fast:**
    ```bash
-   git add state/fastlane.json && git commit -qm "routine(fastlane): SYM <action>"
+   git add state/fastlane.json memory/stm/today.jsonl && git commit -qm "routine(fastlane): SYM <action>"
    ```
    Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
    push is rejected, repeat the pair, at most 3 tries in all. If the pull fails: `git rebase --abort`, report, stop.
