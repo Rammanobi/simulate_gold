@@ -12,13 +12,14 @@
   should-email --id ID          prints "SEND <mode>: reason" or "HOLD: reason" (mode: incident|reminder|still-broken|resolved)
   ack --id ID --via email|github            stop HIGH reminders (an ACK reply from REPORT_EMAIL, in the same thread)
   clear-safe-mode --reason TEXT             only after a verified fix
-  render --id ID [--mode incident|reminder|still-broken|resolved]   -> JSON {subject, html_path, text_path}
+  render --id ID [--mode incident|reminder|still-broken|resolved]   -> JSON {to, subject, html_path, text_path}  (to = REPORT_EMAIL, "" if unset)
 """
 from __future__ import annotations
 
 import argparse
 import html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -299,7 +300,7 @@ def render(rec: dict, d: Path | None = None, mode: str = "incident", state_dir: 
     hp, tp = d / f"{rec['id']}.email.html", d / f"{rec['id']}.email.txt"
     hp.write_text(render_html(rec, mode, n, first, related, inbox_url), encoding="utf-8")
     tp.write_text(render_text(rec, mode, n, first, related, inbox_url), encoding="utf-8")
-    return {"subject": subject_for(rec, mode, n), "html_path": str(hp), "text_path": str(tp)}
+    return {"to": (os.environ.get("REPORT_EMAIL") or "").strip(), "subject": subject_for(rec, mode, n), "html_path": str(hp), "text_path": str(tp)}
 
 
 # ---------------------------------------------------------------- GitHub issue

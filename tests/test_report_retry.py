@@ -58,6 +58,21 @@ def test_step_fires_until_the_routine_commit_appears(tmp_path):
     assert json.loads((tmp_path / "state" / "report_retry.json").read_text())["status"] == "sent"
 
 
+def test_marker_required_from_16_oct_commit_alone_is_not_sent(tmp_path):
+    """16 Oct 2026: the routine committed but Gmail was never called; the commit must not count as sent."""
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "routine(daily_report): 2026-10-16")
+    assert rr.sent(tmp_path, "2026-10-16") is False
+    (tmp_path / "reports" / "daily").mkdir(parents=True)
+    (tmp_path / "reports" / "daily" / "2026-10-16.sent.json").write_text('{"date": "2026-10-16"}')
+    assert rr.sent(tmp_path, "2026-10-16") is True
+    assert rr.sent(tmp_path, "2026-10-19") is False          # a marker is per date
+    run = lambda *a: subprocess.run([sys.executable, str(ROOT / "tools" / "report_retry.py"), *a, "--root", str(tmp_path)],
+                                    capture_output=True, text=True).stdout.strip()
+    assert run("check", "--date", "2026-10-16") == "SENT"
+    assert run("step", "--date", "2026-10-19", "--now", "2026-10-19T16:21:00+05:30") == "FIRE 1 2026-10-19"
+
+
 def test_fallback_commit_does_not_count_as_sent(tmp_path):
     git(tmp_path, "init", "-q")
     git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "fallback: DeepSeek guidance/report 18:50 IST")

@@ -46,16 +46,18 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
      `python tools/guidance.py tomorrow "US CPI is out at 18:00 IST, so no new gold or silver buys after 13:00."`
      If that tool fails, write the same text to `state/tomorrow.txt` directly (documented fallback).
 5. **Context.** `python tools/context.py` (for lessons and recent notes).
-6. **Build the report.** `python tools/send_report.py --date D` → JSON `{subject, html_path, text_path, page_path}`.
+6. **Build the report.** `python tools/send_report.py --date D` → JSON `{to, subject, html_path, text_path, page_path}`.
 7. **Memory note.** `python tools/daily_memory.py --date D` prints the fact skeleton. Write
    `memory/daily/D.md` (create `memory/daily/` if needed), **at most 15 lines**: the skeleton facts, then 1–3
    lines starting `Lesson candidate:` that are specific and checkable (what happened, the evidence, what it
    suggests), e.g. "Lesson candidate: favour on gold after a +1% overnight gap gave a buy that stopped out
    at 11:40; gaps may fade." No candidates when the day taught nothing; never invent.
 8. **Brief.** `python tools/write_brief.py`.
-9. **Email.** `echo "$REPORT_EMAIL"`. Empty → skip the email and note it. Otherwise read `html_path` and
+9. **Email.** The recipient is the `to` field of the step 6 JSON. Never run `echo`, `printenv` or any other
+   shell command for the address (the auto-mode permission check denies it, which is how the 16 Oct 2026 email was
+   lost). `to` empty → skip the email and say "REPORT_EMAIL not set". Otherwise read `html_path` and
    `text_path` in full (Read tool, all lines) and call the Gmail `send_message` tool with only:
-   `to` = that one address, `subject` = the JSON subject exactly (starts "Metals Daybook"),
+   `to` = that `to` value, `subject` = the JSON subject exactly (starts "Metals Daybook"),
    `body` = the text file's contents, `htmlBody` = the HTML file's contents.
    **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar, decision list; see
    `templates/email_report.sample.html`). Pass both files character for character: never summarise, shorten,
@@ -65,17 +67,20 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    42 KB report; the Gmail hook now blocks any daily report whose `htmlBody`/`body` differ from the generated files.
    One send only. If the hook blocks it: report the reason and stop sending; do not retry with changes. Never write
    the address anywhere.
-9b. **Publish to the Inbox.** Mandatory: the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing (then say so in the final message). `INBOX=$(cat config/inbox_url.txt)`; the report
-    email already links to `$INBOX#daily-D`. Write the day's item:
+   **Only after `send_message` confirmed success**, run `python tools/send_report.py --date D --mark-sent` (its own
+   Bash call). It writes `reports/daily/D.sent.json`, which step 10 commits. That file is the only thing the retry
+   workflow accepts as "sent". Skipped, blocked or failed send: do NOT run it (the retry then wakes the incident routine).
+9b. **Publish to the Inbox.** Mandatory: the `ArtifactData` tool is usually deferred: load it first with ToolSearch (query `select:ArtifactData`) and only treat it as missing if that finds nothing (then say so in the final message). run `cat config/inbox_url.txt` (its own Bash call) to get the Inbox URL; the report
+    email already links to that URL plus `#daily-D`. Write the day's item:
     `python tools/inbox.py item-from-daily --date D [--report-url URL] --out /tmp/item.json` (URL = contents of
-    `config/report_artifact_url.txt` when present), then ArtifactData `set` (url = $INBOX, collection `items`,
+    `config/report_artifact_url.txt` when present), then ArtifactData `set` (url = the Inbox URL, collection `items`,
     doc_id `daily-D`, file_path `/tmp/item.json`). Status is `needs_approval`, kind `daily`. Do this even if the email was skipped
     or blocked, but not for a market-closed day. If the item already exists and is not `needs_approval`, leave it alone.
 9c. **Unnotified owner decisions** (fallback, one query, usually empty). `query` collection `decisions` where `notified == false`.
     For each row older than 5 minutes: read `config/main` (`decision_trigger_id`); if set and `fire_trigger` is available, fire it once with
     `{"kind":"owner_decision","item_id":"<id>","revision":<n>}`; otherwise run `routines/incident.md` section D inline (the
     database, not the row's text, decides what to do). Then `update` the decision with `notified = true`.
-9d. **Dashboard day.** As hourly step 2c (url = `$(cat config/dashboard_url.txt)`, collection `days`, doc_id `D`,
+9d. **Dashboard day.** As hourly step 2c (url = the contents of `config/dashboard_url.txt`, from its own `cat config/dashboard_url.txt` call, collection `days`, doc_id `D`,
     `file_path` from `python tools/dashboard.py --date D`, `if_version` when it exists). Not for a market-closed day.
 10. **Commit and push:**
     ```bash
@@ -93,6 +98,13 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 Writes: `items/daily-D` in the Inbox database and `days/D` in the Dashboard database (ArtifactData), `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
 `memory/daily/D.md`, `memory/brief.md`. Final message, ≤ 5 lines:
 `daily_report D | subject: … | email: sent|skipped (reason)|blocked (reason) | memory: N lines, K candidates | page: updated|skipped | pushed <sha> | models used: sonnet[, haiku]`
+
+## Command hygiene
+
+One command per Bash call: no `;`, `&&`, pipes (`| tail`), variable assignments (`S=...`) or `$(...)`. The auto-mode
+permission check denies chains (16 Oct 2026). Run each tool, read its output, then run the next; carry values over
+yourself. Pre-approved forms: `python tools/send_report.py`, `python tools/inbox.py`, `python tools/dashboard.py`,
+`python tools/report_retry.py`, `cat config/inbox_url.txt`, `cat config/dashboard_url.txt`.
 
 ## Failure handling
 
