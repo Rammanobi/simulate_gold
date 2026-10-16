@@ -2,7 +2,7 @@
 """Retry the daily report when the 15:45 routine did not run (e.g. Claude usage limit reached). No AI.
 
 Run by .github/workflows/report-retry.yml every 30 minutes after the close. It decides, for trading day D:
-  SENT     the daily report was pushed (a commit "routine(daily_report): D" exists)  -> nothing to do
+  SENT     reports/daily/D.sent.json exists (written only after the Gmail send succeeded; dates before 2026-10-16: the commit "routine(daily_report): D")  -> nothing to do
   WAIT     a retry is not due yet (backoff)                                           -> nothing to do
   FIRE n   wake the incident routine with {"kind": "daily_report_retry", "date": D, "attempt": n}
   GIVE_UP  all 8 attempts used and the 8th was fired more than 90 minutes ago, still not SENT
@@ -52,7 +52,13 @@ def report_day(now: datetime) -> date | None:
     return None
 
 
+MARKER_FROM = "2026-10-16"   # from this date on only the sent marker counts (16 Oct: the commit existed, no email went out)
+
+
 def sent(root: Path, d: str, runner=subprocess.run) -> bool:
+    """SENT = reports/daily/D.sent.json exists (written after Gmail confirmed). Older dates: the routine commit."""
+    if d >= MARKER_FROM:
+        return (root / "reports" / "daily" / f"{d}.sent.json").is_file()
     r = runner(["git", "-C", str(root), "log", "--since", f"{d} 00:00 +0530", "--format=%s", "-n", "2000"],
                capture_output=True, text=True)
     return any(line.strip().startswith(f"routine(daily_report): {d}") for line in (r.stdout or "").splitlines())

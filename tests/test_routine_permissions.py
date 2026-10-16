@@ -80,3 +80,21 @@ def test_the_afternoon_dispatch_is_skipped_when_a_run_is_waiting():
     assert "inputs[session]=afternoon" in hourly
     i = hourly.index("At the 12:15 run only")
     assert "queued" in hourly[i:i + 900] and "pending" in hourly[i:i + 900] and "skip" in hourly[i:i + 900]
+
+
+def test_report_and_inbox_commands_are_single_commands_and_pre_approved():
+    """16 Oct 2026: a chained `S=...; python tools/inbox.py ...; python tools/dashboard.py ...` was denied."""
+    cmds = playbook_commands(r"python tools/(inbox|dashboard|send_report|report_retry)\.py")
+    assert len(cmds) >= 6
+    for f, c in cmds:
+        bare = re.sub(r"<[^>]*>|\[[^\]]*\]", "", c)       # placeholders like <a|b> are not shell syntax
+        assert ";" not in bare and "&&" not in bare and "|" not in bare and "$(" not in bare, (f, c)
+        assert allowed(c), (f, c)
+
+
+def test_playbooks_never_read_the_address_with_echo_or_printenv():
+    for md in (ROOT / "routines").glob("*.md"):
+        text = md.read_text(encoding="utf-8")
+        assert 'echo "$REPORT_EMAIL"' not in text and "printenv REPORT_EMAIL" not in text, md.name
+    for c in ("cat config/inbox_url.txt", "cat config/dashboard_url.txt", "python tools/report_retry.py check --date 2026-10-16"):
+        assert allowed(c), c

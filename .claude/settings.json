@@ -8,7 +8,13 @@
       "Bash(gh api \"repos/Rammanobi/simulate_gold/actions/runs?:*)",
       "Bash(gh api \"repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?:*)",
       "Bash(git pull --rebase --autostash:*)",
-      "Bash(git push origin HEAD:main)"
+      "Bash(git push origin HEAD:main)",
+      "Bash(python tools/send_report.py:*)",
+      "Bash(python tools/inbox.py:*)",
+      "Bash(python tools/dashboard.py:*)",
+      "Bash(python tools/report_retry.py:*)",
+      "Bash(cat config/inbox_url.txt)",
+      "Bash(cat config/dashboard_url.txt)"
     ]
   },
   "hooks": {

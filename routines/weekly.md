@@ -93,8 +93,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    on a held-out period with `run_backtest.py`, or 4 more weeks of paper data with a stated pass/fail
    threshold), and the main risk. The owner decides; you change nothing.
 7. **Brief.** `python tools/write_brief.py`.
-8. **Email (optional).** `echo "$REPORT_EMAIL"`; empty → skip. Otherwise one Gmail `send_message` with only
-   `to` (that address), `subject` = `Metals Daybook · Weekly WEEK · <week %> vs GOLDBEES <bh %>`, and
+8. **Email (optional).** Run `python tools/send_report.py --recipient` (prints `{"to": ...}`; never `echo` or `printenv`); empty `to` → skip, "REPORT_EMAIL not set". Otherwise one Gmail `send_message` with only
+   `to` (that `to` value), `subject` = `Metals Daybook · Weekly WEEK · <week %> vs GOLDBEES <bh %>`, and
    `body` = ≤ 15 plain lines (numbers, top lesson change, proposal titles). Hook blocks → report, stop, no retry.
 9. **Commit and push:**
    ```bash
