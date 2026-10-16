@@ -65,7 +65,7 @@ No scheduled events on the calendar for tomorrow; normal rules apply.
 
 Fallback was used on 2026-10-13, 2026-10-15 (Claude routines were not running).
 
-Watchdog: 13 checks today, 3 problems, see incidents
+Watchdog: 15 checks today, 3 problems, see incidents
 
 Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-16
 

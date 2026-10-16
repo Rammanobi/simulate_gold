@@ -328,7 +328,7 @@
   "vs_previous": "Profit increased by ₹17.27 since the previous trading day (₹34.52 → ₹51.79)."
  },
  "fixed_today": [],
- "system_health": "Watchdog: 13 checks today, 3 problems, see incidents",
+ "system_health": "Watchdog: 15 checks today, 3 problems, see incidents",
  "thrift": true,
  "fallback_dates": [
   "2026-10-13",
