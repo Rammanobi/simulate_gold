@@ -3,5 +3,19 @@
   "date": "2026-10-14",
   "type": "CPI",
   "time": "18:00"
+ },
+ {
+  "date": "2026-10-23",
+  "type": "HINDCOPPER_RESULTS"
+ },
+ {
+  "date": "2026-10-28",
+  "type": "FOMC",
+  "time": "23:30"
+ },
+ {
+  "date": "2026-11-06",
+  "type": "JOBS",
+  "time": "19:00"
  }
 ]
