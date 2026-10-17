@@ -24,7 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
-from . import alerts, budget, config, fastlane, guard, market
+from . import alerts, budget, config, fastlane, guard, market, trend
 from .broker import Position, Portfolio, trade_costs
 
 log = logging.getLogger(__name__)
@@ -43,7 +43,9 @@ MAX_TICK_JUMP = 0.25
 MAX_OPEN_JUMP = 0.50      # with < 3 closes today (the open): vs yesterday's close / the last known price (bands are 20%)
 FUTURE_SLACK = timedelta(minutes=5)     # state files dated further ahead than this are not trusted
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
-            "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode"}
+            "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode",
+            # strategy v2 (trend core)
+            "Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop"}
 
 
 @dataclass
@@ -56,6 +58,7 @@ class Market:
     series: dict[str, list[tuple[datetime, float]]] = field(default_factory=dict)   # today's minute closes
     prev_close: dict[str, float] = field(default_factory=dict)
     headlines: list[dict] = field(default_factory=list)                              # NEW headlines since last tick
+    hist: dict[str, trend.Bars] = field(default_factory=dict)                        # strategy v2: completed daily bars per symbol
 
 
 @dataclass
@@ -135,6 +138,9 @@ class Engine:
         self.log: list[dict] = []
         self.check: dict[str, str] = {}     # one plain line per symbol per minute: logs/checks-DATE.jsonl
         self.rt = pf.runtime
+        self.v2 = trend.is_v2(self.p)                       # strategy v2 (trend core) instead of the v1 score rules
+        self.st = self.p.get("strategy") or {}
+        self.v2_halted = False                              # hard account stop in force this tick
         self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
         self.fast_cap = budget.fastlane_cap(self.p, env.state_dir)   # thrift mode (state/budget.json) lowers it
         self.cd = pf.cooldowns
@@ -164,7 +170,7 @@ class Engine:
         return guard.gap_multiplier(self.day, self.er.night_mult(sym), self.p)
 
     def record(self, action: str, sym: str, qty: int, price: float | None, reason: str, trigger: str,
-               pnl: float | None = None) -> dict:
+               pnl: float | None = None, extra: dict | None = None) -> dict:
         pos = self.pf.positions.get(sym)
         rec = {
             "ts": self.now.isoformat(timespec="seconds"), "time": self.now.strftime("%H:%M"), "action": action,
@@ -176,6 +182,8 @@ class Engine:
             if pos and sym in self.p["instruments"] else 0.0,
             "value_after": round(self.value(), 2), "floor": round(self.pf.floor, 2),
         }
+        if extra:
+            rec.update(extra)
         self.log.append(rec)
         path = self.env.logs_dir / f"decisions-{self.day.isoformat()}.jsonl"
         try:
@@ -294,8 +302,17 @@ class Engine:
                 pf.liquidbees *= (1 + y) ** days
                 pf.liquidbees_income_today += pf.liquidbees - before
                 pf.last_accrual = self.day.isoformat()
-        pf.floor, pf.best_profit = guard.ratchet(pf.floor, pf.best_profit, self.value(), self.p)
+        self.ratchet()
         pf.month = self.day.strftime("%Y-%m")
+
+    def ratchet(self):
+        """v1: the Green Guard floor ratchet. v2: no ratchet; the 'floor' is the fixed hard account stop."""
+        pf = self.pf
+        if self.v2:
+            pf.floor = float(self.st["account_stop"])
+            pf.best_profit = max(pf.best_profit, self.value() - self.p["capital"]["start"])
+        else:
+            pf.floor, pf.best_profit = guard.ratchet(pf.floor, pf.best_profit, self.value(), self.p)
 
     # ------------------------------------------------------------------ 2. triggers and AI hand-off
     def _block(self, sym: str, minutes: int, src: str, why: str):
@@ -687,6 +704,211 @@ class Engine:
         self.rt.get("streaks", {}).pop(sym, None)
         self.record("BUY", sym, r["qty"], r["fill"], why, "Minute check")
 
+
+    # ------------------------------------------------------------------ strategy v2: trend core (docs/RULEBOOK.md "Strategy v2")
+    def v2_state(self) -> dict:
+        return self.rt.setdefault("v2", {})
+
+    def v2_infos(self) -> dict:
+        """Trend state per symbol from completed daily closes plus the live price as today's provisional close.
+        None for a symbol without a good live price or enough daily history."""
+        out = {}
+        for sym in self.syms:
+            px, bars = self.mkt.prices.get(sym), self.mkt.hist.get(sym)
+            kind = self.st["symbols"][sym]["signal"]
+            try:
+                out[sym] = trend.compute(sym, kind, bars, px, self.st) if (px and bars) else None
+            except Exception:
+                log.exception("trend state failed for %s", sym)
+                out[sym] = None
+        return out
+
+    def v2_weights(self, infos: dict, level: int, reconfirm) -> tuple[dict, float, float]:
+        mult = trend.brake_mult(level, self.st)
+        w, scale = trend.target_weights({s: (i.on, i.sigma) for s, i in infos.items() if i}, self.st, mult, reconfirm)
+        return w, scale, mult
+
+    def cur_weight(self, sym: str, value: float) -> float:
+        pos, px = self.pf.positions.get(sym), self.price(sym)
+        return pos.qty * px / value if pos and px and value > 0 else 0.0
+
+    def v2_exits(self, advice: list[dict]):
+        """Between the daily checks only defence applies: the fast lane's sell advice and the HINDCOPPER results exit.
+        Trend exits happen at the daily check (v2_decide). No tripwire, no overnight or month-end rules in v2."""
+        pf = self.pf
+        for a in advice:
+            pos = pf.positions.get(a["sym"])
+            if pos and a["type"] == "sell_fraction":
+                q = pos.qty if a["fraction"] >= 0.99 else max(1, int(pos.qty * a["fraction"]))
+                self.sell(a["sym"], q, f"The AI fast lane advised selling {a['fraction'] * 100:.0f}% of {a['sym']} "
+                                       f"as a precaution, and the rules allow selling.", "Opus guidance")
+        for sym, (at, why) in self.er.forced_exits.items():
+            if sym in pf.positions and self.now.time() >= at:
+                self.sell(sym, pf.positions[sym].qty, why, "Event rule")
+
+    def v2_account_stop(self, value: float) -> bool:
+        stop = float(self.st["account_stop"])
+        if value > stop:
+            return False
+        if self.cd.get("account_stop_date") != self.day.isoformat():
+            self.cd["account_stop_date"] = self.day.isoformat()
+            why = (f"Portfolio value ₹{value:,.0f} is at or under the hard account stop ₹{stop:,.0f}, so all new buys are halted "
+                   f"(trend exits and the drawdown brake still work).")
+            self.record("BLOCK", "ALL", 0, None, why, "Account stop")
+            try:
+                alerts.raise_alert(self.env.state_dir, "engine", "account_stop", "account_stop", why)
+            except Exception:       # noqa: BLE001 - an alert problem must never stop trading
+                log.exception("could not raise the account-stop alert")
+        return True
+
+    def v2_buy_blocker(self, sym: str, px: float) -> tuple[str, str] | None:
+        """Why a NEW buy or add must wait today: (plain reason, trigger) or None. Exits are never blocked."""
+        now = self.now
+        age = (now - self.mkt.price_ts[sym]).total_seconds() / 60 if sym in self.mkt.price_ts else 0.0
+        if age > self.p["entry"]["max_price_age_min"]:
+            return f"The latest {sym} price is {age:.0f} minutes old, older than the {self.p['entry']['max_price_age_min']} minute limit.", "Trend check"
+        if self.safe_mode:
+            return "The system is in safe mode after an incident, so no new buys (exits still work).", "Safe mode"
+        if self.v2_halted:
+            return f"The hard account stop ₹{self.st['account_stop']:,.0f} is in force, so no new buys.", "Account stop"
+        if self.cd.get("halt_date") == self.day.isoformat():
+            return "The AI fast lane stopped all new buys for today.", "Opus guidance"
+        for key in (sym, "ALL"):
+            until = _dt(self.cd.get("block_until", {}).get(key), now.tzinfo)
+            if until and until > now:
+                src = self.cd.get("block_src", {}).get(key, "Price shock")
+                what = {"News trigger": "a market-moving news headline was flagged",
+                        "Opus guidance": "the AI fast lane asked for a pause"}.get(src, "a fast price move was flagged")
+                return f"Buying {sym} is paused until {until:%H:%M} because {what}.", src
+        why = self.er.buy_block(sym, now.time())
+        if why:
+            return why, "Event rule"
+        return None
+
+    def v2_tick(self):
+        """Every minute: refresh the trend state and the per-symbol check line; at the daily check time run v2_decide once."""
+        value = self.value()
+        self.v2_halted = self.v2_account_stop(value)
+        infos = self.v2_infos()
+        v2 = self.v2_state()
+        br = v2.get("brake") or {}
+        targets, scale, mult = self.v2_weights(infos, int(br.get("level") or 0), br.get("reconfirm") or [])
+        t = self.now.time()
+        t0, t1 = guard.hhmm(self.st["check_time"]), guard.hhmm(self.st["check_until"])
+        for sym, i in infos.items():
+            px = self.mkt.prices.get(sym)
+            if i is None:
+                self.check[sym] = ("No fresh price this minute, so no trend check." if not px
+                                   else "Not enough daily history yet for the trend check.")
+                continue
+            state, detail = trend.describe(i, self.st)
+            self.check[sym] = (f"Trend {state}: {detail}, target {targets.get(sym, 0.0) * 100:.0f}% "
+                               f"(now {self.cur_weight(sym, value) * 100:.0f}%).")
+        if v2.get("done") == self.day.isoformat() or t < t0 or t > t1:
+            return
+        ready = all(infos.values()) or t >= t1
+        if not ready:
+            return
+        self.v2_decide(infos, value)
+        v2["done"] = self.day.isoformat()
+
+    def v2_why(self, sym: str, i, w: float, scale: float, mult: float, dd: float) -> str:
+        """'GOLDBEES trend ON (close 121.40 > SMA200 118.90); target 87% = min(1, 0.14/0.161)'"""
+        st = self.st
+        state, detail = trend.describe(i, st)
+        cap = st["symbols"][sym]["cap"]
+        out = f"{sym} trend {state} ({detail}); "
+        if i.on and i.sigma:
+            out += f"target {w * 100:.0f}% = min({cap:g}, {st['vol_target']:g}/{i.sigma:.3f})"
+            if scale < 1 - 1e-9:
+                out += f" x {scale:.2f} (scaled so the total stays within 100%)"
+            if mult != 1.0:
+                out += f" x {mult:g} (drawdown brake, value {dd * 100:.1f}% from its peak)"
+        else:
+            out += f"target {w * 100:.0f}%"
+        return out
+
+    def v2_decide(self, infos: dict, value: float):
+        pf, st = self.pf, self.st
+        v2 = self.v2_state()
+        on = {s: i.on for s, i in infos.items() if i}
+        br = trend.brake_update(v2.get("brake"), value, on, st, self.p["capital"]["start"])
+        v2["brake"] = {k: br[k] for k in ("peak", "level", "reconfirm")}
+        dd = br["dd"]
+        if br["changed"]:
+            lvl = br["level"]
+            msg = {0: f"The drawdown brake is released: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so targets are back to full size.",
+                   1: f"Drawdown brake level 1: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so every target is cut to {st['brake']['level1_mult']:g}x.",
+                   2: f"Drawdown brake level 2: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so all targets are 0 until value recovers above -{st['brake']['level2_release_dd'] * 100:.0f}% and each trend re-confirms."}[lvl]
+            self.record("BLOCK" if lvl else "HOLD", "ALL", 0, None, msg, "Drawdown brake")
+        targets, scale, mult = self.v2_weights(infos, br["level"], br["reconfirm"])
+        bias, fresh, upd = self.guidance()
+        plan = []
+        for sym, i in infos.items():
+            if i is None:
+                continue
+            pos = pf.positions.get(sym)
+            cur = self.cur_weight(sym, value)
+            d = trend.decide(on=i.on, target=targets[sym], cur=cur, flat=not pos or pos.qty <= 0, rsi_val=i.rsi,
+                             bias=self.effective_bias(sym, bias, fresh, upd), st=st, brake_level=br["level"],
+                             eligible=sym not in br["reconfirm"])
+            plan.append((sym, i, cur, d))
+        for sym, i, cur, d in plan:                                     # sells first: they free the money for the buys
+            if d.action != "SELL":
+                continue
+            pos = pf.positions.get(sym)
+            px = self.price(sym)
+            if not pos or not px:
+                continue
+            qty = pos.qty if d.kind == "exit" else max(0, int((cur - d.to_w) * value / px))
+            if qty < 1:
+                continue
+            base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
+            what = f"selling all {qty} units" if qty >= pos.qty else f"selling {qty} units to get back to the target"
+            trig = "Trend exit" if not i.on else ("Drawdown brake" if br["level"] else "Rebalance")
+            self.sell(sym, qty, f"{base}; {what} ({d.why})", trig)
+        for sym, i, cur, d in plan:
+            pos = pf.positions.get(sym)
+            px = self.mkt.prices.get(sym)
+            if pos and i.exit_level:
+                pos.stop = i.exit_level                                 # informational: where the trend turns OFF
+            if d.action == "SKIP":
+                self.record("SKIP", sym, 0, px, f"{self.v2_why(sym, i, targets[sym], scale, mult, dd)}; no buy: {d.why}", "Trend check")
+                continue
+            if d.action != "BUY" or not px:
+                continue
+            base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
+            blk = self.v2_buy_blocker(sym, px)
+            if blk:
+                self.record("BLOCK", sym, 0, px, f"{base}; no buy: {blk[0]}", blk[1])
+                continue
+            fill_px = px * (1 + self.p["valuation"]["paper_slippage"][sym])
+            qty = int((d.to_w - cur) * value / fill_px)
+            if qty < 1:
+                continue
+            why = f"{base}; buying {qty} units to reach target ({d.why})"
+            r = self._fill(sym, "BUY", qty, px, why, "Trend check")
+            if not r:
+                self.record("SKIP", sym, 0, px, f"{base}; there was not enough free cash to place the buy.", "Trend check")
+                continue
+            c = pf.counters
+            c["buys_today"] = c.get("buys_today", 0) + 1
+            c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
+            self.cd["last_buy_ts"] = self.now.isoformat()
+            if i.exit_level and sym in pf.positions:
+                pf.positions[sym].stop = i.exit_level
+            self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check")
+        value = self.value()
+        for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
+            state, detail = trend.describe(i, st)
+            act = self.cur_weight(sym, value)
+            sg = i.sigma
+            self.record("TARGET", sym, 0, self.price(sym),
+                        f"{sym} trend {state} ({detail}); sigma60 {('%.3f' % sg) if sg else 'n/a'}; "
+                        f"target {targets[sym] * 100:.0f}%, actual {act * 100:.0f}%", "Trend check",
+                        extra={"state": state, "sigma": round(sg, 4) if sg else None,
+                               "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1)})
+
     # ------------------------------------------------------------------ 5. snapshot
     def snapshot(self):
         pf = self.pf
@@ -767,10 +989,14 @@ class Engine:
             self._noisy_skip("SKIP", sym, why, "Minute check", None)
         self.triggers()
         advice = self.fastlane_advice()
-        self.exits(advice)
-        pf = self.pf
-        pf.floor, pf.best_profit = guard.ratchet(pf.floor, pf.best_profit, self.value(), self.p)
-        self.entries()
+        if self.v2:
+            self.v2_exits(advice)
+            self.ratchet()
+            self.v2_tick()
+        else:
+            self.exits(advice)
+            self.ratchet()
+            self.entries()
         self.snapshot()
         return self.log
 

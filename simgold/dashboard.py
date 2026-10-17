@@ -4,7 +4,9 @@ Shape (all keys always present): date, weekday, updated, live, open, close, pnl,
 liquid_income, costs, summary, tomorrow, counts{BUY,SELL,SKIP,BLOCK,HOLD}, alloc{GOLDBEES,SILVERBEES,HINDCOPPER,
 LIQUIDBEES}, holdings[], ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
 amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift,
-checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened).
+checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened),
+targets[{symbol, time, state, sigma, target_pct, actual_pct, reason}] (strategy v2: the day's last TARGET record per symbol;
+empty under the v1 score rules).
 
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
 logs/dashboard-DATE.json at every git sync, so the dashboard page (which reads it from the public repo) shows each
@@ -68,6 +70,25 @@ def _raw_decisions(path: Path) -> list[dict]:
             out.append({k: r.get(k) for k in DEC_KEYS})
     out.sort(key=lambda d: str(d.get("time") or ""))
     return out
+
+
+def _targets(path: Path) -> list[dict]:
+    """Strategy v2: the last TARGET record of the day per symbol (trend state, sigma60, target % and actual %)."""
+    last: dict[str, dict] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and r.get("action") == "TARGET" and r.get("symbol") in SYMS:
+            last[r["symbol"]] = {"symbol": r["symbol"], "time": str(r.get("time") or "")[:5], "state": r.get("state"),
+                                 "sigma": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None, "target_pct": _f(r.get("target_pct")),
+                                 "actual_pct": _f(r.get("actual_pct")), "reason": str(r.get("reason") or "")[:400]}
+    return [last[s] for s in SYMS if s in last]
 
 
 def _checks(path: Path) -> dict:
@@ -156,6 +177,7 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "ticks": _ticks(root / "logs" / f"ticks-{date}.csv"), "decisions": decisions,
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
         "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
+        "targets": _targets(root / "logs" / f"decisions-{date}.jsonl"),
     }
 
 

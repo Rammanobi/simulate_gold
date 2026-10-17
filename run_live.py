@@ -20,7 +20,7 @@ from pathlib import Path
 import os
 import shutil
 
-from simgold import alerts, brief, config, dashboard, gitsync, market, runguard
+from simgold import alerts, brief, config, dashboard, gitsync, market, runguard, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -59,7 +59,8 @@ class Live:
 
     def _daily(self):
         if self.hist is None or time.time() - self.hist_at > 3600:
-            self.hist, self.hist_at = daily_history(self.tickers, period="1y"), time.time()
+            period = (self.p.get("strategy") or {}).get("history_period", "3y") if trend.is_v2(self.p) else "1y"
+            self.hist, self.hist_at = daily_history(self.tickers, period=period), time.time()
         return self.hist
 
     def _value(self) -> float:

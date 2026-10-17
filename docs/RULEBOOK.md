@@ -1,7 +1,80 @@
-# simulate_gold: Rulebook (v1)
+# simulate_gold: Rulebook (v1 Green Guard rules + v2 trend core)
 
 **This is paper trading. No real money is used.**
 Starting capital: ₹1,00,000. We trade GOLDBEES, SILVERBEES and HINDCOPPER on NSE. Any money not in a trade sits in LIQUIDBEES.
+
+> **Which rules are active?** `strategy.mode` in `config/params.yaml`. **`v2_trend`** (the section right below) is the active strategy.
+> **`v1_scores`** is the older Green Guard design, sections 0 to 10 further down; they are unchanged and apply only when the mode is
+> `v1_scores`. Rollback is one line: set `strategy.mode: v1_scores`. Under v2 the sections about the floor, the budget/sizing rule,
+> the entry score, daily limits, the overnight check and the month-end rules (1, 2, 3.1 to 3.4, 4, 7) are **not used**; sections 5
+> (fast lane), 6 (event days) and 8 apply as described under "What stays" below.
+
+## Strategy v2 (growth, aggressive)
+
+**Goal: grow profit over months.** Success is judged monthly against buy-and-hold GOLDBEES. A green month end is no longer required.
+Paper trading only. The owner chose the **AGGRESSIVE** risk profile; every number is in `config/params.yaml` under `strategy:`.
+The code is `simgold/trend.py` (pure rules), the engine's daily check (`simgold/engine.py`) and the backtest (`python run_backtest.py --strategy v2`).
+
+### V2.1 Trend state (from completed daily closes, plus today's live price as the provisional close)
+
+| Symbol | ON when | OFF when |
+|---|---|---|
+| GOLDBEES | close > SMA200 × 1.005 | close < SMA200 × 0.995 (in between the previous state is kept: a 0.5% hysteresis band) |
+| SILVERBEES, HINDCOPPER | close > highest high of the prior 55 days | close < max(peak close since entry − 3 × ATR20, lowest low of the prior 20 days) |
+
+### V2.2 Target weight
+
+`w_i = on_i × min(cap_i, vol_target / σ60_i)` with `vol_target` **0.14**, caps **GOLDBEES 100%, SILVERBEES 70%, HINDCOPPER 35%**.
+σ60 is the annualised 60-day close-to-close volatility (EWMA span 60, as in the research; `vol_method: simple` switches to a plain
+rolling 60-day standard deviation). If Σw > 1 every weight is scaled down proportionally (no leverage). The rest stays in LIQUIDBEES.
+Example: GOLDBEES close 121.4 > SMA200 118.9, σ60 0.161 gives a target of 87% = min(1.0, 0.14/0.161).
+The engine rebalances a symbol only when |target − current| is more than **5 percentage points** of portfolio value. A move from zero
+(minimum 1% of the portfolio) or to zero always trades.
+
+### V2.3 Entry timing and exits (the daily check)
+
+The engine runs one trend check a day, from **15:10 IST** (retried each minute until 15:25 if a price is missing or stale).
+
+- **New entry** (ON, no position): buy up to the target at once unless RSI(2) of the daily closes is overbought (above 90). If it is, the entry waits for a later day.
+- **Add** (ON, below target by more than 5 points): only when RSI(2) < 5 (a dip). Bias "favour" may add up to the target without waiting for the dip.
+- **Trim**: when a position is more than 5 points over its target (volatility rose, or the brake cut the target), it is sold down to the target.
+- **Exit**: when the trend is OFF, the **whole position is sold at the next check** (about 15:10), with no waiting. Nothing else exits a position except the drawdown brake, the HINDCOPPER results rule and the fast lane's defensive sell advice.
+- Prices are closes or the live price. Yahoo opens for these symbols are unreliable and are never used.
+
+### V2.4 Portfolio risk (replaces the Green Guard floor, gap sizing and the 30% cash rule)
+
+- **Drawdown brake** on total value from its peak (peak starts at ₹1,00,000): at **−15%** every target weight × 0.5 (released above −13%, a small hysteresis).
+  At **−25%** targets are 0, everything is sold, and it stays that way **until value is back above −15% and each symbol that was ON has turned OFF and ON again**.
+  Note: from all cash, LIQUIDBEES interest alone needs well over a year to climb 10 points, so a −25% latch is in practice a long pause. The owner can reset it by moving `strategy.brake` or switching the mode.
+- **Hard account stop ₹75,000**: value at or under it halts all buys and raises a HIGH alert (`account_stop`). `state/portfolio.json`'s `floor` is this fixed number under v2, so the existing near-floor checks become the account-stop watch.
+- No score, no per-trade stop, no take-half, no trailing stop, no time stop, no daily buy limits, no maximum of 3 positions, no month-end blackout.
+
+### V2.5 What stays
+
+- **Claude's bias** (via `guidance.json`, stale counts as neutral): `block` = no new buys or adds for that metal (an existing core is held unless the trend is OFF); `favour` = may add up to target without waiting for an RSI(2) dip (never for an overbought new entry, never against an OFF trend); `neutral` = default. Routines still never buy and never set a size. Every safety invariant in `CLAUDE.md` is unchanged.
+- **Pauses delay NEW buys only** (never exits): fast-lane price shocks, news pauses, `halt_buys_today`, safe mode, and the event-day buy blocks of section 6 (CPI, jobs, FOMC, RBI, Budget).
+- **HINDCOPPER** keeps its results-day block and the sell-before-close-on-results exit (section 6).
+- The fast lane's defensive sell advice (`exit_partial`, `exit_full`) is still followed; `tighten_stop` has no effect because v2 has no per-trade stop.
+- Paper costs: slippage and trade costs as before (`valuation`, `broker.trade_costs`).
+
+### V2.6 Logging
+
+Every trade or skip has a one-line reason that states the formula numbers, for example
+`GOLDBEES trend ON (close 121.40 > SMA200 118.90); target 87% = min(1, 0.14/0.161); buying 40 units to reach target (trend ON and no position)`.
+A daily **TARGET** record per symbol (trend state, σ60, target %, actual %) is written to `logs/decisions-DATE.jsonl` and shown as `targets` in the dashboard document.
+The per-minute check (`logs/checks-DATE.jsonl`) says, for example, `Price ₹119.80. Trend OFF: close 119.80 < SMA200 121.20, target 0% (now 0%).`
+
+### V2.7 Backtest (daily data, signal at the close of t, fill at the close of t+1, costs 0.15% ETF / 0.30% HINDCOPPER per side)
+
+`python run_backtest.py --strategy v2 [--data-dir DIR] [--set vol_target=0.10]` replays exactly these rules. See the pull request that introduced v2 for the measured table.
+The research strategy (V6, balanced vol target 0.10, caps 100/60/30, no brake) is reproduced with
+`--set vol_target=0.10 --set symbols.SILVERBEES.cap=0.6 --set symbols.HINDCOPPER.cap=0.3 --set sma_hysteresis=0 --set entry.overbought=1000 --set entry.dip_rsi=101 --set brake.level1_dd=9 --set brake.level2_dd=9`.
+
+### V2.8 Risks the owner accepted by choosing AGGRESSIVE
+
+Drawdowns of 20% to 25% from the peak are expected before the brake bites; a single month of −6% to −9% has happened in the backtest;
+trend following is flat or slightly negative in choppy markets (as in 2026); there is no longer any guarantee of a green month end;
+SILVERBEES results before 2022 in the backtest use a COMEX proxy.
 
 ## 0. The one goal
 
