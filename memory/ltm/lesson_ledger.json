@@ -13,6 +13,48 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "e7c90e44",
+   "text": "on the hot-CPI day (15 Oct) SILVERBEES -5.6% and 7 buy blocks produced 0 trades; day stayed green at +17 from LIQUIDBEES income alone, so the blocks protected the cushion (535).",
+   "status": "candidate",
+   "first_seen": "2026-10-15",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-15",
+     "text": "on the hot-CPI day (15 Oct) SILVERBEES -5.6% and 7 buy blocks produced 0 trades; day stayed green at +17 from LIQUIDBEES income alone, so the blocks p"
+    }
+   ],
+   "contradict": []
+  },
+  {
+   "id": "d1c0e34e",
+   "text": "10 buy blocks on 4 headline clusters (09:15, 11:34, 13:57, 15:02) with 0 buys; repeated Fed-speaker headlines may over-trigger the shock block (2 of 4 fast-lane requests did not fire the routine).",
+   "status": "candidate",
+   "first_seen": "2026-10-16",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-16",
+     "text": "10 buy blocks on 4 headline clusters (09:15, 11:34, 13:57, 15:02) with 0 buys; repeated Fed-speaker headlines may over-trigger the shock block (2 of 4"
+    }
+   ],
+   "contradict": []
+  },
+  {
+   "id": "f6c4def5",
+   "text": "19 Oct: HINDCOPPER fell about 4% on the NSE day (440.4 vs prev close) while COMEX copper was +0.3%; the price-shock block fired at 15:23 with no position held.",
+   "status": "candidate",
+   "first_seen": "2026-10-19",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-19",
+     "text": "19 Oct: HINDCOPPER fell about 4% on the NSE day (440.4 vs prev close) while COMEX copper was +0.3%; the price-shock block fired at 15:23 with no posit"
+    }
+   ],
+   "contradict": []
   }
  ]
 }

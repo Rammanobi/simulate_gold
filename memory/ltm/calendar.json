@@ -1,0 +1,135 @@
+{
+ "updated": "2026-10-19T15:51:40+05:30",
+ "events": [
+  {
+   "date": "2026-10-14",
+   "type": "CPI",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-10-19",
+   "by": "migration",
+   "time": "18:00"
+  },
+  {
+   "date": "2026-10-20",
+   "type": "NSE_HOLIDAY",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 1,
+   "expect": "NSE closed",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-19"
+  },
+  {
+   "date": "2026-10-23",
+   "type": "HINDCOPPER_RESULTS",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-10-19",
+   "by": "migration"
+  },
+  {
+   "date": "2026-10-28",
+   "type": "FOMC",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-10-19",
+   "by": "migration",
+   "time": "23:30"
+  },
+  {
+   "date": "2026-10-30",
+   "type": "MONTH_END",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 2,
+   "expect": "last trading day of the month; green month-end matters",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-19"
+  },
+  {
+   "date": "2026-11-06",
+   "type": "JOBS",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-10-19",
+   "by": "migration",
+   "time": "19:00"
+  },
+  {
+   "date": "2026-11-10",
+   "type": "NSE_HOLIDAY",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 1,
+   "expect": "NSE closed",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-19"
+  },
+  {
+   "date": "2026-11-24",
+   "type": "NSE_HOLIDAY",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 1,
+   "expect": "NSE closed",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-19"
+  },
+  {
+   "date": "2026-11-30",
+   "type": "MONTH_END",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 2,
+   "expect": "last trading day of the month; green month-end matters",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-19"
+  }
+ ]
+}
