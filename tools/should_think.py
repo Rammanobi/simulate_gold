@@ -95,7 +95,10 @@ def evaluate(root: Path, now: datetime, force: bool = False, params: dict | None
         if pos["stop"] and pos["last"] > 0 and (pos["last"] - pos["stop"]) / pos["last"] <= r["stop_proximity_pct"]:
             why.append(f"{pos['symbol']} is within {r['stop_proximity_pct'] * 100:.0f}% of its stop "
                        f"({pos['last']:.2f} vs {pos['stop']:.2f})")
-    if pv["cushion"] < r["cushion_below"]:
+    if pv.get("v2"):
+        if pv["brake_level"] > 0 or pv["dd"] <= -0.10:
+            why.append(f"drawdown {pv['dd'] * 100:.1f}% from the peak (brake level {pv['brake_level']}, account stop {brief._inr(pv['account_stop'])})")
+    elif pv["cushion"] < r["cushion_below"]:
         why.append(f"cushion {brief._inr(pv['cushion'])} is under {brief._inr(r['cushion_below'])}")
     return why
 

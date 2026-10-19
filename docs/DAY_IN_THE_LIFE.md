@@ -1,3 +1,5 @@
+> **Note:** a day under the v1 "Green Guard" design. Under v2 the engine makes one trend check at 15:10 IST; see `docs/RULEBOOK.md`, section "Strategy v2".
+
 # A day in the life: one example trading day
 
 > **Illustrative example, not real data.** Every time, price and rupee amount below is made up to show how the

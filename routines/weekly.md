@@ -79,7 +79,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    Also read `memory/daily/*.md` for this week's dates (≤ 5 small files) for facts and lesson candidates.
    If you need one more number, compute it with a short Python snippet; never estimate.
 3. **Weekly note** `memory/weekly/WEEK.md`, ≤ 25 lines: the numbers (week %, vs GOLDBEES % and its source,
-   trades, wins/losses, realised P&L, max intraweek drawdown in ₹, floor, cushion), which bias calls helped
+   trades, wins/losses, realised P&L, max intraweek drawdown in ₹, floor and cushion under v1; under v2 the drawdown from peak, brake level, trend targets vs actual and the result vs GOLDBEES buy-and-hold), which bias calls helped
    or hurt (with dates), events that mattered, and data or system problems.
 4. **LTM review (Opus): lessons.** A lesson must hold for at least 4 weeks. Candidates live in the ledger
    (`lesson list`); the tool refuses `promote` unless the candidate is 28+ days old with 3+ supporting dates over
@@ -129,7 +129,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 ## Decision guidance
 
 Be honest: report under-performance against GOLDBEES plainly. Prefer "safer" proposals; a riskier one needs
-strong, multi-week evidence. Never propose removing the floor, tripwire or month-end protection.
+strong, multi-week evidence. Never propose removing the floor, tripwire or month-end protection (v1), or the drawdown brakes and the ₹75,000 account stop (v2).
 
 ## Output contract
 

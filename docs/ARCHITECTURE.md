@@ -1,3 +1,5 @@
+> **Note:** v1 "Green Guard" design. The active strategy is v2 "trend core"; see `docs/RULEBOOK.md`, section "Strategy v2".
+
 # Architecture: a visual guide
 
 **Paper trading only. No real money.** ₹1,00,000 is spread over GOLDBEES, SILVERBEES and HINDCOPPER (NSE); idle

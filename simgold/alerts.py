@@ -36,6 +36,7 @@ SEVERITY = {
     "tick_exceptions": HIGH,          # every tick throws, so exits, stops and the floor are not enforced
     "floor_broken": HIGH,             # floor invariant broken (value under floor-slack, floor lowered)
     "near_floor": HIGH,               # value within INR 100 of the floor, or under it
+    "account_stop": HIGH,             # strategy v2: value at or under the hard account stop (INR 75,000): buys halted
     "state_corrupt": HIGH,            # state corrupted or unrecoverable
     "test_failure_main": HIGH,        # a test failure on main
     "git_push_failing": HIGH,         # git push failing for more than 15 min

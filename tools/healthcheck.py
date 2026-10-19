@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import copy  # noqa: E402
 
-from simgold import alerts  # noqa: E402
+from simgold import alerts, config, trend  # noqa: E402
 from simgold.broker import validate_portfolio_dict  # noqa: E402
 from simgold.market import IST, is_trading_day  # noqa: E402
 
@@ -141,6 +141,15 @@ def prev_floor(root: Path, today: str, git=real_git):
     return None
 
 
+def _is_v2() -> bool:
+    """Strategy v2 (trend core): the "floor" in portfolio.json is the fixed hard account stop, and LIQUIDBEES is whatever is not
+    invested, so the floor-never-lowered and the 30 percent LIQUIDBEES checks (Green Guard rules) do not apply."""
+    try:
+        return trend.is_v2(config.load_params())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, cfg: dict | None = None) -> list[dict]:
     out = []
     if not pf:
@@ -165,12 +174,13 @@ def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, c
             out.append(problem("below_floor", "floor_broken", f"value {value:,.0f} is more than {FLOOR_SLACK} below the floor {floor:,.0f}"))
         elif value <= floor + cfg["near_floor_inr"]:
             out.append(problem("near_floor", "near_floor", f"value {value:,.0f} is within {cfg['near_floor_inr']} of the floor {floor:,.0f}"))
-        prev = prev_floor(root, now.astimezone(IST).date().isoformat(), git)
+        v2 = _is_v2()
+        prev = None if v2 else prev_floor(root, now.astimezone(IST).date().isoformat(), git)
         if prev is not None and floor < prev - 1e-6:
             out.append(problem("floor_lowered", "floor_broken", f"floor {floor:,.0f} is lower than the previous day's floor {prev:,.0f}"))
         cd = pf.get("cooldowns") if isinstance(pf.get("cooldowns"), dict) else {}
         tripped = cd.get("no_buys_until")
-        if value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
+        if not v2 and value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
                 and positions:
             out.append(problem("liquid_low", "invariant_warning",
                                f"LIQUIDBEES is {lb / value:.0%} of value (min {LIQUID_MIN:.0%}) and the tripwire has not fired"))

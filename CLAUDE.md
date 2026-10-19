@@ -1,7 +1,9 @@
 # simulate_gold: guide for Claude sessions
 
 **Paper trading only. No real money, no broker.** Starting capital ₹1,00,000 in GOLDBEES, SILVERBEES and
-HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: green (≥ ₹1,00,000) at every month end.
+HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: grow profit over months; evaluated monthly vs buy-and-hold; month-end green no longer required.
+The active strategy is **v2 trend core** (`strategy.mode: v2_trend` in `config/params.yaml`, aggressive profile; rulebook section
+"Strategy v2"). Rollback to the old Green Guard score rules is one line: `strategy.mode: v1_scores`.
 
 - **Engine**: `run_live.py` + `simgold/`, run by GitHub Actions (`.github/workflows/market-hours.yml`) every
   minute in market hours. Fixed rules, no AI. It is the only thing that trades. It pushes `state/` and `logs/`
@@ -9,7 +11,8 @@ HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: green (≥ ₹1,00,000) a
 - **Routines** (Claude Code cloud sessions, playbooks in `routines/`): the thinking layer. They set a bias per
   metal, the events calendar, defensive fast-lane actions, market notes and memory. Nothing else.
 - Source of truth for rules: `docs/RULEBOOK.md` and `config/params.yaml`. `README.md` partly describes an
-  older design; trust the rulebook where they differ.
+  older design; trust the rulebook where they differ. Under v2 there is no Green Guard floor: `floor` in state is the fixed
+  ₹75,000 hard account stop, and the daily trend check at 15:10 IST makes every trade (routines still never buy or size).
 
 ## Safety invariants (never break these)
 

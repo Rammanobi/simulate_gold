@@ -49,7 +49,7 @@ def python_sentence(day: dict) -> str:
     if day.get("closed"):
         return "NSE was closed today."
     return (f"Portfolio closed at {report.inr(float(p.get('close') or 0))} (day P&L {report.sg(float(p.get('day_pnl') or 0))}), "
-            f"floor {report.inr(float(p.get('floor') or 0))}.")
+            f"{'account stop' if p.get('v2') else 'floor'} {report.inr(float(p.get('floor') or 0))}.")
 
 
 def check_paragraph(text: str, facts: dict) -> str | None:
@@ -83,7 +83,7 @@ def issue_body(day: dict, summary: str, repo: str, date: str) -> str:
     p = day.get("portfolio") or {}
     files = f"https://github.com/{repo}/tree/main/reports/daily"
     rows = [("Portfolio", report.inr(float(p.get("close") or 0))), ("Day P&L", report.sg(float(p.get("day_pnl") or 0))),
-            ("Floor", report.inr(float(p.get("floor") or 0)))]
+            ("Account stop" if p.get("v2") else "Floor", report.inr(float(p.get("floor") or 0)))]
     table = "\n".join(f"| {k} | {v} |" for k, v in rows)
     return (f"**Fallback mode.** The Claude daily_report routine did not run, so this report was built by Python from the logs "
             f"and summarised by the fallback model.\n\n{summary}\n\n| | |\n|---|---|\n{table}\n\n"
