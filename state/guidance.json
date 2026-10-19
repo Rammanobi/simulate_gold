@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-19T08:51:56+05:30",
+ "updated": "2026-10-19T10:16:12+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD: no Mon overnight data; Fri spot ~$4,164 (-0.1%), DXY 102.0 (-0.5%), US10Y ~5.08%. SILVER: Fri ~$56.9, no fresh data after CPI drop. COPPER: HG 6.53 (+0.3%) Fri; HINDCOPPER results 23 Oct (unconfirmed), news pending.",
+ "note": "GOLD: flat (-0.07%), Warsh remarks eased Fed hike bets; no event. SILVER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 Oct are 4 days out, keep neutral and revisit before then.",
  "prices_at_update": {
-  "GOLDBEES": 120.21,
-  "SILVERBEES": 200.0,
-  "HINDCOPPER": 458.9
+  "GOLDBEES": 120.12,
+  "SILVERBEES": 198.35,
+  "HINDCOPPER": 451.75
  }
 }
