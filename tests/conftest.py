@@ -15,8 +15,17 @@ from simgold import config
 config.load_params()["strategy"]["mode"] = "v1_scores"
 
 
-def v2_params() -> dict:
-    """A deep copy of the params with the v2 trend core switched on (the shipped numbers)."""
+def d5_params() -> dict:
+    """A deep copy of the shipped params with the v2 trend core on: the D5 "stay invested" profile (50% gold floor, stop to gold)."""
     p = copy.deepcopy(config.load_params())
     p["strategy"]["mode"] = "v2_trend"
+    return p
+
+
+def v2_params() -> dict:
+    """The plain v2 trend core (the numbers of the original PR): D5's floor, stop-to-gold and RSI-free entries switched off, so
+    the tests of the trend rules themselves keep their meaning. D5 has its own tests (tests/test_d5.py)."""
+    p = d5_params()
+    st = p["strategy"]
+    st["min_invested"], st["stop_to_gold"], st["entry"]["rsi_timing"] = 0.0, False, True
     return p

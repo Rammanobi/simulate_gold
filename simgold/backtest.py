@@ -181,7 +181,7 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
             cur = hold[s] / V if V > 0 else 0.0
             dec = _trend.decide(on=on[s], target=w[s], cur=cur, flat=hold[s] < 1e-6,
                                 rsi_val=None if np.isnan(rows[s]["rsi"]) else float(rows[s]["rsi"]), bias="neutral", st=st,
-                                brake_level=brake["level"], eligible=s not in brake["reconfirm"])
+                                brake_level=brake["level"], eligible=s not in brake["reconfirm"], sigma_ok=not np.isnan(rows[s]["sigma"]))
             if dec.action in ("BUY", "SELL"):
                 orders.append((s, dec.to_w, dec.kind))
         if lag <= 0:
@@ -231,7 +231,8 @@ def v2_report(frames: dict[str, pd.DataFrame], p: dict, start: str, end: str | N
     bh = bh / bh.iloc[0]
     bh_res = {"equity": bh * p["capital"]["start"], "gross": pd.Series(1.0, index=bh.index),
               "trades": pd.DataFrame(columns=["date", "sym", "dv", "kind"])}
+    short = res["equity"].index[0] >= oos_start          # the run itself is shorter than the OOS window: it is all "OOS"
     return {"res": res, "oos_start": oos_start,
-            "in_sample": period_stats(res, None, oos_start, y), "oos": period_stats(res, oos_start, None, y),
+            "in_sample": period_stats(res, None, oos_start, y) if not short else None, "oos": period_stats(res, oos_start, None, y),
             "full": period_stats(res, None, None, y),
-            "bh_in_sample": period_stats(bh_res, None, oos_start, y), "bh_oos": period_stats(bh_res, oos_start, None, y)}
+            "bh_in_sample": period_stats(bh_res, None, oos_start, y) if not short else None, "bh_oos": period_stats(bh_res, oos_start, None, y)}

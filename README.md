@@ -1,3 +1,5 @@
+> **Note:** this file describes the v1 "Green Guard" design. The active strategy is v2 "trend core" (`strategy.mode` in `config/params.yaml`); see `docs/RULEBOOK.md`, section "Strategy v2".
+
 # simulate_gold: an autonomous metals paper-trader (₹1 lakh)
 
 📊 Visual guide: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Example day: [docs/DAY_IN_THE_LIFE.md](docs/DAY_IN_THE_LIFE.md)

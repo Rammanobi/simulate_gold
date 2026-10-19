@@ -54,13 +54,33 @@ class Live:
         self.news = NewsBook(NEWS_PATH)
         self.env = Env(state_dir=STATE, logs_dir=LOGS, params=self.p, tick_seconds=tick_seconds)
         self.tickers = list(self.p["engine"]["tickers"].values())
-        self.hist, self.hist_at = None, 0.0
+        self.hist, self.hist_at, self.hist_fail = None, 0.0, 0
         self.last_tick_day = None
 
     def _daily(self):
+        """Daily history (completed bars). A failed download must never fail the tick, because exits (fast-lane sells, the HINDCOPPER
+        results exit, AI stops, the account stop) run in the same tick: keep the last good copy (still completed bars), or with no
+        copy at all hand over empty frames, so v2 has no trend state and buys nothing while the exits still run."""
         if self.hist is None or time.time() - self.hist_at > 3600:
             period = (self.p.get("strategy") or {}).get("history_period", "3y") if trend.is_v2(self.p) else "1y"
-            self.hist, self.hist_at = daily_history(self.tickers, period=period), time.time()
+            try:
+                self.hist, self.hist_at, self.hist_fail = daily_history(self.tickers, period=period), time.time(), 0
+            except Exception as e:  # noqa: BLE001
+                self.hist_fail = getattr(self, "hist_fail", 0) + 1
+                self.hist_at = time.time() - 3600 + 300        # try again in 5 minutes, not every minute
+                log.warning("daily history download failed (%d in a row): %s", self.hist_fail, e)
+                if self.hist_fail >= (self.p.get("strategy") or {}).get("data", {}).get("history_fail_alert_after", 3):
+                    try:
+                        self.mon.report("history", "data_source_down", "Daily history",
+                                        f"The daily history download failed {self.hist_fail} times in a row ({e}); "
+                                        f"{'the last good copy is used' if self.hist is not None else 'no trend state, so no new buys'}; exits still run.",
+                                        str(e))
+                    except Exception:  # noqa: BLE001
+                        log.exception("could not report the history failure")
+                if self.hist is None:
+                    import pandas as pd
+                    empty = pd.DataFrame()
+                    return {"close": empty, "high": empty, "low": empty}
         return self.hist
 
     def _value(self) -> float:

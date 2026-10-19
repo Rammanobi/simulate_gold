@@ -3,7 +3,7 @@
 **This is paper trading. No real money is used.**
 Starting capital: ₹1,00,000. We trade GOLDBEES, SILVERBEES and HINDCOPPER on NSE. Any money not in a trade sits in LIQUIDBEES.
 
-> **Which rules are active?** `strategy.mode` in `config/params.yaml`. **`v2_trend`** (the section right below) is the active strategy.
+> **Which rules are active?** `strategy.mode` in `config/params.yaml`. **`v2_trend`** (the section right below, the D5 "stay invested" profile) is the active strategy.
 > **`v1_scores`** is the older Green Guard design, sections 0 to 10 further down; they are unchanged and apply only when the mode is
 > `v1_scores`. Rollback is one line: set `strategy.mode: v1_scores`. Under v2 the sections about the floor, the budget/sizing rule,
 > the entry score, daily limits, the overnight check and the month-end rules (1, 2, 3.1 to 3.4, 4, 7) are **not used**; sections 5
@@ -22,39 +22,53 @@ The code is `simgold/trend.py` (pure rules), the engine's daily check (`simgold/
 | GOLDBEES | close > SMA200 × 1.005 | close < SMA200 × 0.995 (in between the previous state is kept: a 0.5% hysteresis band) |
 | SILVERBEES, HINDCOPPER | close > highest high of the prior 55 days | close < max(peak close since entry − 3 × ATR20, lowest low of the prior 20 days) |
 
-### V2.2 Target weight
+### V2.2 Target weight (D5 "stay invested")
 
-`w_i = on_i × min(cap_i, vol_target / σ60_i)` with `vol_target` **0.14**, caps **GOLDBEES 100%, SILVERBEES 70%, HINDCOPPER 35%**.
-σ60 is the annualised 60-day close-to-close volatility (EWMA span 60, as in the research; `vol_method: simple` switches to a plain
-rolling 60-day standard deviation). If Σw > 1 every weight is scaled down proportionally (no leverage). The rest stays in LIQUIDBEES.
-Example: GOLDBEES close 121.4 > SMA200 118.9, σ60 0.161 gives a target of 87% = min(1.0, 0.14/0.161).
-The engine rebalances a symbol only when |target − current| is more than **5 percentage points** of portfolio value. A move from zero
-(minimum 1% of the portfolio) or to zero always trades.
+1. `w_i = on_i × min(cap_i, vol_target / σ60_i)` with `vol_target` **0.14** (do not raise it), caps **GOLDBEES 100%, SILVERBEES 70%, HINDCOPPER 35%**.
+   σ60 is the annualised 60-day close-to-close volatility (EWMA span 60, as in the research). If Σw > 1 every weight is scaled down proportionally (no leverage).
+   Example: GOLDBEES close 121.4 > SMA200 118.9, σ60 0.161 gives a target of 87% = min(1.0, 0.14/0.161).
+2. **Stop moves to gold** (`stop_to_gold`): a SILVERBEES or HINDCOPPER that is OFF hands its vol weight `min(cap, 0.14/σ60)` to GOLDBEES,
+   but only while gold's own trend is ON (`stop_to_gold_requires_gold_trend`).
+3. **Invested floor** (`min_invested` 0.50, `floor_symbol` GOLDBEES): GOLDBEES is raised so that metals are at least 50% of the portfolio,
+   **even when gold's own trend is OFF** ("GOLDBEES floor: metals 0% < min_invested 50% → target 50% gold (trend OFF, floor holding)").
+   If the total is over 100% everything is scaled down together. The rest is LIQUIDBEES. Set `min_invested: 0` and `stop_to_gold: false` for plain v2.
+4. Rebalance only when |target − current| is more than **5 percentage points** of portfolio value; a move from zero (minimum 1%) or to zero always trades.
+5. Brakes (V2.4): level 1 (−15%) halves every weight but the gold floor is kept; level 2 (−25%) is flat, the floor included.
 
-### V2.3 Entry timing and exits (the daily check)
+### V2.3 The daily check
 
-The engine runs one trend check a day, from **15:10 IST** (retried each minute until 15:25 if a price is missing or stale).
+From **15:10 IST** the engine checks each symbol as soon as it has a FRESH price (not older than 3 minutes); a stale or missing price waits and retries every minute until 15:25.
 
-- **New entry** (ON, no position): buy up to the target at once unless RSI(2) of the daily closes is overbought (above 90). If it is, the entry waits for a later day.
-- **Add** (ON, below target by more than 5 points): only when RSI(2) < 5 (a dip). Bias "favour" may add up to the target without waiting for the dip.
-- **Trim**: when a position is more than 5 points over its target (volatility rose, or the brake cut the target), it is sold down to the target.
-- **Exit**: when the trend is OFF, the **whole position is sold at the next check** (about 15:10), with no waiting. Nothing else exits a position except the drawdown brake, the HINDCOPPER results rule and the fast lane's defensive sell advice.
-- Prices are closes or the live price. Yahoo opens for these symbols are unreliable and are never used.
+- **Entries and adds** go straight to the target (`entry.rsi_timing: false`, D5). With `rsi_timing: true` the earlier rule applies: an entry waits while RSI(2) > 90 and an add needs RSI(2) < 5; bias "favour" then only loosens the dip to RSI(2) < 15 and never removes it.
+- **Trim**: a position more than 5 points over its target is sold down to the target.
+- **Exit**: when the target is 0 (trend OFF and no floor), the **whole position is sold at once** at the check.
+- **Exits are never missed**: after 15:25 the check still runs for every symbol not yet checked, exits and trims only (no buys), until the close; if a whole day was missed, the first tick of the next day does it.
+- A buy paused by a news or shock block that ends before 15:25 stays pending and is retried.
+- Prices are closes or the live price. Yahoo opens are never used. Daily bars are filtered: a one-day spike that reverts is dropped, highs/lows are clipped to close ± 4 × the median range, forward-filled duplicate bars are dropped (logged).
 
 ### V2.4 Portfolio risk (replaces the Green Guard floor, gap sizing and the 30% cash rule)
 
-- **Drawdown brake** on total value from its peak (peak starts at ₹1,00,000): at **−15%** every target weight × 0.5 (released above −13%, a small hysteresis).
-  At **−25%** targets are 0, everything is sold, and it stays that way **until value is back above −15% and each symbol that was ON has turned OFF and ON again**.
-  Note: from all cash, LIQUIDBEES interest alone needs well over a year to climb 10 points, so a −25% latch is in practice a long pause. The owner can reset it by moving `strategy.brake` or switching the mode.
-- **Hard account stop ₹75,000**: value at or under it halts all buys and raises a HIGH alert (`account_stop`). `state/portfolio.json`'s `floor` is this fixed number under v2, so the existing near-floor checks become the account-stop watch.
-- No score, no per-trade stop, no take-half, no trailing stop, no time stop, no daily buy limits, no maximum of 3 positions, no month-end blackout.
+- **Drawdown brake** on total value from its peak (peak starts at ₹1,00,000, advanced once per trading day):
+  **−15%**: every target × 0.5 (gold floor kept), released above −13%.
+  **−25%**: targets 0, everything sold (floor included). Release: value back above −15% (→ level 1 if still under −13%, else level 0), **or** after
+  **20 trading days** at level 2 once at least one symbol has turned OFF and ON again and the account stop is not in force → **level 1 (half size) with the peak re-based to the current value**;
+  that re-based level 1 goes to level 0 only after **20 more trading days and value more than 3% above the re-base**.
+- **Hard account stop ₹75,000**: value at or under it **sells everything at once**, halts buys, raises a HIGH alert (`account_stop`) and **latches**.
+  To resume, the owner commits `strategy.account_stop_clear_after: "YYYY-MM-DD"` (a date on or after the day it fired) in `config/params.yaml`; routines cannot clear it.
+  `floor` in `state/portfolio.json` is this fixed number under v2.
+- **AI stops**: a fast-lane `tighten_stop` is stored as a separate stop (only ever raised) and enforced every minute: price at or under it sells the whole position. A v1 stop on an open position is inherited the same way at the first v2 tick.
+  The trend exit level is shown as `exit_level`, never as a stop.
+- **No re-buy**: after a fast-lane sale, an AI-stop sale or the HINDCOPPER results exit, that symbol is not bought again until the next trading day.
+- No score, no take-half, no trailing stop, no time stop, no daily buy limits, no maximum of 3 positions, no month-end blackout.
+- The portfolio fast-lane trigger under v2 is a drop of ≥1.5% of the value within 15 minutes (payload carries `drawdown_from_peak`).
+- If the daily-history download fails, the last good copy is used; with none, nothing is bought but every exit still runs.
+- Switching `strategy.mode` resets the mode-specific state (one log line): to v2 clears the old brake and inherits v1 stops; to v1 re-derives every v1 stop.
 
 ### V2.5 What stays
 
-- **Claude's bias** (via `guidance.json`, stale counts as neutral): `block` = no new buys or adds for that metal (an existing core is held unless the trend is OFF); `favour` = may add up to target without waiting for an RSI(2) dip (never for an overbought new entry, never against an OFF trend); `neutral` = default. Routines still never buy and never set a size. Every safety invariant in `CLAUDE.md` is unchanged.
-- **Pauses delay NEW buys only** (never exits): fast-lane price shocks, news pauses, `halt_buys_today`, safe mode, and the event-day buy blocks of section 6 (CPI, jobs, FOMC, RBI, Budget).
+- **Claude's bias** (via `guidance.json`, stale counts as neutral): `block` = no new buys or adds for that metal (an existing core is held unless its target falls to 0); `neutral` = default; `favour` changes nothing under D5 (entries already go to target) and only loosens the dip when `rsi_timing` is on. Routines still never buy and never set a size. Every safety invariant in `CLAUDE.md` is unchanged.
+- **Pauses delay NEW buys only** (never exits): fast-lane price shocks, news pauses, `halt_buys_today`, safe mode, a v1 tripwire's `no_buys_until`, and the event-day buy blocks of section 6.
 - **HINDCOPPER** keeps its results-day block and the sell-before-close-on-results exit (section 6).
-- The fast lane's defensive sell advice (`exit_partial`, `exit_full`) is still followed; `tighten_stop` has no effect because v2 has no per-trade stop.
 - Paper costs: slippage and trade costs as before (`valuation`, `broker.trade_costs`).
 
 ### V2.6 Logging
@@ -66,13 +80,13 @@ The per-minute check (`logs/checks-DATE.jsonl`) says, for example, `Price ₹119
 
 ### V2.7 Backtest (daily data, signal at the close of t, fill at the close of t+1, costs 0.15% ETF / 0.30% HINDCOPPER per side)
 
-`python run_backtest.py --strategy v2 [--data-dir DIR] [--set vol_target=0.10]` replays exactly these rules. See the pull request that introduced v2 for the measured table.
-The research strategy (V6, balanced vol target 0.10, caps 100/60/30, no brake) is reproduced with
-`--set vol_target=0.10 --set symbols.SILVERBEES.cap=0.6 --set symbols.HINDCOPPER.cap=0.3 --set sma_hysteresis=0 --set entry.overbought=1000 --set entry.dip_rsi=101 --set brake.level1_dd=9 --set brake.level2_dd=9`.
+`python run_backtest.py --strategy v2 [--data-dir DIR] [--start D] [--set key=value]` replays exactly these rules (same code as the engine).
+D5 on the research data: last 2 years about 46.6% CAGR, max drawdown about −22.6%; 2010-06 to 2024-10 about 10.6%, −19.0% (research doc: 46.5% / −23.1% and 10.8% / −17.9%).
+Plain v2 (the earlier profile) is `--set min_invested=0 --set stop_to_gold=false --set entry.rsi_timing=true`.
 
 ### V2.8 Risks the owner accepted by choosing AGGRESSIVE
 
-Drawdowns of 20% to 25% from the peak are expected before the brake bites; a single month of −6% to −9% has happened in the backtest;
+Because the D5 floor keeps about half the portfolio in gold even in a gold downtrend, drawdowns of 20% to 25% from the peak are expected before the brake bites (in-sample about −19%, last 2 years about −23%); a single month of −6% to −9% has happened in the backtest;
 trend following is flat or slightly negative in choppy markets (as in 2026); there is no longer any guarantee of a green month end;
 SILVERBEES results before 2022 in the backtest use a COMEX proxy.
 

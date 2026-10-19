@@ -61,9 +61,13 @@ def run_v2():
              + ", ".join(f"{s} {v * 100:.2f}%" for s, v in p["strategy"]["backtest"]["cost_per_side"].items()) + ". "
              "News layer off, bias neutral. Idle money earns the LIQUIDBEES yield.", "",
              "| period | CAGR | max DD | months > 0 | worst month | trades / month | avg gross | Sharpe |", "|---|---|---|---|---|---|---|---|"]
-    for name, s in (("v2 in-sample " + f"{rep['in_sample']['from']} to {rep['in_sample']['to']}", rep["in_sample"]),
-                    ("v2 last 2 years (OOS) " + f"{rep['oos']['from']} to {rep['oos']['to']}", rep["oos"]),
-                    ("buy and hold GOLDBEES, in-sample", rep["bh_in_sample"]), ("buy and hold GOLDBEES, last 2 years", rep["bh_oos"])):
+    ins, oos = rep["in_sample"], rep["oos"]
+    rows = ((f"v2 in-sample {ins['from']} to {ins['to']}" if ins else "", ins),
+            (f"v2 last 2 years (OOS) {oos['from']} to {oos['to']}", oos),
+            ("buy and hold GOLDBEES, in-sample", rep["bh_in_sample"]), ("buy and hold GOLDBEES, last 2 years", rep["bh_oos"]))
+    for name, s in rows:
+        if s is None:
+            continue
         lines.append(f"| {name} | {pct(s['cagr'])} | {pct(s['max_drawdown'])} | {pct(s['month_win'])} | {pct(s['worst_month'])} | "
                      f"{s['trades_per_month']:.2f} | {pct(s['avg_gross'])} | {s['sharpe']:.2f} |")
     text = "\n".join(lines)

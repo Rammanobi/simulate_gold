@@ -41,25 +41,58 @@ class Bars:
     high: list[float]
     low: list[float]
     dates: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)      # rows the sanity filter removed, for the log
 
 
 def _good(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) and x > 0
 
 
-def clean_bars(close, high, low, dates=None) -> Bars:
-    """Drop rows with a bad close; a high below the close (or a low above it) is data noise and is pulled onto the close."""
-    c, h, l, d = [], [], [], []
+def clean_bars(close, high, low, dates=None, spike: float = 0.25, spike_revert: float = 0.5, hl_mult: float = 4.0) -> Bars:
+    """Sanity filter for Yahoo daily bars.
+      1. rows with a bad close are dropped; a row identical to the one before (c, h, l) is a forward-filled gap, dropped;
+      2. a one-day spike is dropped: the close moved more than `spike` from the previous close AND the next close reverts
+         more than `spike_revert` of that move (the last bar cannot be judged and is kept);
+      3. a high under the close (or a low over it) is pulled onto the close, and highs/lows are clipped to
+         close +/- hl_mult x the median true range (a bad low would otherwise inflate the ATR and lower the exit level)."""
+    rows, dropped = [], []
     for i, cv in enumerate(close):
+        d = str(dates[i]) if dates is not None and i < len(dates) else ""
         if not _good(cv):
             continue
         hv = high[i] if i < len(high) and _good(high[i]) else cv
         lv = low[i] if i < len(low) and _good(low[i]) else cv
-        c.append(float(cv))
-        h.append(float(max(hv, cv)))
-        l.append(float(min(lv, cv)))
-        d.append(str(dates[i]) if dates is not None and i < len(dates) else "")
-    return Bars(c, h, l, d)
+        row = [float(cv), float(max(hv, cv)), float(min(lv, cv)), d]
+        if rows and rows[-1][:3] == row[:3]:
+            dropped.append(f"{d or i}: duplicate of the previous bar (forward-filled gap)")
+            continue
+        rows.append(row)
+    keep = list(rows)
+    changed = True
+    while changed and len(keep) > 2:
+        changed = False
+        for i in range(1, len(keep) - 1):
+            prev, cur, nxt = keep[i - 1][0], keep[i][0], keep[i + 1][0]
+            mv = cur - prev
+            if abs(mv / prev) > spike and (cur - nxt) * mv > 0 and abs(cur - nxt) > spike_revert * abs(mv):
+                dropped.append(f"{keep[i][3] or i}: close {cur:.2f} is {mv / prev * 100:+.0f}% from {prev:.2f} and reverts next day (bad print)")
+                del keep[i]
+                changed = True
+                break
+    if len(keep) > 2:
+        c = np.array([r[0] for r in keep])
+        pc = np.concatenate([[c[0]], c[:-1]])
+        h = np.array([r[1] for r in keep])
+        l = np.array([r[2] for r in keep])
+        tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
+        med = float(np.median(tr))
+        if med > 0:
+            for i, r in enumerate(keep):
+                hi, lo = min(r[1], r[0] + hl_mult * med), max(r[2], r[0] - hl_mult * med)
+                if hi != r[1] or lo != r[2]:
+                    dropped.append(f"{r[3] or i}: high/low clipped to close +/- {hl_mult:g} x median range {med:.2f}")
+                r[1], r[2] = hi, lo
+    return Bars([r[0] for r in keep], [r[1] for r in keep], [r[2] for r in keep], [r[3] for r in keep], dropped)
 
 
 # ---------------------------------------------------------------- indicators
@@ -242,15 +275,57 @@ def raw_weight(on: bool, sigma: float | None, cap: float, vol_target: float) -> 
     return min(cap, vol_target / sigma)
 
 
-def target_weights(infos: dict, st: dict, brake_mult: float = 1.0, ineligible=()) -> tuple[dict, float]:
-    """infos: {sym: (on, sigma)}. Returns ({sym: target weight}, scale) where scale is the factor that brought the sum
-    of raw weights down to 100 percent (1.0 when it already fit; there is no leverage). The brake multiplier is applied
-    after the scaling. Symbols in `ineligible` (waiting to re-confirm after the deep drawdown brake) get 0."""
+def target_weights_ex(infos: dict, st: dict, brake_mult: float = 1.0, ineligible=()) -> tuple[dict, float, dict]:
+    """infos: {sym: (on, sigma)}. Returns ({sym: target weight}, scale, detail).
+
+    1. v2 weights: raw_i = on_i * min(cap_i, vol_target / sigma_i), scaled down together when they sum to more than 100 percent
+       (`scale`; no leverage). Symbols in `ineligible` (waiting to re-confirm after the deep brake) get 0.
+    2. stop moves to gold (strategy.stop_to_gold): each SILVERBEES/HINDCOPPER that is OFF hands its vol weight
+       min(cap, vol_target / sigma) to the floor symbol (GOLDBEES), but only while gold's own trend is ON when
+       stop_to_gold_requires_gold_trend is set.
+    3. invested floor (strategy.min_invested): the floor symbol is raised so that the metals total is at least min_invested of the
+       portfolio, even when its own trend is OFF. If the total is then over 100 percent, everything is scaled down together.
+    4. brake multiplier (applied last): level 1 (0 < m < 1) multiplies every weight but the floor symbol never goes below
+       min(its weight, min_invested); level 2 (m = 0) is flat, the floor included.
+    detail: {"floor": bool, "metals_before": float, "to_gold": float, "to_gold_from": [syms], "gold_trend": bool}"""
+    syms = list(infos)
     raw = {s: (0.0 if s in ineligible else raw_weight(on, sg, st["symbols"][s]["cap"], st["vol_target"]))
            for s, (on, sg) in infos.items()}
     total = sum(raw.values())
     scale = 1.0 / total if total > 1.0 else 1.0
-    return {s: w * scale * brake_mult for s, w in raw.items()}, scale
+    w = {s: v * scale for s, v in raw.items()}
+    g = st.get("floor_symbol", "GOLDBEES")
+    detail = {"floor": False, "metals_before": sum(w.values()), "to_gold": 0.0, "to_gold_from": [], "gold_trend": bool(infos.get(g, (False,))[0])}
+    mi = float(st.get("min_invested") or 0.0)
+    if g in infos and (st.get("stop_to_gold") or mi > 0):
+        if st.get("stop_to_gold") and (infos[g][0] or not st.get("stop_to_gold_requires_gold_trend", True)):
+            for s, (on, sg) in infos.items():
+                if s != g and not on:
+                    room = min(st["symbols"][s]["cap"], st["vol_target"] / sg) if (sg and math.isfinite(sg) and sg > 0) else 0.0
+                    if room > 0:
+                        w[g] += room
+                        detail["to_gold"] += room
+                        detail["to_gold_from"].append(s)
+        detail["metals_before"] = sum(w.values())
+        if mi > 0:
+            need = mi - sum(v for s, v in w.items() if s != g)
+            if need > w[g] + 1e-12:
+                w[g] = max(need, 0.0)
+                detail["floor"] = True
+        tot = sum(w.values())
+        if tot > 1.0:
+            w = {s: v / tot for s, v in w.items()}
+    if brake_mult >= 1.0:
+        return w, scale, detail
+    out = {s: v * brake_mult for s, v in w.items()}
+    if brake_mult > 0 and g in w and mi > 0:
+        out[g] = max(out[g], min(w[g], mi))
+    return out, scale, detail
+
+
+def target_weights(infos: dict, st: dict, brake_mult: float = 1.0, ineligible=()) -> tuple[dict, float]:
+    w, scale, _ = target_weights_ex(infos, st, brake_mult, ineligible)
+    return w, scale
 
 
 # ---------------------------------------------------------------- drawdown brake
@@ -258,33 +333,55 @@ def brake_mult(level: int, st: dict) -> float:
     return {0: 1.0, 1: float(st["brake"]["level1_mult"]), 2: 0.0}[level]
 
 
-def brake_update(state: dict | None, value: float, on: dict, st: dict, start_capital: float = 100000.0) -> dict:
-    """The drawdown brake, evaluated once per daily check on total portfolio value.
+def brake_update(state: dict | None, value: float, on: dict, st: dict, start_capital: float = 100000.0,
+                 account_stop: bool = False) -> dict:
+    """The drawdown brake. Call it ONCE per trading day (it counts days) on total portfolio value.
 
-    level 0: full targets.  level 1 (value 15 percent under its peak): all targets x 0.5, released above -13 percent.
-    level 2 (25 percent under): targets 0 until value is back above -15 percent AND each symbol that was ON when the
-    brake latched has turned OFF and ON again (the trend signal re-confirms).
-    state: {"peak", "level", "reconfirm": [syms]} or None. Returns the new state plus "dd" and "changed"."""
+    level 0: full targets.
+    level 1 (value 15 percent under its peak): all targets x 0.5; released above -13 percent. A RE-BASED level 1 (see below)
+            is released only after `level1_min_days` trading days and value more than `rebase_release_gain` above the re-base.
+    level 2 (25 percent under): targets 0. Released in one of two ways:
+            a) recovery: value back above -15 percent -> level 1 if still under -13 percent, else level 0;
+            b) time: at least `level2_min_days` trading days at level 2, at least one symbol is ON and has re-confirmed
+               (turned OFF and ON again since the latch), and the account stop is not in force -> level 1 (half size) with
+               the peak re-based to the current value.
+    state: {"peak", "level", "reconfirm": [syms], "days", "rebase_value"} or None.
+    Returns the new state plus "dd" and "changed"."""
     b = st["brake"]
     s = dict(state or {})
-    peak = max(float(s.get("peak") or 0.0), float(start_capital), value)
+    peak = max(float(s.get("peak") or start_capital), value)       # starts at the start capital; only a re-base lowers it
     level = int(s.get("level") or 0)
-    reconfirm = [x for x in (s.get("reconfirm") or [])]
+    days = int(s.get("days") or 0) + 1
+    rebase = s.get("rebase_value")
+    reconfirm = list(s.get("reconfirm") or [])
+    reconfirm = [k for k in reconfirm if on.get(k, True)]       # a symbol that is OFF has reset its confirmation
     dd = value / peak - 1.0
     old = level
+
+    def enter(lv, rb=None):
+        nonlocal level, days, rebase
+        level, days, rebase = lv, 0, rb
+
     if level == 2:
         if dd > -b["level2_release_dd"]:
-            level = 0
+            enter(1 if dd <= -b["level1_release_dd"] else 0)
+        elif (days >= b["level2_min_days"] and not account_stop
+              and any(v and k not in reconfirm for k, v in on.items())):
+            peak = value
+            enter(1, value)
     elif dd <= -b["level2_dd"]:
-        level = 2
+        enter(2)
         reconfirm = sorted(k for k, v in on.items() if v)       # these must turn OFF and ON again
     elif level == 1:
-        if dd > -b["level1_release_dd"]:
-            level = 0
+        if rebase:
+            if days >= b["level1_min_days"] and value > rebase * (1 + b["rebase_release_gain"]):
+                enter(0)
+        elif dd > -b["level1_release_dd"]:
+            enter(0)
     elif dd <= -b["level1_dd"]:
-        level = 1
-    reconfirm = [k for k in reconfirm if on.get(k, True)]       # a symbol that is OFF has reset its confirmation
-    return {"peak": peak, "level": level, "reconfirm": reconfirm, "dd": dd, "changed": level != old}
+        enter(1)
+    return {"peak": peak, "level": level, "reconfirm": reconfirm, "days": days, "rebase_value": rebase,
+            "dd": value / peak - 1.0, "changed": level != old}
 
 
 # ---------------------------------------------------------------- one symbol, one check
@@ -297,13 +394,13 @@ class Decision:
 
 
 def decide(*, on: bool, target: float, cur: float, flat: bool, rsi_val: float | None, bias: str, st: dict,
-           brake_level: int = 0, eligible: bool = True) -> Decision:
+           brake_level: int = 0, eligible: bool = True, sigma_ok: bool = True) -> Decision:
     """What to do with one symbol at the daily check.
 
     target/cur are portfolio weights (0..1). `flat` means no shares are held. Rebalances only when the gap is more than
     `rebalance_threshold` (5 points); a move to or from zero always trades (entries need target >= min_entry_weight).
     New buys and adds also need: bias not "block"; entries not overbought (RSI(2) <= overbought);
-    adds need an RSI(2) dip below dip_rsi unless the bias is "favour"."""
+    adds need an RSI(2) dip below dip_rsi (bias "favour" loosens it to favour_dip_rsi, it never removes it)."""
     thr, e = st["rebalance_threshold"], st["entry"]
     if target <= 1e-9:
         if flat:
@@ -314,6 +411,8 @@ def decide(*, on: bool, target: float, cur: float, flat: bool, rsi_val: float | 
             why = "the deep drawdown brake (-25%) is on"
         elif not on:
             why = "the trend is OFF"
+        elif not sigma_ok:
+            why = "volatility is not available, so no size can be set"
         else:
             why = "the target is 0"
         return Decision("SELL", "exit", 0.0, why)
@@ -326,13 +425,14 @@ def decide(*, on: bool, target: float, cur: float, flat: bool, rsi_val: float | 
     if bias == "block":
         return Decision("SKIP", "wait", target, "Claude's bias for this metal is block, so no new buys or adds")
     r = rsi_val
+    if not e.get("rsi_timing", True):                  # D5 "stay invested": entries and adds go straight to the target
+        return Decision("BUY", "entry" if flat else "add", target, "trend ON and no position" if flat else "below target")
     if flat:
         if r is not None and r > e["overbought"]:
             return Decision("SKIP", "wait", target, f"RSI(2) {r:.1f} is overbought (above {e['overbought']:g}), so the entry waits")
         return Decision("BUY", "entry", target, "trend ON and no position")
-    if bias == "favour":
-        return Decision("BUY", "add", target, "bias is favour, so it may add without waiting for a dip")
-    if r is not None and r < e["dip_rsi"]:
-        return Decision("BUY", "add", target, f"RSI(2) {r:.1f} < {e['dip_rsi']:g} dip")
+    lim = e["favour_dip_rsi"] if bias == "favour" else e["dip_rsi"]       # favour only loosens the dip, it never removes it
+    if r is not None and r < lim:
+        return Decision("BUY", "add", target, f"RSI(2) {r:.1f} < {lim:g} dip" + (" (bias favour loosens it)" if bias == "favour" else ""))
     rs = "n/a" if r is None else f"{r:.1f}"
-    return Decision("HOLD", "wait", target, f"below target, waiting for a dip (RSI(2) {rs} is not under {e['dip_rsi']:g})")
+    return Decision("HOLD", "wait", target, f"below target, waiting for a dip (RSI(2) {rs} is not under {lim:g})")

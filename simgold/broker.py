@@ -34,6 +34,9 @@ class Position:
     buy_costs: float = 0.0       # entry costs of the shares still held (for net P&L)
     last_price: float = 0.0
     entry_ts: str = ""
+    # --- strategy v2 (trend core) ---------------------------------------------------------------
+    ai_stop: float = 0.0         # fast-lane tighten_stop (only ever raised); enforced every tick: price at or under it sells all
+    exit_level: float = 0.0      # where the trend turns OFF (informational, NOT enforced intraday; the daily check enforces it)
 
 
 _NUM_FIELDS = ("cash", "liquidbees", "floor", "best_profit", "realised_pnl", "total_costs", "peak_equity",
@@ -81,7 +84,7 @@ def validate_portfolio_dict(d) -> bool:
         q = v.get("qty", 0)
         if not _finite(q) or q < 0 or q != int(q):
             raise ValueError(f"position {sym} has a bad quantity {q!r}")
-        for k in ("avg_cost", "high_water", "stop", "last_price", "buy_costs"):
+        for k in ("avg_cost", "high_water", "stop", "last_price", "buy_costs", "ai_stop", "exit_level"):
             if k in v and (not _finite(v[k]) or v[k] < 0):
                 raise ValueError(f"position {sym}.{k} is not a sane number: {v[k]!r}")
         if q > 0 and not (v.get("avg_cost", 0) > 0):

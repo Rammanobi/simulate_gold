@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
 ACTIONS = ("BUY", "SELL", "SKIP", "BLOCK", "HOLD")
 DEC_KEYS = ("time", "action", "symbol", "qty", "price", "amount", "pnl", "reason", "trigger", "stop", "risk",
-            "value_after")
+            "value_after", "exit_level")
 MAX_TICKS = 140         # keeps a document far below the 256 KiB database limit
 MAX_NOTES = 30
 MAX_CHECK_CHARS = 220

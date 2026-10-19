@@ -45,7 +45,7 @@ FUTURE_SLACK = timedelta(minutes=5)     # state files dated further ahead than t
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
             "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode",
             # strategy v2 (trend core)
-            "Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop"}
+            "Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop", "Strategy mode", "Tripwire"}
 
 
 @dataclass
@@ -140,6 +140,7 @@ class Engine:
         self.rt = pf.runtime
         self.v2 = trend.is_v2(self.p)                       # strategy v2 (trend core) instead of the v1 score rules
         self.st = self.p.get("strategy") or {}
+        self.v2_detail: dict = {}
         self.v2_halted = False                              # hard account stop in force this tick
         self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
         self.fast_cap = budget.fastlane_cap(self.p, env.state_dir)   # thrift mode (state/budget.json) lowers it
@@ -177,11 +178,13 @@ class Engine:
             "symbol": sym, "qty": int(qty), "price": round(price, 2) if price else None,
             "amount": round(qty * price, 2) if price else 0.0,
             "pnl": round(pnl, 2) if pnl is not None else None, "reason": reason, "trigger": trigger,
-            "stop": round(pos.stop, 2) if pos and pos.stop else None,
+            "stop": round(pos.ai_stop if self.v2 else pos.stop, 2) if pos and (pos.ai_stop if self.v2 else pos.stop) else None,
             "risk": round(guard.position_risk(sym, pos.qty, pos.last_price or pos.avg_cost, self.night_mult(sym), self.p), 2)
             if pos and sym in self.p["instruments"] else 0.0,
             "value_after": round(self.value(), 2), "floor": round(self.pf.floor, 2),
         }
+        if self.v2 and pos and pos.exit_level:
+            rec["exit_level"] = round(pos.exit_level, 2)
         if extra:
             rec.update(extra)
         self.log.append(rec)
@@ -218,12 +221,12 @@ class Engine:
                 pos.avg_cost = fill
                 pos.qty = qty
                 pos.high_water = px
-                pos.stop = guard.initial_stop_price(sym, fill, self.p)
+                pos.stop = 0.0 if self.v2 else guard.initial_stop_price(sym, fill, self.p)
             else:
                 pos.avg_cost = (pos.avg_cost * pos.qty + amount) / (pos.qty + qty)
                 pos.qty += qty
                 pos.adds += 1
-                if not pos.half_sold:
+                if not pos.half_sold and not self.v2:
                     pos.stop = max(pos.stop, guard.initial_stop_price(sym, pos.avg_cost, self.p))
             pos.buy_costs += cost
             pos.last_price = px
@@ -272,6 +275,7 @@ class Engine:
     # ------------------------------------------------------------------ 1. housekeeping
     def housekeeping(self):
         pf, c = self.pf, self.pf.counters
+        self.v2_mode_switch()
         if c.get("date") != self.day.isoformat():
             old_week = c.get("buys_week", {})
             c.clear()
@@ -394,8 +398,9 @@ class Engine:
                        f"while the AI reviews it." + (f' Headline: "{head}"' if head else "")
                        + (f" (category: {cats})." if cats else ""))
             elif t["kind"] == "portfolio":
-                why = (f"The portfolio lost a large part of its safety cushion within 15 minutes, so new buys are paused "
-                       f"for {mins} minutes.")
+                why = ((f"The portfolio value fell sharply within 15 minutes, so new buys are paused for {mins} minutes." if self.v2 else
+                        f"The portfolio lost a large part of its safety cushion within 15 minutes, so new buys are paused "
+                        f"for {mins} minutes."))
             else:
                 why = f"{t['detail']} New buys in {where} are paused for {mins} minutes while the AI reviews it."
             self._block(t["symbol"], mins, src, why)
@@ -407,9 +412,14 @@ class Engine:
                "positions": {s: {"qty": p.qty, "entry": round(p.avg_cost, 2), "stop": round(p.stop, 2)}
                              for s, p in pf.positions.items()},
                "value": round(self.value(), 2), "floor": round(pf.floor, 2), "fired": False}
+        if self.v2:
+            peak = float((self.v2_state().get("brake") or {}).get("peak") or self.p["capital"]["start"])
+            rec["account_stop"], rec["drawdown_from_peak"] = rec["floor"], round(rec["value"] / max(peak, rec["value"]) - 1, 4)
         if ok:
             summary = {"trigger": [t["detail"] for t, _ in events][:4], "prices": rec["prices"], "positions": rec["positions"],
                        "value": rec["value"], "floor": rec["floor"], "time": now.strftime("%H:%M")}
+            if self.v2:
+                summary.update(account_stop=rec["account_stop"], drawdown_from_peak=rec["drawdown_from_peak"])
             attempted, note = fastlane.fire(self.env.environ, summary, self.env.post)
             if attempted:
                 runs["n"] = runs.get("n", 0) + 1
@@ -443,7 +453,7 @@ class Engine:
         if (self.now - upd) > timedelta(minutes=self.p["engine"]["fastlane_max_age_min"]):
             return []
         self.rt["fl_applied_updated"] = upd.isoformat()
-        pos = {s: {"qty": p.qty, "price": p.last_price or p.avg_cost, "stop": p.stop}
+        pos = {s: {"qty": p.qty, "price": p.last_price or p.avg_cost, "stop": p.ai_stop if self.v2 else p.stop}
                for s, p in self.pf.positions.items()}
         acc, rej = guard.sanitize_fastlane(raw, self.now, pos, self.p)
         if rej:
@@ -709,6 +719,25 @@ class Engine:
     def v2_state(self) -> dict:
         return self.rt.setdefault("v2", {})
 
+    def v2_mode_switch(self):
+        """Mode-specific state is reset when strategy.mode changes, in either direction (one log line)."""
+        cur = "v2_trend" if self.v2 else "v1_scores"
+        if self.rt.get("strategy_mode", "v1_scores") == cur:
+            return
+        self.rt["strategy_mode"] = cur
+        if self.v2:
+            self.rt.pop("v2", None)                     # an old brake peak from months ago must not come back
+            for pos in self.pf.positions.values():      # v1 stops keep protecting the position from the very first v2 tick
+                pos.ai_stop = max(pos.ai_stop, pos.stop)
+                pos.stop, pos.exit_level = 0.0, 0.0
+            msg = ("Strategy mode changed to v2 trend core: strategy v2 active. The fixed account stop is now the floor, "
+                   "the drawdown brake starts from today's value, and any v1 stop on an open position keeps protecting it every minute.")
+        else:
+            for sym, pos in self.pf.positions.items():  # v2's far-away trend level must not become a loosened v1 stop
+                pos.stop, pos.ai_stop, pos.exit_level, pos.half_sold = guard.initial_stop_price(sym, pos.avg_cost, self.p), 0.0, 0.0, False
+            msg = "Strategy mode changed to v1 score rules: every open position got its v1 initial stop back."
+        self.record("HOLD", "ALL", 0, None, msg, "Strategy mode")
+
     def v2_infos(self) -> dict:
         """Trend state per symbol from completed daily closes plus the live price as today's provisional close.
         None for a symbol without a good live price or enough daily history."""
@@ -723,76 +752,135 @@ class Engine:
                 out[sym] = None
         return out
 
+    def price_age(self, sym: str) -> float:
+        ts = self.mkt.price_ts.get(sym)
+        return (self.now - ts).total_seconds() / 60 if ts else 0.0
+
+    def fresh(self, sym: str) -> bool:
+        return sym in self.mkt.prices and self.price_age(sym) <= self.p["entry"]["max_price_age_min"]
+
     def v2_weights(self, infos: dict, level: int, reconfirm) -> tuple[dict, float, float]:
         mult = trend.brake_mult(level, self.st)
-        w, scale = trend.target_weights({s: (i.on, i.sigma) for s, i in infos.items() if i}, self.st, mult, reconfirm)
+        w, scale, self.v2_detail = trend.target_weights_ex({s: (i.on, i.sigma) for s, i in infos.items() if i}, self.st, mult, reconfirm)
         return w, scale, mult
 
     def cur_weight(self, sym: str, value: float) -> float:
         pos, px = self.pf.positions.get(sym), self.price(sym)
         return pos.qty * px / value if pos and px and value > 0 else 0.0
 
+    def v2_sell(self, sym: str, qty: int, reason: str, trigger: str, stop_out: bool = False) -> bool:
+        return self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
+
+    def v2_no_rebuy(self, sym: str):
+        """After a fast-lane, AI-stop or event sell the engine must not undo it: no buys of that symbol until the next trading day."""
+        self.cd.setdefault("v2_no_rebuy", {})[sym] = market.next_trading_day(self.day).isoformat()
+
+    def v2_account_suspended(self) -> bool:
+        clear = self.st.get("account_stop_clear_after")
+        return bool(clear) and str(clear) >= self.day.isoformat()
+
+    def v2_account_latched(self) -> bool:
+        lat = self.cd.get("account_stop_latched")
+        if not isinstance(lat, dict):
+            return False
+        clear = self.st.get("account_stop_clear_after")
+        return not (clear and str(clear) >= str(lat.get("date")))
+
     def v2_exits(self, advice: list[dict]):
-        """Between the daily checks only defence applies: the fast lane's sell advice and the HINDCOPPER results exit.
-        Trend exits happen at the daily check (v2_decide). No tripwire, no overnight or month-end rules in v2."""
+        """Every tick: defence that does not wait for the daily check. The fast lane's sell advice, the AI stops
+        (tighten_stop, enforced every minute), the HINDCOPPER results exit and the hard account stop. The trend exits
+        happen at the daily check (v2_tick). No tripwire, no overnight or month-end rules in v2."""
         pf = self.pf
         for a in advice:
             pos = pf.positions.get(a["sym"])
-            if pos and a["type"] == "sell_fraction":
+            if not pos:
+                continue
+            if a["type"] == "sell_fraction":
                 q = pos.qty if a["fraction"] >= 0.99 else max(1, int(pos.qty * a["fraction"]))
-                self.sell(a["sym"], q, f"The AI fast lane advised selling {a['fraction'] * 100:.0f}% of {a['sym']} "
-                                       f"as a precaution, and the rules allow selling.", "Opus guidance")
+                if self.v2_sell(a["sym"], q, f"The AI fast lane advised selling {a['fraction'] * 100:.0f}% of {a['sym']} "
+                                             f"as a precaution, and the rules allow selling.", "Opus guidance"):
+                    self.v2_no_rebuy(a["sym"])
+            elif a["type"] == "tighten_stop" and a["stop"] > pos.ai_stop:
+                pos.ai_stop = a["stop"]
+                self.record("HOLD", a["sym"], pos.qty, pos.last_price,
+                            f"The AI fast lane tightened the {a['sym']} stop to ₹{a['stop']:,.2f}; it is checked every minute and the "
+                            f"whole position is sold at or under it.", "Opus guidance")
+        for sym, pos in list(pf.positions.items()):
+            px = self.mkt.prices.get(sym)
+            if pos.ai_stop > 0 and px and px <= pos.ai_stop:
+                if self.v2_sell(sym, pos.qty, f"{sym} price ₹{px:,.2f} is at or under the stop ₹{pos.ai_stop:,.2f} "
+                                              f"(set by the AI fast lane or inherited from v1), so it was sold.", "Opus guidance", stop_out=True):
+                    self.v2_no_rebuy(sym)
         for sym, (at, why) in self.er.forced_exits.items():
             if sym in pf.positions and self.now.time() >= at:
-                self.sell(sym, pf.positions[sym].qty, why, "Event rule")
+                if self.v2_sell(sym, pf.positions[sym].qty, why, "Event rule"):
+                    self.v2_no_rebuy(sym)
+        self.v2_account_stop()
 
-    def v2_account_stop(self, value: float) -> bool:
-        stop = float(self.st["account_stop"])
-        if value > stop:
-            return False
-        if self.cd.get("account_stop_date") != self.day.isoformat():
-            self.cd["account_stop_date"] = self.day.isoformat()
-            why = (f"Portfolio value ₹{value:,.0f} is at or under the hard account stop ₹{stop:,.0f}, so all new buys are halted "
-                   f"(trend exits and the drawdown brake still work).")
+    def v2_account_stop(self):
+        """Value at or under the hard account stop: SELL EVERYTHING at once, halt buys, HIGH alert. It latches until the owner
+        clears it (strategy.account_stop_clear_after, an ISO date on or after the day it fired, in a config commit)."""
+        stop, value = float(self.st["account_stop"]), self.value()
+        fired = False
+        if value <= stop and not self.v2_account_suspended() and not self.v2_account_latched():
+            self.cd["account_stop_latched"] = {"date": self.day.isoformat(), "value": round(value, 2)}
+            why = (f"Portfolio value ₹{value:,.0f} is at or under the hard account stop ₹{stop:,.0f}, so everything is sold and all "
+                   f"buys stay halted until the owner clears the stop (strategy.account_stop_clear_after).")
             self.record("BLOCK", "ALL", 0, None, why, "Account stop")
             try:
                 alerts.raise_alert(self.env.state_dir, "engine", "account_stop", "account_stop", why)
             except Exception:       # noqa: BLE001 - an alert problem must never stop trading
                 log.exception("could not raise the account-stop alert")
-        return True
-
-    def v2_buy_blocker(self, sym: str, px: float) -> tuple[str, str] | None:
-        """Why a NEW buy or add must wait today: (plain reason, trigger) or None. Exits are never blocked."""
-        now = self.now
-        age = (now - self.mkt.price_ts[sym]).total_seconds() / 60 if sym in self.mkt.price_ts else 0.0
-        if age > self.p["entry"]["max_price_age_min"]:
-            return f"The latest {sym} price is {age:.0f} minutes old, older than the {self.p['entry']['max_price_age_min']} minute limit.", "Trend check"
-        if self.safe_mode:
-            return "The system is in safe mode after an incident, so no new buys (exits still work).", "Safe mode"
+            fired = True
+        self.v2_halted = fired or self.v2_account_latched()
         if self.v2_halted:
-            return f"The hard account stop ₹{self.st['account_stop']:,.0f} is in force, so no new buys.", "Account stop"
+            for sym in list(self.pf.positions):
+                self.v2_sell(sym, self.pf.positions[sym].qty, f"The hard account stop ₹{stop:,.0f} is in force, so {sym} was sold.", "Account stop")
+
+    def v2_buy_blocker(self, sym: str, px: float) -> tuple[str, str, bool] | None:
+        """Why a NEW buy or add must wait: (plain reason, trigger, retry_today) or None. Exits are never blocked.
+        retry_today is True for a pause that ends before the check window closes: the symbol stays pending."""
+        now = self.now
+        if not self.fresh(sym):
+            return (f"The latest {sym} price is {self.price_age(sym):.0f} minutes old, older than the "
+                    f"{self.p['entry']['max_price_age_min']} minute limit.", "Trend check", True)
+        if self.safe_mode:
+            return "The system is in safe mode after an incident, so no new buys (exits still work).", "Safe mode", False
+        if self.v2_halted:
+            return f"The hard account stop ₹{self.st['account_stop']:,.0f} is in force, so no new buys.", "Account stop", False
+        nb = self.cd.get("no_buys_until")
+        if nb and self.day.isoformat() < nb:
+            return f"A v1 tripwire sold everything recently, so no buys until {nb}.", "Tripwire", False
+        nr = self.cd.get("v2_no_rebuy", {}).get(sym)
+        if nr and self.day.isoformat() < nr:
+            return (f"{sym} was sold today by the fast lane, a stop or an event rule, so it is not bought back before {nr}.",
+                    "Opus guidance", False)
         if self.cd.get("halt_date") == self.day.isoformat():
-            return "The AI fast lane stopped all new buys for today.", "Opus guidance"
+            return "The AI fast lane stopped all new buys for today.", "Opus guidance", False
+        end = datetime.combine(self.day, guard.hhmm(self.st["check_until"]), tzinfo=now.tzinfo)
         for key in (sym, "ALL"):
             until = _dt(self.cd.get("block_until", {}).get(key), now.tzinfo)
             if until and until > now:
                 src = self.cd.get("block_src", {}).get(key, "Price shock")
                 what = {"News trigger": "a market-moving news headline was flagged",
                         "Opus guidance": "the AI fast lane asked for a pause"}.get(src, "a fast price move was flagged")
-                return f"Buying {sym} is paused until {until:%H:%M} because {what}.", src
+                return f"Buying {sym} is paused until {until:%H:%M} because {what}.", src, until < end
         why = self.er.buy_block(sym, now.time())
         if why:
-            return why, "Event rule"
+            return why, "Event rule", False
         return None
 
     def v2_tick(self):
-        """Every minute: refresh the trend state and the per-symbol check line; at the daily check time run v2_decide once."""
+        """Every minute: refresh the per-symbol check line, then run the daily trend check.
+        Per symbol: 15:10 to 15:25 a symbol is checked as soon as it has a FRESH price (a stale or missing price waits and
+        retries every minute). After 15:25 only exits and trims are made, until the close. If a whole day was missed, an
+        exits-only catch-up runs on the first tick of the next day."""
         value = self.value()
-        self.v2_halted = self.v2_account_stop(value)
         infos = self.v2_infos()
         v2 = self.v2_state()
         br = v2.get("brake") or {}
         targets, scale, mult = self.v2_weights(infos, int(br.get("level") or 0), br.get("reconfirm") or [])
+        today = self.day.isoformat()
         t = self.now.time()
         t0, t1 = guard.hhmm(self.st["check_time"]), guard.hhmm(self.st["check_until"])
         for sym, i in infos.items():
@@ -804,13 +892,41 @@ class Engine:
             state, detail = trend.describe(i, self.st)
             self.check[sym] = (f"Trend {state}: {detail}, target {targets.get(sym, 0.0) * 100:.0f}% "
                                f"(now {self.cur_weight(sym, value) * 100:.0f}%).")
-        if v2.get("done") == self.day.isoformat() or t < t0 or t > t1:
-            return
-        ready = all(infos.values()) or t >= t1
-        if not ready:
-            return
-        self.v2_decide(infos, value)
-        v2["done"] = self.day.isoformat()
+        done = v2.get("done")
+        if not isinstance(done, dict) or done.get("date") != today:
+            done = v2["done"] = {"date": today, "syms": {}, "blk": [], "skip": []}
+        lf, prev_day = v2.get("last_full"), market.prev_trading_day(self.day).isoformat()
+        if lf and lf < prev_day and self.pf.positions and not (t0 <= t <= t1):
+            # the previous day's check was missed (outage, late cron): exits and trims only, on the first tick
+            held = [s for s in self.pf.positions if infos.get(s)]
+            blind = [s for s in self.pf.positions if not infos.get(s)]          # held but no price / history yet: retried next tick
+            if held:
+                self.v2_decide(infos, value, held, "exits", {"date": today, "syms": {}, "blk": [], "skip": []}, log_target=False)
+            if not blind:
+                v2["last_full"] = prev_day
+        if t0 <= t <= t1:
+            ready = [s for s in self.syms if infos[s] and self.fresh(s) and s not in done["syms"]]
+            if ready:
+                self.v2_decide(infos, value, ready, "full", done)
+            if t >= t1:
+                for s in self.syms:
+                    if s not in done["syms"] and s not in done["skip"]:
+                        done["skip"].append(s)
+                        self.record("SKIP", s, 0, self.mkt.prices.get(s),
+                                    f"No fresh price and daily history for {s} by the end of the check window, so no trend check was made "
+                                    f"today; exits are retried every minute until the close.", "Trend check")
+        elif t > t1:
+            late = [s for s in self.syms if infos[s] and s not in done["syms"]]
+            if late:
+                self.v2_decide(infos, value, late, "exits", done)
+            for s in self.syms:
+                if s not in done["syms"] and s not in done["skip"] and not infos[s]:
+                    done["skip"].append(s)
+                    self.record("SKIP", s, 0, self.mkt.prices.get(s),
+                                f"No price and daily history for {s} at the check, so no trend check was made; exits retry every minute.",
+                                "Trend check")
+        if len(done["syms"]) == len(self.syms):
+            v2["last_full"] = today
 
     def v2_why(self, sym: str, i, w: float, scale: float, mult: float, dd: float) -> str:
         """'GOLDBEES trend ON (close 121.40 > SMA200 118.90); target 87% = min(1, 0.14/0.161)'"""
@@ -818,6 +934,15 @@ class Engine:
         state, detail = trend.describe(i, st)
         cap = st["symbols"][sym]["cap"]
         out = f"{sym} trend {state} ({detail}); "
+        dt = self.v2_detail
+        if sym == st.get("floor_symbol", "GOLDBEES") and dt.get("floor"):
+            mi = st["min_invested"]
+            return (f"{sym} floor: metals {dt['metals_before'] * 100:.0f}% < min_invested {mi * 100:.0f}% → target {w * 100:.0f}% gold "
+                    f"(trend {state}, floor holding; {detail})"
+                    + (f"; includes {dt['to_gold'] * 100:.0f}% handed over by {', '.join(dt['to_gold_from'])}" if dt["to_gold"] else "")
+                    + (f" x {mult:g} (drawdown brake, value {dd * 100:.1f}% from its peak)" if mult != 1.0 else ""))
+        if sym == st.get("floor_symbol", "GOLDBEES") and dt.get("to_gold"):
+            out += (f"stop moves to gold: {', '.join(dt['to_gold_from'])} OFF hands over {dt['to_gold'] * 100:.0f}% while gold is above its SMA; ")
         if i.on and i.sigma:
             out += f"target {w * 100:.0f}% = min({cap:g}, {st['vol_target']:g}/{i.sigma:.3f})"
             if scale < 1 - 1e-9:
@@ -828,30 +953,41 @@ class Engine:
             out += f"target {w * 100:.0f}%"
         return out
 
-    def v2_decide(self, infos: dict, value: float):
-        pf, st = self.pf, self.st
-        v2 = self.v2_state()
+    def v2_brake(self, infos: dict, value: float) -> dict:
+        """The drawdown brake, advanced once per trading day (it counts days)."""
+        v2, st = self.v2_state(), self.st
+        if v2.get("brake_day") == self.day.isoformat() and isinstance(v2.get("brake"), dict):
+            return v2["brake"]
         on = {s: i.on for s, i in infos.items() if i}
-        br = trend.brake_update(v2.get("brake"), value, on, st, self.p["capital"]["start"])
-        v2["brake"] = {k: br[k] for k in ("peak", "level", "reconfirm")}
-        dd = br["dd"]
+        br = trend.brake_update(v2.get("brake"), value, on, st, self.p["capital"]["start"],
+                                account_stop=self.v2_halted or self.v2_account_latched())
+        v2["brake"] = {k: v for k, v in br.items() if k != "changed"}
+        v2["brake_day"] = self.day.isoformat()
         if br["changed"]:
-            lvl = br["level"]
+            lvl, dd, bk = br["level"], br["dd"], st["brake"]
             msg = {0: f"The drawdown brake is released: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so targets are back to full size.",
-                   1: f"Drawdown brake level 1: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so every target is cut to {st['brake']['level1_mult']:g}x.",
-                   2: f"Drawdown brake level 2: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so all targets are 0 until value recovers above -{st['brake']['level2_release_dd'] * 100:.0f}% and each trend re-confirms."}[lvl]
+                   1: f"Drawdown brake level 1: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so every target is cut to {bk['level1_mult']:g}x"
+                      + (" (the peak was re-based to today's value after a long pause at level 2)." if br.get("rebase_value") else "."),
+                   2: f"Drawdown brake level 2: value ₹{value:,.0f} is {dd * 100:.1f}% from its peak ₹{br['peak']:,.0f}, so all targets are 0 until value recovers above "
+                      f"-{bk['level2_release_dd'] * 100:.0f}% or {bk['level2_min_days']} trading days pass and a trend re-confirms."}[lvl]
             self.record("BLOCK" if lvl else "HOLD", "ALL", 0, None, msg, "Drawdown brake")
-        targets, scale, mult = self.v2_weights(infos, br["level"], br["reconfirm"])
+        return v2["brake"]
+
+    def v2_decide(self, infos: dict, value: float, run_syms: list, mode: str, done: dict, log_target: bool = True):
+        """Decide and trade `run_syms`. mode "full": entries, adds, trims and exits. mode "exits": trims and exits only."""
+        pf, st = self.pf, self.st
+        br = self.v2_brake(infos, value)
+        dd = value / max(float(br.get("peak") or value), 1.0) - 1.0
+        targets, scale, mult = self.v2_weights(infos, br["level"], br.get("reconfirm") or [])
         bias, fresh, upd = self.guidance()
         plan = []
-        for sym, i in infos.items():
-            if i is None:
-                continue
+        for sym in run_syms:
+            i = infos[sym]
             pos = pf.positions.get(sym)
             cur = self.cur_weight(sym, value)
             d = trend.decide(on=i.on, target=targets[sym], cur=cur, flat=not pos or pos.qty <= 0, rsi_val=i.rsi,
                              bias=self.effective_bias(sym, bias, fresh, upd), st=st, brake_level=br["level"],
-                             eligible=sym not in br["reconfirm"])
+                             eligible=sym not in (br.get("reconfirm") or []), sigma_ok=bool(i.sigma and i.sigma > 0))
             plan.append((sym, i, cur, d))
         for sym, i, cur, d in plan:                                     # sells first: they free the money for the buys
             if d.action != "SELL":
@@ -865,13 +1001,17 @@ class Engine:
                 continue
             base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
             what = f"selling all {qty} units" if qty >= pos.qty else f"selling {qty} units to get back to the target"
-            trig = "Trend exit" if not i.on else ("Drawdown brake" if br["level"] else "Rebalance")
-            self.sell(sym, qty, f"{base}; {what} ({d.why})", trig)
+            trig = "Drawdown brake" if br["level"] == 2 else ("Trend exit" if not i.on and targets[sym] <= 0 else
+                                                              ("Drawdown brake" if br["level"] else "Rebalance"))
+            self.v2_sell(sym, qty, f"{base}; {what} ({d.why})", trig)
+        retry = set()
         for sym, i, cur, d in plan:
             pos = pf.positions.get(sym)
+            if pos:
+                pos.exit_level = i.exit_level or 0.0                    # informational: where the trend turns OFF
+            if mode != "full":
+                continue
             px = self.mkt.prices.get(sym)
-            if pos and i.exit_level:
-                pos.stop = i.exit_level                                 # informational: where the trend turns OFF
             if d.action == "SKIP":
                 self.record("SKIP", sym, 0, px, f"{self.v2_why(sym, i, targets[sym], scale, mult, dd)}; no buy: {d.why}", "Trend check")
                 continue
@@ -880,7 +1020,11 @@ class Engine:
             base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
             blk = self.v2_buy_blocker(sym, px)
             if blk:
-                self.record("BLOCK", sym, 0, px, f"{base}; no buy: {blk[0]}", blk[1])
+                if sym not in done["blk"]:
+                    done["blk"].append(sym)
+                    self.record("BLOCK", sym, 0, px, f"{base}; no buy: {blk[0]}", blk[1])
+                if blk[2] and self.now.time() < guard.hhmm(st["check_until"]):
+                    retry.add(sym)                                       # the pause ends before the window closes: try again
                 continue
             fill_px = px * (1 + self.p["valuation"]["paper_slippage"][sym])
             qty = int((d.to_w - cur) * value / fill_px)
@@ -895,19 +1039,26 @@ class Engine:
             c["buys_today"] = c.get("buys_today", 0) + 1
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
             self.cd["last_buy_ts"] = self.now.isoformat()
-            if i.exit_level and sym in pf.positions:
-                pf.positions[sym].stop = i.exit_level
+            if sym in pf.positions:
+                pf.positions[sym].exit_level = i.exit_level or 0.0
             self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check")
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
+            if sym in retry:
+                continue
+            done["syms"][sym] = "full" if mode == "full" else "exits"
+            if not log_target:
+                continue
             state, detail = trend.describe(i, st)
             act = self.cur_weight(sym, value)
             sg = i.sigma
+            floored = sym == st.get("floor_symbol", "GOLDBEES") and (self.v2_detail.get("floor") or self.v2_detail.get("to_gold"))
+            head = (self.v2_why(sym, i, targets[sym], scale, mult, dd) if floored else f"{sym} trend {state} ({detail})")
             self.record("TARGET", sym, 0, self.price(sym),
-                        f"{sym} trend {state} ({detail}); sigma60 {('%.3f' % sg) if sg else 'n/a'}; "
-                        f"target {targets[sym] * 100:.0f}%, actual {act * 100:.0f}%", "Trend check",
-                        extra={"state": state, "sigma": round(sg, 4) if sg else None,
-                               "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1)})
+                        f"{head}; sigma60 {('%.3f' % sg) if sg else 'n/a'}; "
+                        f"target {targets[sym] * 100:.0f}%, actual {act * 100:.0f}%" + ("" if mode == "full" else " (exits-only check)"),
+                        "Trend check", extra={"state": state, "sigma": round(sg, 4) if sg else None,
+                                              "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1)})
 
     # ------------------------------------------------------------------ 5. snapshot
     def snapshot(self):

@@ -59,7 +59,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `text_path` in full (Read tool, all lines) and call the Gmail `send_message` tool with only:
    `to` = that `to` value, `subject` = the JSON subject exactly (starts "Metals Daybook"),
    `body` = the text file's contents, `htmlBody` = the HTML file's contents.
-   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar, decision list; see
+   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar (under v2 the account-stop and brake bar), trend targets table, decision list; see
    `templates/email_report.sample.html`). Pass both files character for character: never summarise, shorten,
    restyle, "clean up", re-format or write your own HTML or text, even if the file is long (40+ KB on a busy day is
    normal) or looks repetitive. Do not add or remove anything (no notes, no links, no greeting). Anything you want

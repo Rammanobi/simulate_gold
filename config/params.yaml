@@ -150,12 +150,18 @@ strategy:
   donchian_exit_days: 20              # OFF below max(peak close since entry - atr_mult x ATR, lowest low of the prior 20 days)
   atr_days: 20
   atr_mult: 3.0
+  min_invested: 0.50                  # D5 "stay invested": metals are at least 50% of the portfolio, held as GOLDBEES even when its trend is OFF
+  floor_symbol: GOLDBEES              # (0 turns the floor off = plain v2)
+  stop_to_gold: true                  # a SILVERBEES/HINDCOPPER that is OFF hands its vol weight min(cap, vol_target/sigma) to gold ...
+  stop_to_gold_requires_gold_trend: true   # ... only while gold is above its SMA200
   rebalance_threshold: 0.05           # trade only when |target - current| > 5 points of portfolio value (to/from zero always trades)
   min_entry_weight: 0.01              # no new position smaller than 1% of the portfolio
   entry:
     rsi_days: 2                       # RSI(2) of daily closes, today's live price is the provisional close
-    overbought: 90                    # a NEW entry waits while RSI(2) is above this
-    dip_rsi: 5                        # while ON and below target, ADD only when RSI(2) < 5 (bias favour skips this wait)
+    rsi_timing: false                 # false (D5): entries and adds go straight to the target, no RSI(2) wait. true = the earlier v2: wait for ...
+    overbought: 90                    # (rsi_timing true) a NEW entry waits while RSI(2) is above this
+    dip_rsi: 5                        # (rsi_timing true) while ON and below target, ADD only when RSI(2) < 5
+    favour_dip_rsi: 15                # bias favour only LOOSENS the dip: add when RSI(2) < 15 (it never removes the dip requirement)
   check_time: "15:10"                 # the daily trend check (entries, adds, rebalances AND exits) runs once, from this IST time ...
   check_until: "15:25"                # ... and is retried each minute until this time if a price is missing or stale
   history_period: "3y"                # daily history the live engine downloads for the SMA200, Donchian and volatility
@@ -164,8 +170,19 @@ strategy:
     level1_mult: 0.5
     level1_release_dd: 0.13           # back above -13% releases level 1 (small hysteresis against flip-flopping)
     level2_dd: 0.25                   # -25%: targets 0 ...
-    level2_release_dd: 0.15           # ... until value is back above -15% AND each symbol that was ON has turned OFF and ON again
-  account_stop: 75000                 # hard account stop: value at or under this halts all buys and raises a HIGH alert (also the engine's "floor")
+    level2_release_dd: 0.15           # ... until value is back above -15% (then level 1 if still under -13%, else level 0) ...
+    level2_min_days: 20               # ... OR after this many trading days at level 2 once at least one trend has re-confirmed
+                                      #     (OFF then ON again): level 1 (half size) with the peak re-based to the current value
+    level1_min_days: 20               # a re-based level 1 goes to level 0 only after this many trading days ...
+    rebase_release_gain: 0.03         # ... AND value more than 3% above the re-based value
+  account_stop: 75000                 # hard account stop: value at or under it SELLS EVERYTHING at once, halts buys, raises a HIGH alert (also the engine's "floor")
+  account_stop_clear_after: null      # OWNER ONLY: the stop latches. To resume trading set this to an ISO date on or after the day it fired (e.g. "2026-12-01") in a commit
+  fast_lane_portfolio_drop: 0.015     # portfolio fast-lane trigger under v2: value fell this share of itself within portfolio_drop_window_min
+  data:                               # daily-bar sanity filter (Yahoo glitches) and history download failures
+    spike_move: 0.25                  # a close more than 25% from the previous close that reverts over half the next day is dropped (ETFs) ...
+    spike_move_equity: 0.30           # ... 30% for HINDCOPPER
+    hl_range_mult: 4.0                # highs and lows are clipped to close +/- 4 x the median true range
+    history_fail_alert_after: 3       # consecutive failed daily-history downloads before a MEDIUM alert
   backtest:                           # run_backtest.py --strategy v2
     cost_per_side: {GOLDBEES: 0.0015, SILVERBEES: 0.0015, HINDCOPPER: 0.0030}   # costs + slippage, as in the research
     lag_days: 1                       # signal at close t, fill at close t+1 (the live engine fills at the check, so this is conservative)

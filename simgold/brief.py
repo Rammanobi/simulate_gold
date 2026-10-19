@@ -15,7 +15,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import config, market
+from . import config, market, trend
 from .broker import Portfolio
 from .guard import normalise_events
 
@@ -72,18 +72,24 @@ def portfolio_view(root: Path, params: dict, now: datetime) -> dict:
         else Portfolio()
     inst = params["instruments"]
     value = pf.cash + pf.liquidbees
+    v2 = trend.is_v2(params)
     positions = []
     for sym, pos in pf.positions.items():
         px = pos.last_price or pos.avg_cost
         cost = inst.get(sym, {}).get("cost", 0.001)
         value += pos.qty * px * (1 - cost / 2)
-        positions.append({"symbol": sym, "qty": pos.qty, "avg": pos.avg_cost, "last": px, "stop": pos.stop,
-                          "unrealized": (px - pos.avg_cost) * pos.qty})
+        positions.append({"symbol": sym, "qty": pos.qty, "avg": pos.avg_cost, "last": px, "stop": pos.ai_stop if v2 else pos.stop,
+                          "exit_level": pos.exit_level, "unrealized": (px - pos.avg_cost) * pos.qty})
     day_pnl = None
     if pf.day_costs_date == now.date().isoformat() and pf.day_open_value:
         day_pnl = value - pf.day_open_value
-    return {"value": value, "floor": pf.floor, "cushion": value - pf.floor, "best_profit": pf.best_profit,
-            "day_pnl": day_pnl, "positions": positions}
+    out = {"value": value, "floor": pf.floor, "cushion": value - pf.floor, "best_profit": pf.best_profit,
+           "day_pnl": day_pnl, "positions": positions, "v2": v2}
+    if v2:              # no floor/cushion under v2: the fixed account stop, the drawdown from the peak and the brake level
+        br = (pf.runtime.get("v2") or {}).get("brake") or {}
+        peak = max(float(br.get("peak") or params["capital"]["start"]), value)
+        out.update(account_stop=pf.floor, peak=peak, dd=value / peak - 1, brake_level=int(br.get("level") or 0))
+    return out
 
 
 def guidance_view(root: Path, now: datetime) -> dict:
@@ -262,14 +268,24 @@ def assemble(root: Path, now: datetime, params: dict, n_dec: int, headlines: lis
     L = [f"# Brief {now:%Y-%m-%d %H:%M} IST ({now:%a}) | NSE {market_status(now)}", ""]
     L.append("## Portfolio")
     day = "n/a" if pv["day_pnl"] is None else _sg(pv["day_pnl"])
-    L.append(f"value {_inr(pv['value'])} | floor {_inr(pv['floor'])} | cushion {_inr(pv['cushion'])} | "
-             f"best profit {_inr(pv['best_profit'])} | day P&L {day}")
+    if pv.get("v2"):
+        L.append(f"value {_inr(pv['value'])} | account stop {_inr(pv['account_stop'])} | drawdown from peak {pv['dd'] * 100:.1f}% "
+                 f"(peak {_inr(pv['peak'])}) | brake level {pv['brake_level']} (-15% halves, -25% flat) | "
+                 f"best profit {_inr(pv['best_profit'])} | day P&L {day}")
+    else:
+        L.append(f"value {_inr(pv['value'])} | floor {_inr(pv['floor'])} | cushion {_inr(pv['cushion'])} | "
+                 f"best profit {_inr(pv['best_profit'])} | day P&L {day}")
     L.append("")
     L.append("## Open positions")
     if pv["positions"]:
         for p in pv["positions"]:
-            L.append(f"{p['symbol']} qty {p['qty']} avg {p['avg']:.2f} last {p['last']:.2f} stop {p['stop']:.2f} "
-                     f"unreal {_sg(p['unrealized'])}")
+            if pv.get("v2"):
+                L.append(f"{p['symbol']} qty {p['qty']} avg {p['avg']:.2f} last {p['last']:.2f} "
+                         f"{'AI stop ' + format(p['stop'], '.2f') if p['stop'] else 'no AI stop'}, trend turns OFF at {p['exit_level']:.2f} "
+                         f"(checked daily) unreal {_sg(p['unrealized'])}")
+            else:
+                L.append(f"{p['symbol']} qty {p['qty']} avg {p['avg']:.2f} last {p['last']:.2f} stop {p['stop']:.2f} "
+                         f"unreal {_sg(p['unrealized'])}")
     else:
         L.append("none")
     L.append("")

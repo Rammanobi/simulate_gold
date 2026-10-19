@@ -122,6 +122,45 @@ def test_describe_donchian_texts():
     assert trend.describe(i, ST)[0] == "OFF" and "not above the 55-day high" in trend.describe(i, ST)[1]
 
 
+def flat_series(n=120):
+    return [100.0 + (i % 5) * 0.4 for i in range(n)]
+
+
+def test_spike_close_is_dropped_so_no_false_breakout_and_sigma_is_unchanged():
+    c = flat_series()
+    bad = list(c)
+    bad[80] = c[80] * 10                                                     # one bad Yahoo print that reverts next day
+    clean = trend.clean_bars(c, [x * 1.003 for x in c], [x * 0.997 for x in c])
+    dirty = trend.clean_bars(bad, [max(x, y) * 1.003 for x, y in zip(bad, c)], [x * 0.997 for x in c])
+    assert len(dirty.close) == len(c) - 1 and dirty.dropped and "bad print" in dirty.dropped[0]
+    last = 100.6
+    a = trend.compute("SILVERBEES", "donchian", clean, last, ST)
+    b = trend.compute("SILVERBEES", "donchian", dirty, last, ST)
+    assert not a.on and not b.on
+    assert b.row["hh"] < 105 and b.sigma == pytest.approx(a.sigma, rel=0.2)   # no breakout level of 1000; sigma not distorted
+    # a real, lasting move of the same size is NOT dropped
+    jump = c[:80] + [x * 1.4 for x in c[80:]]
+    assert len(trend.clean_bars(jump, jump, jump).close) == len(jump)
+    # the equity threshold is wider: +28% and back is kept for 30%
+    eq = list(c)
+    eq[80] = c[80] * 1.28
+    assert len(trend.clean_bars(eq, eq, eq, spike=0.30).close) == len(c)
+
+
+def test_bad_low_does_not_move_the_exit_level_and_gaps_are_not_flat_bars():
+    c = donchian_series() + [128.0, 129.0, 130.0]
+    h = [x * 1.003 for x in c]
+    l = [x * 0.997 for x in c]
+    l_bad = list(l)
+    l_bad[-2] = 5.0                                                          # a bad low
+    good = trend.compute("SILVERBEES", "donchian", trend.clean_bars(c[:-1], h[:-1], l[:-1]), c[-1], ST)
+    bad = trend.compute("SILVERBEES", "donchian", trend.clean_bars(c[:-1], h[:-1], l_bad[:-1]), c[-1], ST)
+    assert bad.exit_level == pytest.approx(good.exit_level, rel=0.01)
+    assert any("clipped" in x for x in trend.clean_bars(c[:-1], h[:-1], l_bad[:-1]).dropped)
+    ff = trend.clean_bars([100, 101, 101, 102], [101, 102, 102, 103], [99, 100, 100, 101])      # row 2 repeats row 1: a forward-filled gap
+    assert ff.close == [100.0, 101.0, 102.0] and "forward-filled" in ff.dropped[0]
+
+
 def test_clean_bars_drops_bad_closes_and_clips_highs_lows():
     b = trend.clean_bars([10, float("nan"), 12, -1, 0], [9, 5, 13, 1, 1], [11, 5, 11, 1, 1])
     assert b.close == [10.0, 12.0]
@@ -205,16 +244,19 @@ def test_rebalance_only_beyond_five_points():
     assert (d.action, d.kind, d.to_w) == ("SELL", "trim", 0.5)               # 6 points over: trim to the target
 
 
-def test_adds_need_an_rsi2_dip_below_5_unless_bias_favour():
+def test_adds_need_an_rsi2_dip_below_5_and_favour_only_loosens_it_to_15():
     held = dict(flat=False, cur=0.30)
     d = D(rsi_val=40.0, **held)
     assert (d.action, d.kind) == ("HOLD", "wait") and "dip" in d.why
     assert D(rsi_val=5.0, **held).action == "HOLD"                           # RSI(2) must be BELOW 5
     d = D(rsi_val=4.9, **held)
     assert (d.action, d.kind, d.to_w) == ("BUY", "add", 0.5)
-    d = D(rsi_val=40.0, bias="favour", **held)
-    assert (d.action, d.kind) == ("BUY", "add")                              # favour: add to target without the dip
-    assert D(rsi_val=None, **held).action == "HOLD"
+    d = D(rsi_val=50.0, bias="favour", **held)
+    assert (d.action, d.kind) == ("HOLD", "wait")                            # favour never removes the dip requirement
+    assert D(rsi_val=15.0, bias="favour", **held).action == "HOLD"           # it only loosens it to RSI(2) < 15
+    d = D(rsi_val=12.0, bias="favour", **held)
+    assert (d.action, d.kind) == ("BUY", "add") and "favour" in d.why
+    assert D(rsi_val=12.0, **held).action == "HOLD"                          # the same RSI is not enough for neutral    assert D(rsi_val=None, **held).action == "HOLD"
 
 
 def test_bias_block_stops_new_buys_and_adds_but_not_exits_or_the_core():
@@ -265,13 +307,59 @@ def test_brake_level_two_holds_until_recovery_and_reconfirmation():
     s = B(s, 80000.0)                                                        # -20%: not recovered
     assert s["level"] == 2
     s = B(s, 86000.0, {"GOLDBEES": True, "SILVERBEES": False})               # -14%: recovered, GOLDBEES never turned OFF
-    assert s["level"] == 0 and s["reconfirm"] == ["GOLDBEES"]
+    assert s["level"] == 1 and s["reconfirm"] == ["GOLDBEES"]                # still under -13%: half size, not full size
     w, _ = trend.target_weights({"GOLDBEES": (True, 0.1), "SILVERBEES": (False, 0.3)}, ST, 1.0, s["reconfirm"])
     assert w["GOLDBEES"] == 0.0                                              # still waiting for OFF -> ON
     s = B(s, 86000.0, {"GOLDBEES": False, "SILVERBEES": False})              # the trend turned OFF: confirmation reset
     assert s["reconfirm"] == []
     w, _ = trend.target_weights({"GOLDBEES": (True, 0.1), "SILVERBEES": (False, 0.3)}, ST, 1.0, s["reconfirm"])
     assert w["GOLDBEES"] > 0
+
+
+def run_days(s, value, n, on):
+    for _ in range(n):
+        s = B(s, value, on)
+    return s
+
+
+def test_level_two_releases_after_20_days_when_a_trend_reconfirms_with_a_rebased_peak():
+    on = {"GOLDBEES": True, "SILVERBEES": False}
+    s = B(None, 100000.0, on)
+    s = B(s, 74000.0, on)                                                    # -26%: level 2, GOLDBEES must re-confirm
+    assert s["level"] == 2
+    s = run_days(s, 74000.0, 25, on)                                         # 25 trading days flat, but GOLDBEES never turned OFF
+    assert s["level"] == 2
+    s = B(s, 74000.0, {"GOLDBEES": False, "SILVERBEES": False})
+    s = run_days(s, 74000.0, 3, {"GOLDBEES": False, "SILVERBEES": False})
+    assert s["level"] == 2 and s["reconfirm"] == []                          # OFF reset the confirmation, none is ON yet
+    s = B(s, 74000.0, on)                                                    # GOLDBEES turns ON again: re-confirmed
+    assert s["level"] == 1 and s["changed"] and trend.brake_mult(1, ST) == 0.5
+    assert s["peak"] == 74000.0 and s["rebase_value"] == 74000.0             # the peak is re-based to the current value
+    assert s["dd"] == 0.0
+
+
+def test_level_two_stays_without_reconfirmation_or_while_the_account_stop_is_in_force():
+    on = {"GOLDBEES": True, "SILVERBEES": False}
+    s = run_days(B(None, 100000.0, on), 74000.0, 40, on)
+    assert s["level"] == 2                                                   # no OFF -> ON in 40 days
+    s = run_days(B(None, 100000.0, {"GOLDBEES": False}), 74000.0, 30, {"GOLDBEES": False})
+    assert trend.brake_update(s, 74000.0, {"GOLDBEES": True}, ST, account_stop=True)["level"] == 2
+    assert trend.brake_update(s, 74000.0, {"GOLDBEES": True}, ST)["level"] == 1
+
+
+def test_rebased_level_one_releases_after_3_percent_and_20_more_days():
+    off, on = {"GOLDBEES": False}, {"GOLDBEES": True}
+    s = run_days(B(None, 100000.0, off), 74000.0, 25, off)
+    s = B(s, 74000.0, on)
+    assert s["level"] == 1 and s["rebase_value"] == 74000.0
+    s = run_days(s, 74000.0 * 1.02, 30, on)                                  # +2% only: stays at half size
+    assert s["level"] == 1
+    s = run_days(s, 74000.0 * 1.031, 1, on)
+    assert s["level"] == 0 and s["changed"]
+    s2 = run_days(B(run_days(B(None, 100000.0, off), 74000.0, 25, off), 74000.0, on), 74000.0 * 1.05, 5, on)
+    assert s2["level"] == 1                                                  # +5% but fewer than 20 days at level 1
+    s3 = B(s2, 74000.0 * 0.80, on)                                           # -20% from the re-based peak
+    assert s3["level"] == 1
 
 
 def test_brake_peak_never_below_start_capital():

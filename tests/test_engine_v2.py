@@ -96,7 +96,7 @@ def test_rising_series_ends_invested(tmp_path):
     assert pf.floor == 75000                                           # v2: the "floor" is the hard account stop
     pf.save(tmp_path / "pf.json")                                      # the v2 runtime state is plain JSON and reloads
     again = Portfolio.load(tmp_path / "pf.json")
-    assert again.runtime["v2"]["brake"]["level"] == 0 and again.runtime["v2"]["done"] == DAYS[419].date().isoformat()
+    assert again.runtime["v2"]["brake"]["level"] == 0 and again.runtime["v2"]["done"]["date"] == DAYS[419].date().isoformat()
     buys = [d for d in all_decisions(env) if d["action"] == "BUY"]
     assert buys and all(d["trigger"] == "Trend check" and "trend ON (close" in d["reason"] for d in buys)
 
@@ -138,7 +138,7 @@ def test_one_daily_check_only(tmp_path):
     env = make_env(tmp_path)
     pf = fresh_pf()
     tick(pf, env, closes, 300, 14, 0)                                  # before the check time: nothing
-    assert not read_decisions(env, 300)
+    assert [d["trigger"] for d in read_decisions(env, 300)] == ["Strategy mode"]      # only the one-time "strategy v2 active" line
     tick(pf, env, closes, 300, 15, 10)
     n = len(read_decisions(env, 300))
     assert n >= 3
@@ -254,6 +254,7 @@ def test_brake_level_one_halves_targets(tmp_path):
     wf, vf = weights(full)
     env = make_env(tmp_path / "b")
     pf = fresh_pf()
+    pf.runtime["strategy_mode"] = "v2_trend"
     pf.runtime["v2"] = {"brake": {"peak": 100000.0 / 0.84, "level": 1, "reconfirm": []}}   # -16 percent from the peak
     for i in range(260, 301):
         tick(pf, env, closes, i)
