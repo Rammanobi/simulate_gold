@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-16T15:16:21+05:30",
+ "updated": "2026-10-19T08:51:56+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "...at, no new facts. SILVER: +0.9% bounce since last update but still -1.6% on day after CPI crash; mixed evidence, neutral, no favour. COPPER: +1.1%, HINDCOPPER results date unknown; neutral. | 11:16 no material change | 12:17 no material change | 14:16 no material change | 15:16 no material change",
+ "note": "GOLD: no Mon overnight data; Fri spot ~$4,164 (-0.1%), DXY 102.0 (-0.5%), US10Y ~5.08%. SILVER: Fri ~$56.9, no fresh data after CPI drop. COPPER: HG 6.53 (+0.3%) Fri; HINDCOPPER results 23 Oct (unconfirmed), news pending.",
  "prices_at_update": {
   "GOLDBEES": 120.21,
-  "SILVERBEES": 199.99,
-  "HINDCOPPER": 458.6
+  "SILVERBEES": 200.0,
+  "HINDCOPPER": 458.9
  }
 }
