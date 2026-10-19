@@ -1,0 +1,403 @@
+<title>Metals Daily Report · 2026-10-19</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: one calm column. Verdict first (hero, floor gauge), then the day's chart, then decisions, then reference detail. */
+:root{
+  --font-ui:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --bg:#F1F3F5;--surface:#FFFFFF;--ink:#13202B;--ink2:#43505C;--muted:#62707C;
+  --line:#D9DFE4;--grid:#E8ECEF;--axis:#9AA6B0;--track:#E3E8EC;
+  --up:#0C7548;--up-bg:#DCF0E5;--down:#B93225;--down-bg:#F8E1DD;
+  --amber:#865600;--amber-mk:#C48508;--amber-bg:#F8E8C4;
+  --grey:#5B6772;--grey-mk:#7A8691;--grey-bg:#E6E9EC;
+  --series:#1D4C69;--area:rgba(29,76,105,.10);
+  --focus:#1B5CD0;--tip-bg:#13202B;--tip-ink:#F1F3F5;
+  --badge-bg:#13202B;--badge-ink:#FFFFFF;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E151B;--surface:#161F27;--ink:#E7EDF2;--ink2:#BAC6D0;--muted:#93A1AD;
+  --line:#2A3641;--grid:#212C35;--axis:#586673;--track:#26313B;
+  --up:#3FD08A;--up-bg:#12392A;--down:#FF8272;--down-bg:#432420;
+  --amber:#EDBF4B;--amber-mk:#E3B341;--amber-bg:#40320F;
+  --grey:#A5B1BB;--grey-mk:#8C99A4;--grey-bg:#26303A;
+  --series:#7DB7DB;--area:rgba(125,183,219,.14);
+  --focus:#8DB8FF;--tip-bg:#E7EDF2;--tip-ink:#0E151B;
+  --badge-bg:#E7EDF2;--badge-ink:#0E151B;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E151B;--surface:#161F27;--ink:#E7EDF2;--ink2:#BAC6D0;--muted:#93A1AD;
+  --line:#2A3641;--grid:#212C35;--axis:#586673;--track:#26313B;
+  --up:#3FD08A;--up-bg:#12392A;--down:#FF8272;--down-bg:#432420;
+  --amber:#EDBF4B;--amber-mk:#E3B341;--amber-bg:#40320F;
+  --grey:#A5B1BB;--grey-mk:#8C99A4;--grey-bg:#26303A;
+  --series:#7DB7DB;--area:rgba(125,183,219,.14);
+  --focus:#8DB8FF;--tip-bg:#E7EDF2;--tip-ink:#0E151B;
+  --badge-bg:#E7EDF2;--badge-ink:#0E151B;
+  color-scheme:dark}
+
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:15px;line-height:1.5;
+  padding-inline:16px;padding-block:20px 40px;font-variant-numeric:tabular-nums;-webkit-text-size-adjust:100%}
+.wrap{max-width:920px;margin-inline:auto;display:flex;flex-direction:column;gap:28px;min-width:0}
+.num,.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+h1,h2,p{margin:0}
+h2{font-size:.78rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.sec{display:flex;flex-direction:column;gap:10px;min-width:0}
+.sech{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 12px}
+.hint{font-size:.8rem;color:var(--muted)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
+
+/* hero */
+.hero{display:flex;flex-direction:column;gap:10px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+.kick{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:.82rem;color:var(--muted);font-weight:600}
+.badge{font-family:var(--font-mono);font-size:.7rem;font-weight:600;letter-spacing:.1em;padding:2px 8px;border-radius:3px;background:var(--badge-bg);color:var(--badge-ink)}
+.headline{font-size:clamp(1.55rem,6.4vw,2.4rem);font-weight:800;line-height:1.12;letter-spacing:-.02em;text-wrap:balance}
+.headline .amt{font-family:var(--font-mono);font-weight:600;font-size:1.3em;letter-spacing:-.04em;display:block;line-height:1.05}
+.headline.pos{color:var(--up)}.headline.neg{color:var(--down)}.headline.flat{color:var(--ink)}
+.summary{font-size:1.05rem;max-width:60ch;color:var(--ink)}
+.subs{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:.84rem;color:var(--ink2)}
+.subs b{font-family:var(--font-mono);font-weight:500;color:var(--ink)}
+.note{font-size:.76rem;color:var(--muted)}
+
+/* gauge */
+if(P.v2){const h=document.getElementById('h-floor');if(h)h.textContent='Account stop and brakes';}
+.gauge{display:flex;flex-direction:column;gap:12px}
+.gtitle{font-size:1.25rem;font-weight:800;letter-spacing:-.01em}
+.gtitle .num{font-weight:600}
+.gwrap{position:relative;padding-top:26px}
+.gnow{position:absolute;top:0;transform:translateX(-50%);font-size:.78rem;font-weight:600;white-space:nowrap;color:var(--ink)}
+.gnow b{font-family:var(--font-mono);font-weight:600}
+.gbar{position:relative;height:14px;background:var(--track);border-radius:7px}
+.gfill{position:absolute;inset:0 auto 0 0;background:var(--up);border-radius:7px 0 0 7px;min-width:7px}
+.gpin{position:absolute;top:-5px;bottom:-5px;width:4px;margin-left:-2px;background:var(--ink);border-radius:2px;box-shadow:0 0 0 2px var(--surface)}
+.glab{display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:.78rem;color:var(--muted)}
+.glab span:last-child{text-align:right}
+.glab b{display:block;font-family:var(--font-mono);font-weight:500;font-size:.88rem;color:var(--ink)}
+
+/* chart */
+.chartbox{position:relative}
+.cscroll{overflow-x:auto;overscroll-behavior-x:contain;margin-inline:-4px;padding-inline:4px}
+.cin{position:relative;min-width:600px}
+.cin svg{display:block;width:100%;height:auto;overflow:visible}
+.cin text{font-family:var(--font-mono);font-size:10.5px;fill:var(--muted)}
+.mk{cursor:pointer;outline:none}
+.mk .hr,.mk .fr{opacity:0;fill:none}
+.mk .hr{stroke:var(--ink);stroke-width:1.5}
+.mk .fr{stroke:var(--focus);stroke-width:2.5}
+.mk.hl .hr{opacity:1}
+.mk:focus-visible .fr{opacity:1}
+.mk .shape{stroke:var(--surface);stroke-width:2;stroke-linejoin:round}
+.mk.dim{opacity:.22}
+.a-BUY .shape{fill:var(--up)}.a-SELL .shape{fill:var(--down)}.a-SKIP .shape,.a-BLOCK .shape{fill:var(--amber-mk)}.a-HOLD .shape{fill:var(--grey-mk)}
+.tip{position:absolute;z-index:3;pointer-events:none;background:var(--tip-bg);color:var(--tip-ink);border-radius:5px;padding:7px 10px;
+  font-size:.78rem;line-height:1.4;width:max-content;max-width:min(270px,80vw);box-shadow:0 2px 8px rgba(0,0,0,.25);opacity:0;transition:opacity .12s}
+.tip.on{opacity:1}
+.tip b{font-family:var(--font-mono);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;font-size:.78rem;color:var(--ink2);align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg .shape{stroke:none}
+.fnote{margin-top:8px;font-size:.78rem;color:var(--muted)}
+.swatch{display:inline-block;width:18px;border-top:2px dashed var(--down);vertical-align:middle;margin-right:6px}
+
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:6px 12px;border:1px solid var(--line);background:var(--surface);
+  border-radius:20px;cursor:pointer;font-size:.86rem;font-weight:600;color:var(--ink2)}
+.chip .n{font-family:var(--font-mono);font-weight:500;font-size:.8rem;color:var(--muted)}
+.chip:hover{border-color:var(--axis)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.chip[aria-pressed="true"] .n{color:var(--bg);opacity:.8}
+.status{font-size:.78rem;color:var(--muted)}
+
+/* timeline */
+.tl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;min-width:0}
+.card.hl{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.chd{display:grid;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:12px 14px;cursor:pointer;
+  grid-template-columns:auto auto 1fr auto;grid-template-areas:"time pill . pl" "what what what what" "why why why why";gap:6px 10px;align-items:center}
+.t{grid-area:time;font-family:var(--font-mono);font-size:.9rem;font-weight:500}
+.pill{grid-area:pill;justify-self:start;font-size:.72rem;font-weight:700;letter-spacing:.08em;padding:2px 9px;border-radius:3px;display:inline-flex;align-items:center;gap:6px}
+.pill.BUY{background:var(--up-bg);color:var(--up)}.pill.SELL{background:var(--down-bg);color:var(--down)}
+.pill.SKIP,.pill.BLOCK{background:var(--amber-bg);color:var(--amber)}.pill.HOLD{background:var(--grey-bg);color:var(--grey)}
+.pill svg{display:block}.pill .shape{fill:currentColor;stroke:none}
+.what{grid-area:what;font-family:var(--font-mono);font-size:.9rem;font-weight:500;overflow-wrap:anywhere}
+.pl{grid-area:pl;justify-self:end;display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:.9rem;font-weight:600}
+.pl.up{color:var(--up)}.pl.down{color:var(--down)}.pl.none{color:var(--muted);font-weight:400}
+.caret{width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translate(-2px,-2px);transition:transform .15s}
+.chd[aria-expanded="true"] .caret{transform:rotate(225deg) translate(-2px,-2px)}
+.why{grid-area:why;color:var(--ink2);font-size:.92rem;max-width:68ch}
+.det{margin:0;padding:0 14px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px 16px;border-top:1px dashed var(--line);padding-top:12px;margin-inline:14px;padding-inline:0}
+.det dt{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.det dd{margin:2px 0 0;font-family:var(--font-mono);font-size:.9rem}
+@media (min-width:560px){
+  .chd{grid-template-columns:3.4rem 4.9rem minmax(0,1fr) auto;grid-template-areas:"time pill what pl" ". . why why"}
+}
+
+/* two-up */
+.pair{display:grid;grid-template-columns:1fr;gap:28px}
+@media (min-width:860px){.pair{grid-template-columns:1fr 1fr;align-items:start}}
+
+/* market */
+.mkt{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) 3.6rem;grid-template-areas:"name pct" "bar bar" "note note";gap:4px 8px;padding:12px 0;border-top:1px solid var(--line)}
+.mrow:first-child{border-top:0;padding-top:0}.mrow:last-child{padding-bottom:0}
+.mname{grid-area:name;font-weight:700;font-size:.92rem}
+.mpct{grid-area:pct;text-align:right;font-family:var(--font-mono);font-weight:600;font-size:.9rem}
+.mpct.up{color:var(--up)}.mpct.down{color:var(--down)}
+.mbar{grid-area:bar;position:relative;height:8px;background:var(--grid);border-radius:4px}
+.mbar::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--axis)}
+.mbar i{position:absolute;top:0;bottom:0}
+.mpct.neu{color:var(--grey)}
+.mbar i.neu.up,.mbar i.neu.down{background:var(--grey-mk)}
+.mbar i.up{left:50%;background:var(--up);border-radius:0 4px 4px 0}
+.mbar i.down{right:50%;background:var(--down);border-radius:4px 0 0 4px}
+.mnote{grid-area:note;font-size:.82rem;color:var(--muted)}
+@media (min-width:480px){
+  .mrow{grid-template-columns:8.5rem minmax(0,1fr) 3.6rem;grid-template-areas:"name bar pct" "note note note";align-items:center}
+}
+
+/* waterfall */
+.wf{display:flex;flex-direction:column;gap:2px}
+.wrow{display:grid;grid-template-columns:7.2rem minmax(0,1fr) 4.4rem;gap:8px;align-items:center;min-height:38px}
+.wl{font-size:.84rem;font-weight:600;line-height:1.25}
+.wl small{display:block;font-weight:400;color:var(--muted);font-size:.72rem}
+.wt{position:relative;height:18px}
+.wt::before{content:"";position:absolute;left:0;top:-4px;bottom:-4px;width:1px;background:var(--axis)}
+.wt i{position:absolute;top:2px;bottom:2px;border-radius:2px}
+.wt i.up{background:var(--up)}.wt i.down{background:var(--down)}.wt i.tot{background:var(--ink)}
+.wv{text-align:right;font-family:var(--font-mono);font-size:.88rem;font-weight:600}
+.wv.up{color:var(--up)}.wv.down{color:var(--down)}
+.wrow.total{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.wrow.total .wl{font-weight:800}
+
+/* holdings */
+.hold{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px 16px}
+.hold dt{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hold dd{margin:2px 0 0;font-family:var(--font-mono);font-size:.95rem}
+.hold dd.up{color:var(--up)}
+.hsym{font-weight:700}
+.cash{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.86rem;color:var(--ink2)}
+.cash b{font-family:var(--font-mono);font-weight:500;color:var(--ink)}
+.tomorrow{border-left:3px solid var(--amber-mk);padding:2px 0 2px 14px;max-width:64ch}
+.tomorrow p{color:var(--ink)}
+footer{padding-top:18px;border-top:1px solid var(--line);font-size:.82rem;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+</style>
+
+<main class="wrap" id="app">
+  <header class="hero" id="hero"></header>
+  <section class="sec" aria-labelledby="h-floor"><div class="sech"><h2 id="h-floor">Safety floor</h2></div><div class="panel gauge" id="gauge"></div></section>
+  <section class="sec" aria-labelledby="h-chart">
+    <div class="sech"><h2 id="h-chart">Portfolio through the day</h2><span class="hint">Hover or tap a marker</span></div>
+    <div class="panel"><div class="chartbox"><div class="cscroll" tabindex="0" role="region" aria-label="Portfolio value chart, scrolls sideways on small screens"><div class="cin" id="cin"></div></div></div>
+      <div class="legend" id="legend"></div><p class="fnote" id="fnote"></p></div>
+  </section>
+  <section class="sec" aria-labelledby="h-tl">
+    <div class="sech"><h2 id="h-tl">What it did</h2><span class="hint">Tap a card for trigger, stop and risk</span></div>
+    <div class="chips" id="chips" role="group" aria-label="Filter decisions"></div>
+    <p class="status" id="status" aria-live="polite"></p>
+    <ol class="tl" id="tl"></ol>
+  </section>
+  <div class="pair">
+    <section class="sec" aria-labelledby="h-mkt"><div class="sech"><h2 id="h-mkt">Market moves</h2><span class="hint">Day change</span></div><div class="panel"><ul class="mkt" id="mkt"></ul></div></section>
+    <section class="sec" aria-labelledby="h-wf"><div class="sech"><h2 id="h-wf"></h2></div><div class="panel"><div class="wf" id="wf"></div></div></section>
+  </div>
+  <section class="sec" aria-labelledby="h-hold"><div class="sech"><h2 id="h-hold">Holdings now</h2><span class="hint" id="holdhint"></span></div><div class="panel" id="hold"></div></section>
+  <section class="sec" aria-labelledby="h-tom"><div class="sech"><h2 id="h-tom">Tomorrow</h2></div><div class="tomorrow"><p id="tom"></p></div></section>
+  <footer>Paper trading simulation. No real money used.</footer>
+</main>
+
+<script>
+const DATA = {"date": "2026-10-19", "weekday": "Monday", "day_of_month_run": 6, "start_capital": 100000.0, "portfolio": {"open": 100051.79, "close": 100103.61, "day_pnl": 51.82, "day_pnl_pct": 0.05, "month_pnl": 103.61, "month_pnl_pct": 0.1, "floor": 99500.0, "floor_next_step": "Brake level 0: full size. Value is 0.0% at its peak ₹1,00,104. At -15% every target is halved, at -25% everything is sold, and at ₹99,500 the hard account stop sells everything and halts buys.", "next_value": 100103.61, "floor_after_next": 99500.0, "distance_to_floor": 603.61, "cash_in_liquidbees": 100103.61, "liquidbees_income": 51.82, "costs_paid": 0.0, "v2": true, "account_stop": 99500.0, "drawdown_from_peak": 0.0, "brake_level": 0, "peak": 100103.61}, "pnl_breakdown": {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 51.82}, "market": [{"name": "Gold (COMEX/spot)", "move_pct": -0.14, "note": "Fri 16 Oct close ~$4,164; no Monday overnight data", "neutral": false}, {"name": "Silver (COMEX/spot)", "move_pct": 0.0, "note": "Fri ~$56.9; Fri move not confirmed", "neutral": false}, {"name": "Copper (COMEX HG)", "move_pct": 0.3, "note": "Fri 6.53 USD/lb, Trading Economics", "neutral": false}, {"name": "Dollar index", "move_pct": -0.54, "note": "Fri 102.00 as yields eased", "neutral": true}], "holdings_close": [], "decisions": [{"time": "09:15", "action": "BLOCK", "symbol": "GOLDBEES", "qty": 0, "price": 120.11, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in GOLDBEES are paused for 30 minutes while the AI reviews it. Headline: \"Another interest rate hike may be ahead as Fed battles inflation - Scripps News\" (category: monetary_policy, inflation_data).", "trigger": "News trigger"}, {"time": "09:15", "action": "BLOCK", "symbol": "SILVERBEES", "qty": 0, "price": 199.19, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in SILVERBEES are paused for 30 minutes while the AI reviews it. Headline: \"Another interest rate hike may be ahead as Fed battles inflation - Scripps News\" (category: monetary_policy, inflation_data).", "trigger": "News trigger"}, {"time": "13:18", "action": "BLOCK", "symbol": "GOLDBEES", "qty": 0, "price": 120.1, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in GOLDBEES are paused for 30 minutes while the AI reviews it. Headline: \"China accelerates gold buying as it cuts US bonds and hedges sanctions risk - CHOSUNBIZ - Chosunbiz\" (category: geopolitics).", "trigger": "News trigger"}, {"time": "13:18", "action": "BLOCK", "symbol": "HINDCOPPER", "qty": 0, "price": 446.45, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in HINDCOPPER are paused for 30 minutes while the AI reviews it. Headline: \"China accelerates gold buying as it cuts US bonds and hedges sanctions risk - CHOSUNBIZ - Chosunbiz\" (category: geopolitics).", "trigger": "News trigger"}, {"time": "13:18", "action": "BLOCK", "symbol": "SILVERBEES", "qty": 0, "price": 198.33, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in SILVERBEES are paused for 30 minutes while the AI reviews it. Headline: \"China accelerates gold buying as it cuts US bonds and hedges sanctions risk - CHOSUNBIZ - Chosunbiz\" (category: geopolitics).", "trigger": "News trigger"}, {"time": "15:05", "action": "BLOCK", "symbol": "GOLDBEES", "qty": 0, "price": 119.84, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in GOLDBEES are paused for 60 minutes while the AI reviews it. Headline: \"Kevin Warsh gives no signal on October Fed rate decision - Equiti Global\" (category: monetary_policy).", "trigger": "News trigger"}, {"time": "15:05", "action": "BLOCK", "symbol": "SILVERBEES", "qty": 0, "price": 197.38, "amount": 0.0, "pnl": null, "reason": "A news headline looks market-moving, so new buys in SILVERBEES are paused for 60 minutes while the AI reviews it. Headline: \"Kevin Warsh gives no signal on October Fed rate decision - Equiti Global\" (category: monetary_policy).", "trigger": "News trigger"}, {"time": "15:23", "action": "BLOCK", "symbol": "HINDCOPPER", "qty": 0, "price": 440.05, "amount": 0.0, "pnl": null, "reason": "HINDCOPPER is -4.01% from yesterday's close (trigger is 4.0%). New buys in HINDCOPPER are paused for 60 minutes while the AI reviews it.", "trigger": "Price shock"}], "counts": {"buys": 0, "sells": 0, "skips": 0, "blocks": 8, "holds": 0, "fast_lane_runs": 7}, "intraday": [["09:15", 100104], ["09:30", 100104], ["10:00", 100104], ["10:30", 100104], ["11:00", 100104], ["11:30", 100104], ["12:00", 100104], ["12:20", 100104], ["13:30", 100104], ["14:00", 100104], ["14:30", 100104], ["15:00", 100104], ["15:29", 100104]], "tomorrow": "No scheduled events on the calendar for tomorrow; normal rules apply.", "warnings": [], "targets": [], "no_trade_note": "No trades today. The system waited because a news headline looks market-moving, so new buys in GOLDBEES are paused for 30 minutes while the AI reviews it. Headline: \"Another interest rate hike may be ahead as Fed battles inflation - Scripps News\" (category: monetary_policy, inflation_data); a news headline looks market-moving, so new buys in SILVERBEES are paused for 30 minutes while the AI reviews it. Headline: \"Another interest rate hike may be ahead as Fed battles inflation - Scripps News\" (category: monetary_policy, inflation_data); a news headline looks market-moving, so new buys in GOLDBEES are paused for 30 minutes while the AI reviews it. Headline: \"China accelerates gold buying as it cuts US bonds and hedges sanctions risk - CHOSUNBIZ - Chosunbiz\" (category: geopolitics) (and 5 more).", "one_line_summary": "Small green day: +₹52. No trades. Value is ₹604 above the ₹99,500 account stop, 0.0% below its peak (brake level 0).", "subject": "Metals Daybook · 📈 Mon 19 Oct · +₹52 (green)", "glance": {"engine": {"first": "09:15", "last": "15:29", "count": 318, "source": "checks", "late": false}, "decisions": {"allowed": 0, "buys": 0, "sells": 0, "blocked": 8, "blocked_by": {"news": 7, "price shock": 1}, "skipped": 0, "held": 0}, "instruments": [{"symbol": "GOLDBEES", "open": 120.11, "close": 119.82, "change_pct": -0.24, "low": 119.8, "high": 120.16}, {"symbol": "SILVERBEES", "open": 199.19, "close": 197.44, "change_pct": -0.88, "low": 197.2, "high": 199.19}, {"symbol": "HINDCOPPER", "open": 458.35, "close": 440.4, "change_pct": -3.92, "low": 439.45, "high": 458.35}], "money": {"value": 100103.61, "day_pnl": 51.82, "split": [{"name": "LIQUIDBEES (cash)", "pct": 100}]}, "scores": {"GOLDBEES": {"best": 0.3, "needs": 0.7, "block": false, "reached": false}, "SILVERBEES": {"best": 0.3, "needs": 0.75, "block": false, "reached": false}, "HINDCOPPER": {"best": 0.3, "needs": 0.8, "block": false, "reached": false}}, "why_no_trades": "No metal's score reached the buy level (best: gold 0.30 of 0.70, silver 0.30 of 0.75, copper 0.30 of 0.80); pauses from news/price shocks did not change the outcome."}, "pnl_story": {"total": 103.61, "total_text": "Total profit ₹104 since the start", "today_text": "up ₹52 today", "source": "Today's +₹52 is only LIQUIDBEES interest on idle cash — no trades were made.", "vs_previous": "Profit increased by ₹51.82 since the previous trading day (₹51.79 → ₹103.61)."}, "fixed_today": [], "system_health": "Watchdog: 17 checks today, 3 problems, see incidents", "thrift": true, "fallback_dates": ["2026-10-13", "2026-10-15"]};
+(function(){
+"use strict";
+const D=DATA,P=D.portfolio;
+const nf0=new Intl.NumberFormat('en-IN',{maximumFractionDigits:0});
+const nf2=new Intl.NumberFormat('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const rs=n=>'₹'+nf0.format(Math.abs(n));
+const rs2=n=>'₹'+nf2.format(n);
+const sg=n=>(n>0?'+':n<0?'−':'')+rs(n);
+const pc=n=>(n>0?'+':n<0?'−':'')+Math.abs(n).toFixed(1)+'%';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NS='http://www.w3.org/2000/svg';
+const t2m=s=>{const a=s.split(':');return +a[0]*60+ +a[1]};
+const WORD={BUY:'Buy',SELL:'Sell',SKIP:'Skip',HOLD:'Hold',BLOCK:'Blocked'};
+const NOTRADE=a=>a==='SKIP'||a==='BLOCK';
+function shapeSVG(a,r){ // marker shape centred on 0,0
+  if(a==='BUY')return '<polygon class="shape" points="0,'+(-r-1)+' '+(r+1)+','+(r-1)+' '+(-r-1)+','+(r-1)+'"/>';
+  if(a==='SELL')return '<polygon class="shape" points="0,'+(r+1)+' '+(r+1)+','+(-r+1)+' '+(-r-1)+','+(-r+1)+'"/>';
+  if(a==='SKIP'||a==='BLOCK')return '<polygon class="shape" points="0,'+(-r-1)+' '+(r+1)+',0 0,'+(r+1)+' '+(-r-1)+',0"/>';
+  return '<circle class="shape" r="'+(r-.5)+'"/>';
+}
+const miniSVG=(a,s)=>'<svg width="'+s+'" height="'+s+'" viewBox="-8 -8 16 16" aria-hidden="true" class="a-'+a+'">'+shapeSVG(a,6)+'</svg>';
+
+/* hero */
+const day=P.day_pnl,tone=day>0?'pos':day<0?'neg':'flat';
+const dt=new Date(D.date+'T00:00:00');
+const dateStr=D.weekday+', '+dt.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+const verdict=day>0?"You're in the green":day<0?"You're in the red":"You're flat";
+const kick='<div class="kick"><span>'+esc(dateStr)+'</span>'+(D._note?'<span class="badge" title="'+esc(D._note)+'">SAMPLE</span>':'')+'</div>';
+const noteHtml=D._note?'<p class="note">'+esc(D._note)+'</p>':'';
+if(D.closed){
+ [].forEach.call(document.querySelectorAll('#app > section, #app > .pair'),function(e){e.hidden=true});
+ $('hero').innerHTML=kick+'<h1 class="headline flat">Market closed</h1><p class="summary">'+esc(D.one_line_summary)+'</p>'+noteHtml;
+ return;
+}
+$('hero').innerHTML=kick+
+ '<h1 class="headline '+tone+'"><span class="amt">'+sg(day)+'</span>today · '+verdict+'</h1>'+
+ '<p class="summary">'+esc(D.one_line_summary)+'</p>'+
+ '<div class="subs"><span>Day <b>'+(day>=0?'+':'−')+Math.abs(P.day_pnl_pct).toFixed(2)+'%</b></span>'+
+ '<span>Month so far <b>'+sg(P.month_pnl)+' ('+(P.month_pnl_pct>=0?'+':'−')+Math.abs(P.month_pnl_pct).toFixed(2)+'%)</b></span>'+
+ '<span>Closing value <b>'+rs(P.close)+'</b></span></div>'+noteHtml;
+
+/* gauge */
+if(P.v2){const h=document.getElementById('h-floor');if(h)h.textContent='Account stop and brakes';}
+const FLOOR=P.floor,NEXT=P.next_value||P.floor+1000; // value at which the floor next moves
+const gp=Math.max(0,Math.min(1,(P.close-FLOOR)/(NEXT-FLOOR)));
+$('gauge').innerHTML=
+ '<div class="gtitle"><span class="num">'+rs(P.distance_to_floor)+'</span> above the '+(P.v2?'account stop':'floor')+'</div>'+
+ '<div class="gwrap"><div class="gnow" style="left:clamp(64px,'+(gp*100)+'%,calc(100% - 64px))">Now <b>'+rs(P.close)+'</b></div>'+
+ '<div class="gbar" role="img" aria-label="Portfolio '+rs(P.close)+', floor '+rs(FLOOR)+', next step '+rs(NEXT)+'"><div class="gfill" style="width:'+(gp*100)+'%"></div><div class="gpin" style="left:'+(gp*100)+'%"></div></div>'+
+ '<div class="glab"><span>'+(P.v2?'Account stop':'Floor')+'<b>'+rs(FLOOR)+'</b></span><span>'+(P.v2?'Peak value':'Next step')+'<b>'+rs(NEXT)+'</b></span></div></div>'+
+ '<p class="note">'+esc(P.floor_next_step)+'</p>';
+
+/* chart */
+const pts=D.intraday.map(p=>({m:t2m(p[0]),v:p[1],t:p[0]}));
+const W=640,H=300,L=66,R=14,T=14,B=30;
+const x0=pts[0].m,x1=pts[pts.length-1].m;
+const vs=pts.map(p=>p.v);
+let lo=Math.floor(Math.min.apply(null,vs)/50)*50-50,hi=Math.ceil(Math.max.apply(null,vs)/50)*50;
+const step=(hi-lo)>300?100:50;
+const X=m=>L+(m-x0)/(x1-x0)*(W-L-R),Y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+function valAt(m){for(let i=1;i<pts.length;i++){if(m<=pts[i].m){const a=pts[i-1],b=pts[i];return a.v+(b.v-a.v)*(m-a.m)/(b.m-a.m)}}return pts[pts.length-1].v}
+let s='<svg viewBox="0 0 '+W+' '+H+'" role="group" aria-label="Portfolio value from '+pts[0].t+' to '+pts[pts.length-1].t+', rising from '+rs(pts[0].v)+' to '+rs(pts[pts.length-1].v)+'">';
+for(let v=lo;v<=hi;v+=step){
+  s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" stroke="'+(v===D.start_capital?'var(--axis)':'var(--grid)')+'" stroke-width="1"/>';
+  s+='<text x="'+(L-8)+'" y="'+(Y(v)+3.5)+'" text-anchor="end">'+nf0.format(v)+'</text>';
+}
+const ticks=[];for(let h=10;h<=15;h++)ticks.push(h*60);ticks.unshift(x0);
+ticks.forEach(m=>{const hh=Math.floor(m/60),mm=m%60,lab=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+  s+='<line x1="'+X(m)+'" x2="'+X(m)+'" y1="'+(H-B)+'" y2="'+(H-B+4)+'" stroke="var(--axis)"/>';
+  s+='<text x="'+X(m)+'" y="'+(H-B+16)+'" text-anchor="middle">'+lab+'</text>'});
+const floorIn=FLOOR>=lo&&FLOOR<=hi;
+if(floorIn)s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(FLOOR)+'" y2="'+Y(FLOOR)+'" stroke="var(--down)" stroke-width="1.5" stroke-dasharray="6 4"/><text x="'+(W-R)+'" y="'+(Y(FLOOR)-5)+'" text-anchor="end">Floor '+nf0.format(FLOOR)+'</text>';
+const line=pts.map((p,i)=>(i?'L':'M')+X(p.m).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ');
+s+='<path d="'+line+' L'+X(x1)+' '+(H-B)+' L'+X(x0)+' '+(H-B)+' Z" fill="var(--area)"/>';
+s+='<path d="'+line+'" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+const last=pts[pts.length-1];
+s+='<circle cx="'+X(last.m)+'" cy="'+Y(last.v)+'" r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/>';
+s+='<text x="'+(X(last.m)-8)+'" y="'+(Y(last.v)-14)+'" text-anchor="end" style="fill:var(--ink);font-weight:600">'+nf0.format(last.v)+'</text>';
+D.decisions.forEach((d,i)=>{
+  const m=t2m(d.time),cx=X(m),cy=Y(valAt(m));
+  s+='<g class="mk a-'+d.action+'" data-i="'+i+'" tabindex="0" role="button" aria-label="'+d.time+' '+WORD[d.action]+' '+esc(d.symbol)+'. '+esc(d.reason)+'" transform="translate('+cx.toFixed(1)+' '+cy.toFixed(1)+')">'+
+   '<circle r="16" fill="transparent"/><circle class="hr" r="13"/><circle class="fr" r="14"/>'+shapeSVG(d.action,6.5)+'</g>';
+});
+s+='</svg><div class="tip" id="tip" role="tooltip"></div>';
+$('cin').innerHTML=s;
+$('legend').innerHTML=['BUY','SELL','SKIP','HOLD'].concat(D.decisions.some(d=>d.action==='BLOCK')?['BLOCK']:[]).map(a=>'<span>'+miniSVG(a,14)+WORD[a]+'</span>').join('')+
+  (floorIn?'<span><i class="swatch"></i>'+(P.v2?'Account stop':'Safety floor')+'</span>':'');
+$('fnote').textContent=floorIn?'':(P.v2?'Account stop ':'Safety floor ')+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. Dotted-out values on the left axis are in rupees.';
+if(!floorIn)$('fnote').textContent=(P.v2?'Account stop ':'Safety floor ')+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. The line at '+rs(D.start_capital)+' is the opening value.';
+
+/* timeline */
+const FILTERS=[
+ {k:'all',l:'All',f:()=>true},
+ {k:'buys',l:'Buys',f:d=>d.action==='BUY'},
+ {k:'sells',l:'Sells',f:d=>d.action==='SELL'},
+ {k:'skips',l:'Skips',f:d=>d.action==='SKIP'},
+ {k:'holds',l:'Holds',f:d=>d.action==='HOLD'},
+ {k:'blocks',l:'Blocked',f:d=>d.action==='BLOCK'},
+ {k:'news',l:'News triggers',f:d=>/news/i.test(d.trigger||'')}].filter(f=>f.k!=='blocks'||D.decisions.some(d=>d.action==='BLOCK'));
+let flt='all',pin=null;
+$('chips').innerHTML=FILTERS.map(f=>'<button type="button" class="chip" data-k="'+f.k+'" aria-pressed="'+(f.k==='all')+'">'+f.l+' <span class="n">'+D.decisions.filter(f.f).length+'</span></button>').join('');
+$('tl').innerHTML=D.decisions.map((d,i)=>{
+  const sell=d.action==='SELL';
+  const what=d.action==='HOLD'?d.qty+' '+esc(d.symbol)+' @ '+rs2(d.price):NOTRADE(d.action)?'No trade · '+esc(d.symbol)+' @ '+rs2(d.price):d.qty+' '+esc(d.symbol)+' @ '+rs2(d.price);
+  const pl=d.pnl==null?'<span class="pl none" aria-label="No P and L">–</span>':'<span class="pl '+(d.pnl>=0?'up':'down')+'">'+sg(d.pnl)+'<i class="caret"></i></span>';
+  const plF=d.pnl==null?'<span class="pl none"><span aria-hidden="true">–</span><i class="caret"></i></span>':'<span class="pl '+(d.pnl>=0?'up':'down')+'">'+sg(d.pnl)+'<i class="caret"></i></span>';
+  return '<li class="card" data-i="'+i+'"><button type="button" class="chd" id="b'+i+'" aria-expanded="false" aria-controls="d'+i+'">'+
+   '<span class="t">'+d.time+'</span><span class="pill '+d.action+'">'+miniSVG(d.action,10)+WORD[d.action].toUpperCase()+'</span>'+
+   '<span class="what">'+what+'</span>'+plF+'<span class="why">'+esc(d.reason)+'</span></button>'+
+   '<dl class="det" id="d'+i+'" hidden><div><dt>Trigger</dt><dd>'+esc(d.trigger)+'</dd></div>'+
+   '<div><dt>Value</dt><dd>'+(d.amount?rs(d.amount):'–')+'</dd></div>'+
+   '<div><dt>Stop</dt><dd>'+(d.stop!=null?rs2(d.stop):'–')+'</dd></div>'+
+   '<div><dt>Risk</dt><dd>'+(d.risk!=null?rs(d.risk):'–')+'</dd></div></dl></li>';
+}).join('');
+
+/* tooltip / highlight */
+const tip=$('tip'),cin=$('cin');
+const mks=[].slice.call(cin.querySelectorAll('.mk')),cards=[].slice.call(document.querySelectorAll('.card'));
+function clearHl(){mks.forEach(m=>m.classList.remove('hl'));cards.forEach(c=>c.classList.remove('hl'));tip.classList.remove('on')}
+function show(i){
+  clearHl();const d=D.decisions[i],m=mks[i];
+  m.classList.add('hl');cards[i].classList.add('hl');
+  tip.innerHTML='<b>'+d.time+' '+WORD[d.action]+(NOTRADE(d.action)?' '+esc(d.symbol):' '+d.qty+' '+esc(d.symbol))+'</b><br>'+esc(d.reason);
+  const cr=cin.getBoundingClientRect(),mr=m.getBoundingClientRect();
+  const cx=mr.left+mr.width/2-cr.left,cy=mr.top+mr.height/2-cr.top,tw=tip.offsetWidth,th=tip.offsetHeight;
+  let left=Math.max(4,Math.min(cr.width-tw-4,cx-tw/2)),top=cy-th-16;if(top<0)top=cy+18;
+  tip.style.left=left+'px';tip.style.top=top+'px';tip.classList.add('on');
+}
+function hide(){if(pin!=null)show(pin);else clearHl()}
+mks.forEach((m,i)=>{
+  m.addEventListener('mouseenter',()=>show(i));m.addEventListener('mouseleave',hide);
+  m.addEventListener('focus',()=>show(i));m.addEventListener('blur',hide);
+  m.addEventListener('click',()=>{pin=pin===i?null:i;pin==null?clearHl():show(i)});
+  m.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();m.dispatchEvent(new Event('click'))}});
+});
+cards.forEach((c,i)=>{
+  const b=c.querySelector('.chd'),det=c.querySelector('.det');
+  c.addEventListener('mouseenter',()=>show(i));c.addEventListener('mouseleave',hide);
+  b.addEventListener('focus',()=>show(i));b.addEventListener('blur',hide);
+  b.addEventListener('click',()=>{const open=b.getAttribute('aria-expanded')!=='true';
+    b.setAttribute('aria-expanded',open);det.hidden=!open;pin=open?i:(pin===i?null:pin);show(i)});
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){pin=null;clearHl()}});
+
+/* filter */
+function applyFilter(){
+  const f=FILTERS.filter(x=>x.k===flt)[0];let n=0;
+  D.decisions.forEach((d,i)=>{const ok=f.f(d);if(ok)n++;cards[i].hidden=!ok;mks[i].classList.toggle('dim',!ok&&flt!=='all')});
+  $('status').textContent='Showing '+n+' of '+D.decisions.length+' decisions'+(flt==='all'?'':' ('+f.l.toLowerCase()+')')+'.';
+  if(!n)$('status').textContent='No '+f.l.toLowerCase()+' today.';
+}
+$('chips').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;flt=b.dataset.k;
+  [].forEach.call($('chips').children,c=>c.setAttribute('aria-pressed',c===b));applyFilter()});
+applyFilter();
+if(!D.decisions.length)$('status').textContent=D.no_trade_note||'No decisions were logged today.';
+
+/* market */
+if(!D.market.length)$('mkt').closest('.sec').hidden=true;
+const mx=Math.max(1,Math.ceil(Math.max.apply(null,D.market.map(m=>Math.abs(m.move_pct)))));
+$('mkt').innerHTML=D.market.map(m=>{const c=(m.move_pct>=0?'up':'down')+(m.neutral?' neu':''),w=Math.abs(m.move_pct)/mx*50;
+ return '<li class="mrow"><span class="mname">'+esc(m.name)+'</span><div class="mbar" role="img" aria-label="'+esc(m.name)+' '+pc(m.move_pct)+'"><i class="'+c+'" style="width:'+w+'%"></i></div><span class="mpct '+c+'">'+pc(m.move_pct)+'</span><span class="mnote">'+esc(m.note)+'</span></li>'}).join('');
+
+/* waterfall */
+const B0=D.pnl_breakdown;
+$('h-wf').textContent='Where today’s '+rs(day)+(day<0?' loss':'')+' came from';
+const heldNames=(D.holdings_close||[]).map(h=>h.symbol).join(', ');
+const items=[['Realized trades','closed trades',B0.realized_trades],['Unrealized',heldNames?'open '+heldNames:'no open positions',B0.unrealized_open],['LIQUIDBEES income','on idle cash',B0.liquidbees_income]];
+let run=0;const segs=items.map(it=>{const a=run;run+=it[2];return {l:it[0],sub:it[1],v:it[2],a:a,b:run}});
+const allv=segs.map(g=>g.a).concat(segs.map(g=>g.b),[day,0]);
+const whi=Math.max.apply(null,allv),wlo=Math.min.apply(null,allv);
+const whiP=whi>0?whi*1.04:0,wloP=wlo<0?wlo*1.04:0,wspan=(whiP-wloP)||1;
+const pos=v=>(v-wloP)/wspan*100;
+$('wf').innerHTML=segs.map(g=>{const l=Math.min(g.a,g.b),w=Math.abs(g.b-g.a)/wspan*100,c=g.v>=0?'up':'down';
+ return '<div class="wrow"><div class="wl">'+g.l+'<small>'+g.sub+'</small></div><div class="wt"><i class="'+c+'" style="left:'+pos(l)+'%;width:'+Math.max(w,.8)+'%"></i></div><div class="wv '+c+'">'+sg(g.v)+'</div></div>'}).join('')+
+ '<div class="wrow total"><div class="wl">Total today</div><div class="wt"><i class="tot" style="left:'+pos(Math.min(0,day))+'%;width:'+Math.abs(day)/wspan*100+'%"></i></div><div class="wv">'+sg(day)+'</div></div>';
+
+/* holdings */
+const H0=D.holdings_close;
+$('hold').innerHTML=(H0.length?'':'<p class="cash" style="border:0;margin:0;padding:0">No positions held overnight.</p>')+H0.map(h=>'<dl class="hold"><div><dt>Symbol</dt><dd class="hsym">'+esc(h.symbol)+'</dd></div><div><dt>Quantity</dt><dd>'+h.qty+'</dd></div>'+
+ '<div><dt>Avg buy</dt><dd>'+rs2(h.avg)+'</dd></div><div><dt>Close</dt><dd>'+rs2(h.close)+'</dd></div>'+
+ '<div><dt>Value</dt><dd>'+rs(h.value)+'</dd></div><div><dt>Unrealized</dt><dd class="'+(h.unrealized>=0?'up':'')+'">'+sg(h.unrealized)+'</dd></div>'+
+ '<div><dt>Stop</dt><dd>'+rs2(h.stop)+'</dd></div></dl>').join('')+
+ '<p class="cash">Cash parked in LIQUIDBEES: <b>'+rs(P.cash_in_liquidbees)+'</b>, earning '+rs(P.liquidbees_income)+' today.</p>';
+$('holdhint').textContent=H0.length?H0.length+(H0.length===1?' position':' positions')+' held overnight':'';
+$('tom').textContent=D.tomorrow;
+})();
+</script>

@@ -1,0 +1,30 @@
+{
+ "updated": "2026-10-19T15:49:17+05:30",
+ "months": [
+  {
+   "month": "2026-10",
+   "start": 100000.0,
+   "end": 100103.61,
+   "pct": 0.104,
+   "green": true,
+   "bh_goldbees_pct": -0.025,
+   "bh_gold_silver_pct": -1.394,
+   "liquidbees_pct": 0.142,
+   "excess_vs_goldbees": 0.111,
+   "max_dd_rs": 0.0,
+   "trades": 0,
+   "win_rate": null,
+   "costs": 0.0,
+   "by_alignment": {},
+   "core_pnl": null,
+   "tactical_pnl": null
+  }
+ ],
+ "trial": {
+  "start": 100000.0,
+  "end": 100103.61,
+  "pct": 0.104,
+  "green": true,
+  "bh_goldbees_pct": -0.025
+ }
+}

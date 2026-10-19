@@ -1,0 +1,18 @@
+{
+ "items": [
+  {
+   "id": "1849585e",
+   "text": "HINDCOPPER fell about 4% on NSE while COMEX copper was +0.3%; price-shock block fired at 15:23 with no position held",
+   "status": "candidate",
+   "first_seen": "2026-10-19",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-19",
+     "text": "HINDCOPPER 440.4 vs prev close -3.94%, COMEX HG +0.3%"
+    }
+   ],
+   "contradict": []
+  }
+ ]
+}
