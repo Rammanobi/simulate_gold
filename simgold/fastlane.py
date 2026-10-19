@@ -11,7 +11,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import config
+from . import config, trend
 
 log = logging.getLogger(__name__)
 BETA = "experimental-cc-routine-2026-04-01"
@@ -45,12 +45,20 @@ def detect_price_shocks(sym: str, series: list[tuple[datetime, float]], prev_clo
 
 def detect_portfolio_trigger(value_hist: list[tuple[datetime, float]], value: float, floor: float, now: datetime,
                              p: dict | None = None) -> dict | None:
-    """5.1: value fell by 40% or more of the cushion within 15 minutes."""
-    fl = (p or config.load_params())["fast_lane"]
+    """5.1: value fell by 40% or more of the cushion within 15 minutes (v2: by 1.5% of its value)."""
+    pp = p or config.load_params()
+    fl = pp["fast_lane"]
     win = [v for t, v in value_hist if now - t <= timedelta(minutes=fl["portfolio_drop_window_min"])]
     if not win:
         return None
     top = max(win)
+    if trend.is_v2(pp):          # strategy v2: no cushion (the floor is the fixed account stop): a % drop of the value itself
+        share = pp["strategy"]["fast_lane_portfolio_drop"]
+        if top > 0 and (top - value) / top >= share:
+            return {"kind": "portfolio", "symbol": "ALL", "move": -(top - value),
+                    "detail": f"Portfolio value fell ₹{top - value:,.0f} ({(top - value) / top * 100:.1f}%) in "
+                              f"{fl['portfolio_drop_window_min']} minutes (trigger is {share * 100:.1f}%)."}
+        return None
     cushion_then = top - floor
     drop = top - value
     if cushion_then > 0 and drop >= fl["portfolio_drop_share_of_cushion"] * cushion_then:

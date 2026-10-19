@@ -15,7 +15,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-from simgold import budget
+from simgold import budget, config, trend
 from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
 
 START_CAPITAL = 100_000.0
@@ -270,6 +270,28 @@ def _month_start(portfolio: dict, equity: list[tuple[str, float]], date: str) ->
     if prior:
         return prior[-1]
     return _num(portfolio.get("month_start_equity")) or START_CAPITAL
+
+
+def _v2_mode() -> bool:
+    """Strategy v2 (trend core): the report talks about the account stop and the drawdown brakes instead of the Green Guard floor."""
+    try:
+        return trend.is_v2(config.load_params())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _brake_sentence(level: int, dd: float, peak: float, stop: float) -> str:
+    st = {}
+    try:
+        st = config.load_params()["strategy"]
+    except Exception:  # noqa: BLE001
+        pass
+    b = st.get("brake") or {}
+    l1, l2 = float(b.get("level1_dd", 0.15)), float(b.get("level2_dd", 0.25))
+    now = {0: "Brake level 0: full size.", 1: "Brake level 1 is on: every target is cut to half (the gold floor is kept).",
+           2: "Brake level 2 is on: everything is sold and targets are 0 until value recovers or the pause ends."}.get(level, "")
+    return (f"{now} Value is {abs(dd) * 100:.1f}% {'below' if dd < 0 else 'at'} its peak {inr(peak)}. At -{l1 * 100:.0f}% every target is halved, "
+            f"at -{l2 * 100:.0f}% everything is sold, and at {inr(stop)} the hard account stop sells everything and halts buys.")
 
 
 def _floor_ladder(floor: float, best_profit: float) -> tuple[float, float, str]:
@@ -646,7 +668,7 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
             "start_capital": START_CAPITAL,
             "portfolio": {"open": close, "close": close, "day_pnl": 0, "day_pnl_pct": 0,
                           "month_pnl": close - _month_start(portfolio, equity, date),
-                          "month_pnl_pct": 0, "floor": floor, "floor_next_step": "",
+                          "month_pnl_pct": 0, "floor": floor, "floor_next_step": "", "v2": _v2_mode(),
                           "distance_to_floor": close - floor, "cash_in_liquidbees": 0,
                           "liquidbees_income": 0, "costs_paid": 0, "next_value": 0},
             "pnl_breakdown": {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 0},
@@ -702,6 +724,13 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     if best_profit is None:
         best_profit = max([close] + [t["value"] for t in ticks]) - START_CAPITAL
     next_value, floor_after, next_step = _floor_ladder(floor, best_profit)
+    v2 = _v2_mode()
+    brake_level, dd_peak, peak = 0, 0.0, max(close, START_CAPITAL)
+    if v2:
+        brake = ((portfolio.get("runtime") or {}).get("v2") or {}).get("brake") or {}
+        peak = max(_num(brake.get("peak"), START_CAPITAL) or START_CAPITAL, close)
+        brake_level, dd_peak = int(_num(brake.get("level"), 0) or 0), close / peak - 1
+        next_value, floor_after, next_step = peak, floor, _brake_sentence(brake_level, dd_peak, peak, floor)
 
     # --- month
     ms = _month_start(portfolio, equity, date)
@@ -726,8 +755,10 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         px = last_price.get(s) or _num(p.get("last")) or avg
         h = {"symbol": s, "qty": qty, "avg": avg, "close": px, "value": round(qty * px, 2),
              "unrealized": round(qty * (px - avg), 2)}
-        stop = _num(p.get("stop"))
+        stop = _num(p.get("ai_stop")) if v2 else _num(p.get("stop"))      # v2: only a real (AI / inherited) stop is a stop
         h["stop"] = stop if stop is not None else 0.0
+        if v2:
+            h["exit_level"] = _num(p.get("exit_level"), 0.0) or 0.0       # where the trend turns OFF (checked at the daily check)
         holdings.append(h)
 
     # --- P&L breakdown
@@ -820,12 +851,20 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
             "floor_after_next": floor_after, "distance_to_floor": round(close - floor, 2),
             "cash_in_liquidbees": round(cash_lb, 2), "liquidbees_income": round(lb_income, 2),
             "costs_paid": round(costs, 2),
+            **({"v2": True, "account_stop": floor, "drawdown_from_peak": round(dd_peak, 4), "brake_level": brake_level,
+                "peak": round(peak, 2)} if v2 else {}),
         },
         "pnl_breakdown": breakdown, "market": market, "holdings_close": holdings,
         "decisions": decisions, "counts": cnt, "intraday": intraday,
         "tomorrow": tomorrow or "Nothing special is scheduled. The system follows its normal rules at the next open.",
         "warnings": warnings,
     }
+    if v2:
+        last_t: dict[str, dict] = {}
+        for r in raw or []:
+            if isinstance(r, dict) and str(r.get("action", "")).upper() == "TARGET":
+                last_t[_norm_symbol(r.get("symbol"))] = {k: r.get(k) for k in ("state", "sigma", "target_pct", "actual_pct", "reason")}
+        day["targets"] = [{"symbol": k, **v} for k, v in last_t.items()]
     if costs_estimated:
         day["costs_estimated"] = True
     if lb_estimated:
@@ -866,8 +905,13 @@ def summarize(day: dict) -> str:
         bits.append(f"{len(losses)} losing {_plural(len(losses), 'sale')} (lost {inr(-sum(x['pnl'] for x in losses))})")
     if not any(x["action"] in ("BUY", "SELL") for x in d):
         bits.append("no trades")
-    floor_bit = (f"The floor is {inr(p['distance_to_floor'])} away" if p["distance_to_floor"] > 0
-                 else f"Value is {inr(-p['distance_to_floor'])} below the floor")
+    if p.get("v2"):
+        floor_bit = (f"Value is {inr(p['distance_to_floor'])} above the {inr(p['floor'])} account stop, "
+                     f"{abs(p.get('drawdown_from_peak', 0)) * 100:.1f}% below its peak (brake level {p.get('brake_level', 0)})"
+                     if p["distance_to_floor"] > 0 else f"Value is {inr(-p['distance_to_floor'])} below the {inr(p['floor'])} account stop")
+    else:
+        floor_bit = (f"The floor is {inr(p['distance_to_floor'])} away" if p["distance_to_floor"] > 0
+                     else f"Value is {inr(-p['distance_to_floor'])} below the floor")
     sentences = [head] + ([", ".join(bits).capitalize()] if bits else []) + [floor_bit]
     return ". ".join(sentences) + "."
 
@@ -972,6 +1016,19 @@ def _holding_label(day: dict) -> str:
 # -------------------------------------------------------------------- email
 def _td(style: str, inner: str, extra: str = "") -> str:
     return f'<td{extra} style="{style}">{inner}</td>'
+
+
+def _targets_html(day: dict) -> str:
+    """Strategy v2: one row per symbol with the trend state, sigma60, target % and actual %."""
+    t = day.get("targets")
+    if not (day.get("portfolio", {}).get("v2") and t):
+        return ""
+    rows = "".join(
+        f'<tr><td style="padding:4px 8px 4px 0;font-weight:700;">{esc(str(x["symbol"]))}</td><td style="padding:4px 8px;">trend {esc(str(x.get("state")))}</td>'
+        f'<td style="padding:4px 8px;">sigma60 {esc(str(x.get("sigma")))}</td><td style="padding:4px 8px;">target {esc(str(x.get("target_pct")))}%</td>'
+        f'<td style="padding:4px 0 4px 8px;">actual {esc(str(x.get("actual_pct")))}%</td></tr>' for x in t)
+    return _section("Trend targets") + (f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:14px;color:#1f2937;">'
+                                        f'<table role="presentation" cellpadding="0" cellspacing="0">{rows}</table></td></tr>\n')
 
 
 def _section(title: str) -> str:
@@ -1082,7 +1139,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                 f'<tr><td style="padding:20px 16px 0 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
                 + _tile("Portfolio value", inr(p["close"]), INK, "unchanged")
                 + _tile("Month so far", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), "")
-                + _tile("Distance to safety floor", inr(max(p["distance_to_floor"], 0)),
+                + _tile("Above the account stop" if p.get("v2") else "Distance to safety floor", inr(max(p["distance_to_floor"], 0)),
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
@@ -1097,10 +1154,11 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
     extra = ""
     if r < 0:
         if p["distance_to_floor"] > 0:
-            note = ("The safety floor is " + inr(p["distance_to_floor"])
-                    + " below today's value and the rules are unchanged.")
+            note = ((f"Value is {inr(p['distance_to_floor'])} above the {inr(p['floor'])} account stop; the drawdown brakes and rules are unchanged."
+                     if p.get("v2") else "The safety floor is " + inr(p["distance_to_floor"]) + " below today's value and the rules are unchanged."))
         else:
-            note = "Value is at or below the safety floor, so the engine is protecting cash."
+            note = ("Value is at or below the account stop, so everything is sold and buys are halted." if p.get("v2")
+                    else "Value is at or below the safety floor, so the engine is protecting cash.")
         extra = ('<div style="font-size:14px;line-height:21px;color:#4b5563;padding-top:8px;">'
                  + note + '</div>')
     for w in day["warnings"]:
@@ -1113,8 +1171,9 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
     tiles = ('<tr><td style="padding:20px 16px 0 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>\n'
              + _tile("Portfolio value", inr(p["close"]), INK, f"started at {inr(day['start_capital'])}") + "\n"
              + _tile("Total this month", sg(p["month_pnl"]), _tone_color(p["month_pnl"]), pc(p["month_pnl_pct"], 2) + " since the 1st") + "\n"
-             + _tile("Distance to safety floor", inr(abs(dist)), GREEN if dist > 0 else RED,
-                     f"{'above' if dist >= 0 else 'below'} {inr(p['floor'])}")
+             + _tile("Above the account stop" if p.get("v2") else "Distance to safety floor", inr(abs(dist)), GREEN if dist > 0 else RED,
+                     f"{'above' if dist >= 0 else 'below'} {inr(p['floor'])}"
+                     + (f", {abs(p.get('drawdown_from_peak', 0)) * 100:.1f}% under the peak" if p.get("v2") else ""))
              + "\n</tr></table></td></tr>\n")
 
     span = (p["next_value"] - p["floor"]) or 1
@@ -1122,14 +1181,14 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
     gold = round(frac * 100)
     nxt, nf = p["next_value"], p.get("floor_after_next", LOCKED_FLOOR)
     gauge = (f'<tr><td style="padding:18px 20px 0 20px;font-family:{FONT};"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
-             f'<td style="font-size:12px;color:#6b7280;">Floor<br><b style="color:#1f2937">{inr(p["floor"])}</b></td>'
-             f'<td align="right" style="font-size:12px;color:#6b7280;">Next step<br><b style="color:#1f2937">{inr(nxt)}</b></td></tr></table>\n'
+             f'<td style="font-size:12px;color:#6b7280;">{"Account stop" if p.get("v2") else "Floor"}<br><b style="color:#1f2937">{inr(p["floor"])}</b></td>'
+             f'<td align="right" style="font-size:12px;color:#6b7280;">{"Peak value" if p.get("v2") else "Next step"}<br><b style="color:#1f2937">{inr(nxt)}</b></td></tr></table>\n'
              f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
              f'<td width="{gold}%" height="12" style="background:#c9a227;border-radius:6px 0 0 6px;font-size:0;line-height:0;">&nbsp;</td>'
              f'<td width="14" height="12" style="background:#1f2937;font-size:0;line-height:0;">&nbsp;</td>'
              f'<td height="12" style="background:#e8e6df;border-radius:0 6px 6px 0;font-size:0;line-height:0;">&nbsp;</td></tr></table>\n'
              f'<div style="font-size:12px;color:#6b7280;padding-top:6px;line-height:17px;">Dark marker = today\'s value ({inr(p["close"])}). '
-             f'At {inr(nxt)} the floor moves up to {inr(nf)}.</div></td></tr>\n')
+             + (esc(p.get("floor_next_step", "")) if p.get("v2") else f'At {inr(nxt)} the floor moves up to {inr(nf)}.') + '</div></td></tr>\n')
 
     link = report_url or ("https://claude.ai/artifact/REPORT_LINK" if sample else None)
     glance = _glance_html(day, link)
@@ -1194,7 +1253,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + hero + tiles + gauge + glance + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + hero + tiles + gauge + _targets_html(day) + glance + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1223,7 +1282,19 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
         L.append("Note: " + w)
     if day["warnings"]:
         L.append("")
-    L += ["PORTFOLIO AND FLOOR", f"Floor:              {inr(p['floor'])}",
+    if p.get("v2"):
+        L += ["PORTFOLIO AND RISK BRAKES", f"Account stop:       {inr(p['floor'])} (hard stop: sells everything, halts buys)",
+              f"Above the stop:     {'-' if p['distance_to_floor'] < 0 else ''}{inr(p['distance_to_floor'])}",
+              f"Drawdown from peak: {p.get('drawdown_from_peak', 0) * 100:.1f}% (peak {inr(p.get('peak', p['close']))}); brake level {p.get('brake_level', 0)}",
+              f"Brakes:             {p.get('floor_next_step', '')}",
+              f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",
+              f"Costs paid today:   {inr(p['costs_paid'])}", ""]
+        if day.get("targets"):
+            L += ["TREND TARGETS (state, sigma60, target, actual)"] + [
+                f"{t['symbol']:<11} {t.get('state')}  sigma {t.get('sigma')}  target {t.get('target_pct')}%  actual {t.get('actual_pct')}%"
+                for t in day["targets"]] + [""]
+    else:
+      L += ["PORTFOLIO AND FLOOR", f"Floor:              {inr(p['floor'])}",
           f"Distance to floor:  {'-' if p['distance_to_floor'] < 0 else ''}{inr(p['distance_to_floor'])}",
           f"Next step:          {p['floor_next_step'][:1].lower() + p['floor_next_step'][1:]}" if p.get("floor_next_step") else "Next step:          n/a",
           f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",

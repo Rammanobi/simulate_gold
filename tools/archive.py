@@ -13,6 +13,11 @@
 3. state/fastlane_requests.jsonl lines older than 35 days -> archive/YYYY-MM/fastlane_requests-YYYY-MM.jsonl.gz.
 4. logs/trades-archive.jsonl (trades the engine moved out of portfolio.json, see Portfolio.trim_trades): lines older
    than 35 days -> archive/YYYY-MM/trades-archive-YYYY-MM.jsonl.gz.
+5b. memory/stm/days/D.json beyond the newest 10 sessions -> one line per day appended to
+   archive/memory/stm/YYYY-MM.jsonl (a date already there is not added twice), then the file is deleted.
+   memory/stm/today.jsonl is folded daily by tools/memory_stm.py. Lessons retired by the weekly review go to
+   archive/memory/lessons-retired.md and replaced theses to archive/memory/theses-YYYY.md (written by
+   tools/memory_ltm.py, never deleted here). memory/ltm, memory/weekly and memory/monthly are kept for the trial.
 5. reports/daily/DATE.{html,txt,page.html,...} older than 35 days -> archive/YYYY-MM/reports/<name>.gz. The DATE.json
    files stay where they are, uncompressed (the dashboards and the brief read them).
 An archive .gz that already exists is never overwritten with different content (a log that reappears for an old
@@ -34,7 +39,8 @@ LOG_AGE_DAYS = 35
 MEMORY_AGE_DAYS = 60
 LOGS_WARN_MB = 200
 ARCHIVE_WARN_MB = 1024
-PREFIXES = ("decisions", "ticks", "incidents", "health", "advice-rejected")
+PREFIXES = ("decisions", "ticks", "incidents", "health", "advice-rejected", "alignment")
+STM_KEEP_SESSIONS = 10
 LOG_RE = re.compile(r"^(" + "|".join(PREFIXES) + r")-(\d{4}-\d{2}-\d{2})\.(jsonl|csv)$")
 SUMMARY_FIELDS = ["date", "open", "close", "day_pnl", "floor", "buys", "sells", "skips", "blocks", "incidents",
                   "max_cushion", "min_cushion"]
@@ -264,6 +270,30 @@ def archive_memory(root: Path, today: date, dry: bool = False) -> list[str]:
     return said
 
 
+def archive_stm(root: Path, today: date, dry: bool = False, keep: int = STM_KEEP_SESSIONS) -> list[str]:
+    """Keep the newest `keep` memory/stm/days/D.json; older ones become one line each in archive/memory/stm/YYYY-MM.jsonl."""
+    said = []
+    files = sorted(f for f in (root / "memory" / "stm" / "days").glob("*.json")
+                   if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f.name))
+    for f in files[:-keep] if keep else files:
+        d = f.stem
+        dest = root / "archive" / "memory" / "stm" / f"{d[:7]}.jsonl"
+        said.append(f"{f.relative_to(root)} -> {dest.relative_to(root)}")
+        if dry:
+            continue
+        try:
+            row = json.dumps(json.loads(f.read_text(encoding="utf-8")), ensure_ascii=False, separators=(",", ":"))
+        except ValueError:
+            row = json.dumps({"date": d, "unreadable": True})
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        have = dest.read_text(encoding="utf-8") if dest.exists() else ""
+        if f'"date":"{d}"' not in have:           # a crash between append and delete must not duplicate the day
+            with dest.open("a", encoding="utf-8") as fh:
+                fh.write(row + "\n")
+        f.unlink()
+    return said
+
+
 def dir_mb(path: Path) -> float:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6 if path.exists() else 0.0
 
@@ -294,7 +324,7 @@ def main(argv=None) -> int:
         return 0
     today = date.fromisoformat(a.today) if a.today else date.today()
     said = (archive_logs(root, today, a.dry_run) + archive_memory(root, today, a.dry_run)
-            + archive_fastlane_requests(root, today, a.dry_run) + archive_trades(root, today, a.dry_run)
+            + archive_stm(root, today, a.dry_run) + archive_fastlane_requests(root, today, a.dry_run) + archive_trades(root, today, a.dry_run)
             + archive_reports(root, today, a.dry_run))
     print("\n".join(said) if said else "nothing to archive")
     for x in size_warnings(root):

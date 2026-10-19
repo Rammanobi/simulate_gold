@@ -150,7 +150,7 @@ def v2_root(tmp_path: Path, brake=None) -> Path:
 
 def test_v1_day_has_no_strategy_block(tmp_path):
     doc = dashboard.build(D, make_root(tmp_path), NOW)
-    assert "strategy" not in doc and "targets" not in doc
+    assert "strategy" not in doc and doc["targets"] == []
 
 
 def test_v2_day_has_strategy_and_targets(tmp_path):

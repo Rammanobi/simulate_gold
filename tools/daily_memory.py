@@ -28,8 +28,15 @@ def skeleton(date: str, root: Path, now=None) -> str:
     p, c = day["portfolio"], day["counts"]
     L.append(f"- Value: open {p['open']:,.0f}, close {p['close']:,.0f}; day P&L {p['day_pnl']:+,.0f} ({p['day_pnl_pct']:+.2f}%); "
              f"month P&L {p['month_pnl']:+,.0f}")
-    L.append(f"- Floor {p['floor']:,.0f}; cushion {p['distance_to_floor']:,.0f}; costs {p['costs_paid']:,.0f}; "
-             f"LIQUIDBEES income {p['liquidbees_income']:,.0f}")
+    if p.get("v2"):
+        L.append(f"- Account stop {p['floor']:,.0f} (above it by {p['distance_to_floor']:,.0f}); drawdown from peak "
+                 f"{p.get('drawdown_from_peak', 0) * 100:.1f}%, brake level {p.get('brake_level', 0)}; costs {p['costs_paid']:,.0f}; "
+                 f"LIQUIDBEES income {p['liquidbees_income']:,.0f}")
+        for t in day.get("targets") or []:
+            L.append(f"- Target {t['symbol']}: trend {t.get('state')}, sigma60 {t.get('sigma')}, target {t.get('target_pct')}%, actual {t.get('actual_pct')}%")
+    else:
+        L.append(f"- Floor {p['floor']:,.0f}; cushion {p['distance_to_floor']:,.0f}; costs {p['costs_paid']:,.0f}; "
+                 f"LIQUIDBEES income {p['liquidbees_income']:,.0f}")
     L.append(f"- Counts: {c['buys']} buys, {c['sells']} sells, {c['skips']} skips, {c['blocks']} blocks, "
              f"{c['holds']} holds, {c['fast_lane_runs']} fast-lane runs")
     trades = [x for x in day["decisions"] if x["action"] in ("BUY", "SELL")]
@@ -47,9 +54,18 @@ def skeleton(date: str, root: Path, now=None) -> str:
     g = brief.guidance_view(root, parse_now(None) if now is None else now)
     if g["exists"]:
         L.append("- Guidance: " + ", ".join(f"{k}={v}" for k, v in g["bias"].items()))
-    L.append("- WHY: <one line: what drove the day>")
-    L.append("- LEARNED: <one line, or 'nothing'>")
-    return "\n".join(L[:15]) + "\n"
+    stm = brief.load_json(root / "memory" / "stm" / "days" / f"{date}.json", {})
+    if isinstance(stm, dict) and stm:
+        bits = []
+        if stm.get("alignment"):
+            bits.append("alignment " + ", ".join(f"{k}={v}" for k, v in stm["alignment"].items()))
+        nm = [f"{n['sym']} {n['max_score']:.2f}/{n['need']:.2f}" for n in stm.get("near_misses", [])]
+        if nm:
+            bits.append("near-misses " + ", ".join(nm))
+        if bits:
+            L.append("- STM: " + "; ".join(bits))
+    tail = ["- WHY: <one line: what drove the day>", "- LEARNED: <one line, or 'nothing'>"]
+    return "\n".join(L[:13] + tail) + "\n"
 
 
 def main(argv=None) -> int:

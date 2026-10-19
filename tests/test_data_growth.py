@@ -173,6 +173,8 @@ def test_touch_without_a_file_creates_all_neutral(tmp_path):
 
 
 def test_touch_keeps_bias_refreshes_time_and_appends_note(tmp_path):
+    from memfix import seed_memory
+    seed_memory(tmp_path, asof="2026-10-13")          # trend UP and short term UP: ceiling is favour
     tool("guidance.py", tmp_path, "set", "--bias", "GOLD=favour", "COPPER=block", "--note", "first",
          now=NOW - timedelta(hours=2))
     r = tool("guidance.py", tmp_path, "touch", "--note", "still fine")

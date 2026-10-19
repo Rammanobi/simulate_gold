@@ -4,9 +4,9 @@ Shape (all keys always present): date, weekday, updated, live, open, close, pnl,
 liquid_income, costs, summary, tomorrow, counts{BUY,SELL,SKIP,BLOCK,HOLD}, alloc{GOLDBEES,SILVERBEES,HINDCOPPER,
 LIQUIDBEES}, holdings[], ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
 amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift,
-checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened).
-Strategy v2 days only (keys absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
-min_invested?} and targets[{symbol, time, trend ON/OFF, reason, sigma60, target_pct, actual_pct, stop, exit_level?,
+checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened), targets[] (empty on v1 days).
+Strategy v2 days only (strategy absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
+min_invested?, peak?, drawdown_pct?, account_stop_level?} and targets[{symbol, time, trend ON/OFF, state, sigma (the engine's TARGET fields), reason, sigma60, target_pct, actual_pct, stop, exit_level?,
 ai_stop?}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
 "Drawdown brake" / "Account stop" decisions.
 
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
 ACTIONS = ("BUY", "SELL", "SKIP", "BLOCK", "HOLD")
 DEC_KEYS = ("time", "action", "symbol", "qty", "price", "amount", "pnl", "reason", "trigger", "stop", "risk",
-            "value_after")
+            "value_after", "exit_level")
 MAX_TICKS = 140         # keeps a document far below the 256 KiB database limit
 MAX_NOTES = 30
 MAX_CHECK_CHARS = 220
@@ -155,6 +155,7 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
         m = _DETAIL.search(reason)
         stp = stops.get(s, {})
         t = {"symbol": s, "time": str(r.get("time") or "")[:5], "trend": str(r.get("state") or "").upper() or None,
+             "state": r.get("state"), "sigma": r.get("sigma"),      # the engine's own field names, kept for readers of the simple schema
              "reason": (m.group(1) if m else reason)[:300],
              "sigma60": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None,
              "target_pct": _num(r.get("target_pct")), "actual_pct": _num(r.get("actual_pct"))}
@@ -253,9 +254,16 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "ticks": _ticks(root / "logs" / f"ticks-{date}.csv"), "decisions": decisions,
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
         "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
+        "targets": [],
     }
     if strategy is not None:                         # v2 only; v1 documents keep their old shape
         doc["strategy"], doc["targets"] = strategy, targets
+        if p.get("v2"):                              # risk-brake facts for the KPI tile (same numbers as the report)
+            strategy["peak"] = p.get("peak")
+            strategy["drawdown_pct"] = round(100.0 * float(p.get("drawdown_from_peak") or 0), 2)
+            strategy["account_stop_level"] = p.get("account_stop")
+            if p.get("brake_level") is not None and not strategy.get("brake_level"):
+                strategy["brake_level"] = int(p["brake_level"])
     return doc
 
 

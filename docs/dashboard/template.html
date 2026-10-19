@@ -249,6 +249,12 @@ function pickInitial(){
   const real = DAYS.filter(d=>!d.example); return real[real.length-1] || DAYS[0];
 }
 
+function riskTile(d){      // v2 days: the risk brakes replace the v1 safety floor
+  const sg=d.strategy, lv=sg.brake_level||0, stop=sg.account_stop_level??d.floor;
+  const lab=["Brake: normal","Brake: half size","Brake: cash"][Math.min(lv,2)];
+  const dd=sg.drawdown_pct, ddt=dd==null?"–":(dd>=0?"0.0":Math.abs(dd).toFixed(1))+"% under peak";
+  return ["Risk brakes",`<span class="${lv?"neg":""}">${lab}</span>`,`${ddt} · account stop ${inr(stop)}`];
+}
 function renderStrategy(d){
   const box=document.getElementById("strat"), sg=d.strategy;
   if(!sg){ box.style.display="none"; return; }      // v1 days have no strategy block
@@ -309,7 +315,7 @@ function render(){
     ["Value at close",inr(d.close,2),`opened ${inr(d.open,2)}`],
     ["Day P&L",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}%`],
     ["Green line",d.close>=100000?'<span class="pos">Green ✓</span>':'<span class="neg">Red</span>',`vs ₹1,00,000 start`],
-    ["Safety floor",inr(d.floor),`cushion ${inr(cush)}`],
+    d.strategy ? riskTile(d) : ["Safety floor",inr(d.floor),`cushion ${inr(cush)}`],
     ["LIQUIDBEES income",inr(d.liquid_income,2),`costs paid ${inr(d.costs,2)}`],
   ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join("");
   // allocation
@@ -342,7 +348,7 @@ function renderChart(d){
   ["09:15","10:00","11:00","12:00","13:00","14:00","15:00","15:30"].forEach(t=>g+=`<text x="${x(t)}" y="${H-10}" font-size="11" text-anchor="middle" fill="${css("--muted")}">${t}</text>`);
   const ref=(v,c,lab,dash)=>{ if(v<lo||v>hi) return ""; return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${c}" stroke-dasharray="${dash}" stroke-width="1.5"/><text x="${W-R-4}" y="${y(v)-4}" font-size="11" text-anchor="end" fill="${c}">${lab}</text>`;};
   g+=ref(100000,css("--green"),"₹1,00,000 green line","6 4").replace(/y="([\d.]+)" font-size="11" text-anchor="end"/,(m,v)=>`y="${+v+16}" font-size="11" text-anchor="end"`);
-  g+=floorOff?`<text x="${W-R-4}" y="${H-B-6}" font-size="11" text-anchor="end" fill="${css("--red")}">↓ floor ${inr(d.floor)} is ${inr(d.close-d.floor)} below (off chart)</text>`:ref(d.floor,css("--red"),"floor "+inr(d.floor),"2 4");
+  g+=floorOff?`<text x="${W-R-4}" y="${H-B-6}" font-size="11" text-anchor="end" fill="${css("--red")}">↓ ${d.strategy?"account stop":"floor"} ${inr(d.floor)} is ${inr(d.close-d.floor)} below (off chart)</text>`:ref(d.floor,css("--red"),(d.strategy?"account stop ":"floor ")+inr(d.floor),"2 4");
   if(d.ticks.length){
     const pts=d.ticks.map(r=>`${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join(" ");
     g+=`<polyline points="${pts}" fill="none" stroke="${css("--accent")}" stroke-width="2.2" stroke-linejoin="round"/>`;

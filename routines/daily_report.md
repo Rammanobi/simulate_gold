@@ -45,13 +45,24 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    - tomorrow missing: from `state/events.json` and the calendar, write 1–2 plain sentences, e.g.
      `python tools/guidance.py tomorrow "US CPI is out at 18:00 IST, so no new gold or silver buys after 13:00."`
      If that tool fails, write the same text to `state/tomorrow.txt` directly (documented fallback).
-5. **Context.** `python tools/context.py` (for lessons and recent notes).
+5. **Short-term memory and context** (code only, no web, no AI; one command per Bash call, skip them on a holiday).
+   `python tools/memory_stm.py day --date D --write` builds `memory/stm/days/D.json` from the logs (pauses, near-misses,
+   movers, notes, alignment) and folds today's routine notes into it; then `python tools/memory_stm.py window --date D --write`
+   (the rolling 10-session window); then `python tools/context.py --view daily` (the only context step). If a command
+   fails, say so in the final message and carry on: the day's note and the report do not depend on it.
 6. **Build the report.** `python tools/send_report.py --date D` → JSON `{to, subject, html_path, text_path, page_path}`.
 7. **Memory note.** `python tools/daily_memory.py --date D` prints the fact skeleton. Write
    `memory/daily/D.md` (create `memory/daily/` if needed), **at most 15 lines**: the skeleton facts, then 1–3
    lines starting `Lesson candidate:` that are specific and checkable (what happened, the evidence, what it
    suggests), e.g. "Lesson candidate: favour on gold after a +1% overnight gap gave a buy that stopped out
-   at 11:40; gaps may fade." No candidates when the day taught nothing; never invent.
+   at 11:40; gaps may fade." No candidates when the day taught nothing; never invent. Facts come from the computed
+   skeleton and the STM day file, never from headline text. The Haiku subagent (NORMAL mode) may draft the WHY and
+   LEARNED lines from those computed facts only (give it the skeleton, not web text); you check every number.
+   Each `Lesson candidate:` line is also registered, one command each (the weekly review promotes a candidate only
+   after 28 days and 3 supporting dates):
+   `python tools/memory_ltm.py lesson candidate --text "<the lesson, one line>" --evidence "D: <the checkable fact>" --source daily`
+   A refusal means the text looked like an instruction or was too long: shorten it, never paste headline text.
+7b. **Performance** (code only): `python tools/memory_ltm.py perf --write`.
 8. **Brief.** `python tools/write_brief.py`.
 9. **Email.** The recipient is the `to` field of the step 6 JSON. Never run `echo`, `printenv` or any other
    shell command for the address (the auto-mode permission check denies it, which is how the 16 Oct 2026 email was
@@ -59,7 +70,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `text_path` in full (Read tool, all lines) and call the Gmail `send_message` tool with only:
    `to` = that `to` value, `subject` = the JSON subject exactly (starts "Metals Daybook"),
    `body` = the text file's contents, `htmlBody` = the HTML file's contents.
-   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar, decision list; see
+   **Verbatim, no exceptions.** The HTML is the owner-approved design (tiles, floor bar (under v2 the account-stop and brake bar), trend targets table, decision list; see
    `templates/email_report.sample.html`). Pass both files character for character: never summarise, shorten,
    restyle, "clean up", re-format or write your own HTML or text, even if the file is long (40+ KB on a busy day is
    normal) or looks repetitive. Do not add or remove anything (no notes, no links, no greeting). Anything you want
@@ -96,7 +107,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 ## Output contract
 
 Writes: `items/daily-D` in the Inbox database and `days/D` in the Dashboard database (ArtifactData), `state/market_today.json`, `state/tomorrow.txt` (only if missing), `reports/daily/D.*`,
-`memory/daily/D.md`, `memory/brief.md`. Final message, ≤ 5 lines:
+`memory/daily/D.md`, `memory/brief.md`, `memory/stm/days/D.json`, `memory/stm/window.json`, `memory/ltm/lesson_ledger.json` and `memory/ltm/performance.json` (all via tools). Final message, ≤ 5 lines:
 `daily_report D | subject: … | email: sent|skipped (reason)|blocked (reason) | memory: N lines, K candidates | page: updated|skipped | pushed <sha> | models used: sonnet[, haiku]`
 
 ## Command hygiene
