@@ -5,6 +5,10 @@ liquid_income, costs, summary, tomorrow, counts{BUY,SELL,SKIP,BLOCK,HOLD}, alloc
 LIQUIDBEES}, holdings[], ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
 amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift,
 checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened).
+Strategy v2 days only (keys absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
+min_invested?} and targets[{symbol, time, trend ON/OFF, reason, sigma60, target_pct, actual_pct, stop, exit_level?,
+ai_stop?}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
+"Drawdown brake" / "Account stop" decisions.
 
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
 logs/dashboard-DATE.json at every git sync, so the dashboard page (which reads it from the public repo) shows each
@@ -16,6 +20,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -68,6 +73,97 @@ def _raw_decisions(path: Path) -> list[dict]:
             out.append({k: r.get(k) for k in DEC_KEYS})
     out.sort(key=lambda d: str(d.get("time") or ""))
     return out
+
+
+V2_TRIGGERS = ("Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop")
+_DETAIL = re.compile(r"trend\s+\w+\s+\((.*?)\);\s*sigma60")
+_BRAKE_LEVEL = re.compile(r"brake level (\d)")
+_BRAKE_MULT = re.compile(r"x ([\d.]+) \(drawdown brake")
+
+
+def _params(root: Path) -> dict:
+    try:
+        import yaml
+        with (root / "config" / "params.yaml").open(encoding="utf-8") as fh:
+            return (yaml.safe_load(fh) or {}).get("strategy") or {}
+    except Exception:  # noqa: BLE001 - config is optional for the dashboard
+        return {}
+
+
+def _num(v):
+    return _f(v) if isinstance(v, (int, float, str)) else None
+
+
+def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[dict] | None]:
+    """Adapter for strategy v2: (strategy block, per-symbol targets), or (None, None) on v1 days."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None, None
+    recs = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict):
+            recs.append(r)
+    if not any(r.get("action") == "TARGET" or r.get("trigger") in V2_TRIGGERS for r in recs):
+        return None, None
+    par = _params(root)
+    level, mult_level, acct, ai_all = 0, None, False, False
+    last: dict[str, dict] = {}
+    stops: dict[str, dict] = {}
+    for r in recs:
+        trig, reason, sym = r.get("trigger"), str(r.get("reason") or ""), r.get("symbol")
+        if trig == "Drawdown brake":
+            m = _BRAKE_LEVEL.search(reason)
+            level = int(m.group(1)) if m else 0
+        elif trig == "Account stop" and r.get("action") == "BLOCK":
+            acct = True
+        elif trig == "Opus guidance" and r.get("action") == "BLOCK" and sym == "ALL":
+            ai_all = True
+        if sym in SYMS:
+            if r.get("action") == "TARGET":
+                last[sym] = r
+                m = _BRAKE_MULT.search(reason)
+                if m:
+                    mult_level = 2 if float(m.group(1)) == 0 else 1
+            st = stops.setdefault(sym, {})
+            if _num(r.get("exit_level")):
+                st["exit_level"] = _num(r.get("exit_level"))
+            if _num(r.get("stop")):
+                st["ai_stop"] = _num(r.get("stop"))
+    if level == 0 and mult_level:                    # brake set on an earlier day, still cutting today's targets
+        level = mult_level
+    stop_cfg = _num(par.get("account_stop"))
+    if not acct and stop_cfg and close is not None and close <= stop_cfg:
+        acct = True
+    metals = sum(alloc.get(s, 0.0) for s in SYMS)
+    total = metals + alloc.get("LIQUIDBEES", 0.0)
+    strategy = {"mode": str(par.get("mode") or "v2_trend"), "brake_level": level, "account_stop": acct,
+                "ai_stop": ai_all, "invested_pct": round(100.0 * metals / total, 1) if total else 0.0}
+    floor = _num(par.get("min_invested", par.get("gold_floor")))
+    if floor is not None:
+        strategy["min_invested"] = floor if floor > 1 else round(floor * 100, 1)
+    targets = []
+    for s in SYMS:
+        r = last.get(s)
+        if not r:
+            continue
+        reason = str(r.get("reason") or "")
+        m = _DETAIL.search(reason)
+        stp = stops.get(s, {})
+        t = {"symbol": s, "time": str(r.get("time") or "")[:5], "trend": str(r.get("state") or "").upper() or None,
+             "reason": (m.group(1) if m else reason)[:300],
+             "sigma60": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None,
+             "target_pct": _num(r.get("target_pct")), "actual_pct": _num(r.get("actual_pct"))}
+        real = [v for v in (stp.get("exit_level"), stp.get("ai_stop")) if v]
+        if real:
+            t["stop"] = max(real)
+        t.update({k: v for k, v in stp.items() if v})
+        targets.append(t)
+    return strategy, targets
 
 
 def _checks(path: Path) -> dict:
@@ -146,8 +242,9 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
     alloc["LIQUIDBEES"] = round(float(p.get("cash_in_liquidbees") or 0), 2)
     decisions = _raw_decisions(root / "logs" / f"decisions-{date}.jsonl")
     counts = {a: sum(1 for d in decisions if d["action"] == a) for a in ACTIONS}
+    strategy, targets = _v2(root / "logs" / f"decisions-{date}.jsonl", root, alloc, p.get("close"))
     stamp = (now or now_ist()).isoformat(timespec="seconds")
-    return {
+    doc = {
         "date": date, "weekday": day.get("weekday", ""), "updated": stamp, "live": not day.get("closed", False),
         "open": p["open"], "close": p["close"], "pnl": p["day_pnl"], "pnl_pct": p["day_pnl_pct"],
         "floor": p["floor"], "cushion": p["distance_to_floor"], "liquid_income": p["liquidbees_income"],
@@ -157,6 +254,9 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
         "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
     }
+    if strategy is not None:                         # v2 only; v1 documents keep their old shape
+        doc["strategy"], doc["targets"] = strategy, targets
+    return doc
 
 
 def write(date: str, root: Path, now: datetime | None = None) -> Path:

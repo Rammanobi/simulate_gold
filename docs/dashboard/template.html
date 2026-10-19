@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metals Daybook Dashboard</title>
+<style>
+:root{
+  --bg:#f6f5f1;--card:#ffffff;--ink:#1d1d1b;--muted:#6b6a65;--line:#e4e2db;
+  --gold:#c99a1a;--silver:#8a94a3;--copper:#b5643c;--liquid:#3d7fb8;
+  --buy:#1f8a4c;--sell:#c0392b;--skip:#8a8a8a;--block:#d98a00;--hold:#5b6ccf;
+  --green:#1f8a4c;--red:#c0392b;--chip:#efede6;--accent:#1d1d1b;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--muted:#a3a29b;--line:#2f2f2c;
+  --gold:#e0b43a;--silver:#aab4c2;--copper:#d77d52;--liquid:#5fa1d8;
+  --buy:#3cbf73;--sell:#ec6a5c;--skip:#9a9a9a;--block:#f0a830;--hold:#8593ee;
+  --green:#3cbf73;--red:#ec6a5c;--chip:#2a2a27;--accent:#ecebe6;}}
+:root[data-theme="dark"]{
+  --bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--muted:#a3a29b;--line:#2f2f2c;
+  --gold:#e0b43a;--silver:#aab4c2;--copper:#d77d52;--liquid:#5fa1d8;
+  --buy:#3cbf73;--sell:#ec6a5c;--skip:#9a9a9a;--block:#f0a830;--hold:#8593ee;
+  --green:#3cbf73;--red:#ec6a5c;--chip:#2a2a27;--accent:#ecebe6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.days{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:thin}
+.day{flex:0 0 auto;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:8px 12px;cursor:pointer;text-align:left;color:var(--ink);min-width:118px;font:inherit}
+.day:hover{border-color:var(--muted)}
+.day.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.day b{display:block;font-size:14px}
+.day .p{font-size:13px;font-variant-numeric:tabular-nums}
+.day .t{font-size:11px;color:var(--muted)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:14px}
+.card h2{font-size:15px;margin:0 0 10px}
+.banner{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:12px}
+.banner.ex{border-left:4px solid var(--block)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--muted)}
+.bar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--chip);margin:6px 0 12px}
+.bar span{display:block;height:100%}
+.inst{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.ins{border:1px solid var(--line);border-radius:12px;padding:10px 12px;position:relative}
+.ins:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:4px;border-radius:2px;background:var(--c)}
+.ins .n{font-weight:600}
+.ins .r{display:flex;justify-content:space-between;font-size:13px;font-variant-numeric:tabular-nums}
+.ins .r i{font-style:normal;color:var(--muted)}
+.counts{display:flex;gap:8px;flex-wrap:wrap}
+.cnt{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;cursor:pointer;background:var(--card);color:var(--ink);font:inherit}
+.cnt.off{opacity:.4}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--c);display:inline-block}
+.chartbox{position:relative;overflow-x:auto}
+.chartbox svg{min-width:640px}
+svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;padding:6px 8px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-110%);display:none}
+.tl{list-style:none;margin:0;padding:0}
+.st{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.st:first-child{border-top:none}
+.st .tm{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;padding-top:2px}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;color:#fff;background:var(--c);border-radius:6px;padding:1px 7px;margin-right:6px}
+.st .h{font-weight:600}
+.st .why{font-size:14px;margin-top:2px}
+.st .meta{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+.note .tag{background:var(--chip);color:var(--ink)}
+.tabs{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+.mins{width:100%;border-collapse:collapse;font-size:12.5px}
+.mins td,.mins th{border-top:1px solid var(--line);padding:6px 6px;vertical-align:top;text-align:left}
+.mins th{font-size:11px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--card)}
+.mins .tm{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.mins tr.hit td{background:color-mix(in srgb,var(--block) 12%,transparent)}
+.minwrap{max-height:640px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.same{color:var(--muted)}
+.tab{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 12px;cursor:pointer}
+.tab.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.cat{margin-top:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.cat>summary{list-style:none;cursor:pointer;padding:10px 12px;font-weight:600;display:flex;justify-content:space-between;gap:8px;background:var(--chip)}
+.cat>summary::-webkit-details-marker{display:none}
+.cat .body{padding:0 12px 6px}
+.sub2{font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 0;text-transform:uppercase;letter-spacing:.04em}
+.sys .tag{background:var(--hold)}
+.one{font-size:13px;font-variant-numeric:tabular-nums;background:var(--chip);border-radius:8px;padding:4px 8px;margin-bottom:6px;display:inline-block}
+.grp{font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline}
+.empty{color:var(--muted);font-size:14px}
+.two{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+.live{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--card);font-size:12px;color:var(--ink)}
+.ldot{width:8px;height:8px;border-radius:50%;background:var(--skip)}
+.live.on .ldot{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.st.new{animation:flash 4s ease-out}
+@keyframes flash{0%{background:color-mix(in srgb,var(--block) 30%,transparent)}100%{background:transparent}}
+.foot{font-size:12px;color:var(--muted);margin-top:18px}
+
+.sg-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.sg-head h2{margin:0}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;color:#fff;background:var(--c)}
+.gauge{position:relative;height:16px;border-radius:8px;background:var(--chip);margin:6px 0 4px;overflow:hidden}
+.gauge i{position:absolute;left:0;top:0;bottom:0;background:var(--gold);border-radius:8px 0 0 8px}
+.gauge b{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.gl{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.tg{margin-top:12px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tg .row{display:grid;grid-template-columns:130px 70px minmax(0,1.6fr) minmax(0,1fr) 70px 80px;gap:10px;align-items:center;padding:9px 12px;border-top:1px solid var(--line);font-size:13px}
+.tg .row.h{border-top:0;background:var(--chip);font-size:11px;font-weight:600;color:var(--muted)}
+.tg .row>*{min-width:0;overflow-wrap:anywhere}
+.tg .num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 9px;color:#fff;background:var(--c)}
+.tg .why{font-size:12px;color:var(--muted);margin:0}
+.mini{position:relative;height:8px;border-radius:4px;background:var(--chip);margin-top:4px}
+.mini i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--c)}
+.mini b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+.sg-note{font-size:12px;color:var(--muted);margin-top:8px}
+@media (max-width:640px){
+  .tg .row.h{display:none}
+  .tg .row{grid-template-columns:1fr 1fr;gap:6px 12px}
+  .tg .row>[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--muted)}
+  .tg .row>.why-c{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div><h1>Metals Daybook · Dashboard</h1>
+  <div class="sub">Paper trading only: virtual ₹1,00,000 in GOLDBEES · SILVERBEES · HINDCOPPER, with idle money in LIQUIDBEES</div></div>
+  <div class="sub" style="text-align:right"><span id="live" class="live"><span class="ldot"></span><span id="livetxt">Loading…</span></span><div id="upd"></div></div>
+</header>
+
+<div class="days" id="days"></div>
+<div id="banner"></div>
+<div class="kpis card" style="padding:12px" id="kpis"></div>
+
+<div class="card" id="strat" style="display:none">
+  <div class="sg-head"><h2>Strategy today</h2><div class="badges" id="sgbadges"></div></div>
+  <div class="gl"><span id="sginv"></span><span id="sgmin"></span></div>
+  <div class="gauge" id="sggauge" role="img"></div>
+  <div class="tg" id="sgtable"></div>
+  <div class="sg-note" id="sgnote"></div>
+</div>
+
+<div class="card">
+  <h2 id="moneyh">Where the money was at close</h2>
+  <div class="bar" id="bar"></div>
+  <div class="inst" id="inst"></div>
+</div>
+
+<div class="card">
+  <h2>Intraday: portfolio value and decisions</h2>
+  <div class="chartbox"><svg id="chart" viewBox="0 0 1000 300" role="img" aria-label="Intraday value chart"></svg><div class="tip" id="tip"></div></div>
+  <div class="legend" id="legend"></div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>Every decision of the day, start to end</h2>
+    <div class="tabs" id="tabs"><button data-m="cat" class="tab">By category</button><button data-m="all" class="tab">Full timeline (start → end)</button><button data-m="min" class="tab">Every minute</button></div>
+    <div class="counts" id="counts"></div>
+    <ul class="tl" id="tl" style="margin-top:10px"></ul>
+  </div>
+  <div class="card">
+    <h2>What Claude (the routines) said</h2>
+    <ul class="tl" id="notes"></ul>
+    <h2 style="margin-top:16px">Plan for tomorrow</h2>
+    <div id="tmr" class="why"></div>
+  </div>
+</div>
+<div class="foot">Live source: <code>logs/dashboard-DATE.json</code> in the public repo, written by the engine about every 5 minutes during market hours (checked here every minute), and a copy the Claude routines save hourly. Newest decisions flash when they arrive. The engine makes every decision; Claude only sets a bias and writes notes. Nothing here can place a trade.</div>
+</div>
+
+<script>
+let DAYS = __DATA__;
+const REPO = "Rammanobi/simulate_gold", RAW = "https://raw.githubusercontent.com/"+REPO+"/main/";
+const SYM = {GOLDBEES:{c:"--gold",n:"Gold (GOLDBEES)"},SILVERBEES:{c:"--silver",n:"Silver (SILVERBEES)"},HINDCOPPER:{c:"--copper",n:"Copper (HINDCOPPER)"},LIQUIDBEES:{c:"--liquid",n:"Cash (LIQUIDBEES)"}};
+const ACT = {BUY:"--buy",SELL:"--sell",SKIP:"--skip",BLOCK:"--block",HOLD:"--hold"};
+const ACTN = {BUY:"Bought",SELL:"Sold",SKIP:"Skipped",BLOCK:"Blocked",HOLD:"Held"};
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const inr = (x,d=0) => x==null?"–":"₹"+Number(x).toLocaleString("en-IN",{minimumFractionDigits:d,maximumFractionDigits:d});
+const sgn = (x,d=0) => (x>0?"+":x<0?"−":"")+inr(Math.abs(x),d);
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtDate = d => { if(!/^\d{4}-/.test(d.date)) return "Example day"; const t=new Date(d.date+"T00:00:00"); return t.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"}); };
+let cur = null, hidden = new Set(), expandAll = false;
+const seen = {};                       // date -> Set of decision keys already shown (to flash new ones)
+const src = {gh:false, db:false, ghAt:null, dbAt:null};
+const dkey = q => [q.time,q.action,q.symbol,q.trigger,q.qty].join("|");
+const istNow = () => new Date(Date.now() + (330 + new Date().getTimezoneOffset())*60000);
+const isoIST = () => { const n=istNow(); return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0"); };
+function marketHours(){ const n=istNow(), m=n.getHours()*60+n.getMinutes(), w=n.getDay(); return w>0 && w<6 && m>=9*60 && m<=15*60+50; }
+function hasRealTrade(){ return DAYS.some(d=>!d.example && ((d.counts.BUY||0)+(d.counts.SELL||0))>0); }
+function upsert(doc, via){
+  if(!doc || !/^\d{4}-\d{2}-\d{2}$/.test(doc.date||"") || !Array.isArray(doc.decisions)) return false;
+  doc.counts = doc.counts || {}; doc.alloc = doc.alloc || {}; doc.ticks = doc.ticks || []; doc.notes = doc.notes || [];
+  const i = DAYS.findIndex(d=>d.date===doc.date);
+  if(i>=0){ const old=DAYS[i]; if(old.updated && doc.updated && doc.updated < old.updated) return false;
+    if(JSON.stringify(old)===JSON.stringify(doc)) return false; DAYS[i]=doc; }
+  else DAYS.push(doc);
+  DAYS.sort((a,b)=> a.example?-1 : b.example?1 : a.date<b.date?-1:1);
+  if(hasRealTrade()) DAYS = DAYS.filter(d=>!d.example);
+  if(cur && cur.date===doc.date) cur=doc;
+  return true;
+}
+function setStatus(){
+  const el=document.getElementById("live"), tx=document.getElementById("livetxt");
+  const at = [src.ghAt,src.dbAt].filter(Boolean).sort().pop();
+  const t = at ? new Date(at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})+" IST" : "";
+  el.classList.toggle("on", src.gh || src.db);
+  tx.textContent = src.gh ? `Live · checked ${t}${marketHours()?" · every minute":""}` : src.db ? `Synced by Claude · ${t}` : "Saved copy (live feed not reachable)";
+}
+async function fetchJSON(url){ const r = await fetch(url+(url.includes("?")?"&":"?")+"t="+Date.now(), {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
+async function pollGitHub(first){
+  let changed=false;
+  try{
+    if(first){   // discover all days once (GitHub API, unauthenticated: 60 calls/hour, we use 1)
+      try{ const ls = await fetchJSON("https://api.github.com/repos/"+REPO+"/contents/logs");
+        const dates = ls.map(f=>(f.name.match(/^dashboard-(\d{4}-\d{2}-\d{2})\.json$/)||[])[1]).filter(Boolean).slice(-60);
+        for(const d of dates){ if(!DAYS.some(x=>x.date===d)) { try{ changed = upsert(await fetchJSON(RAW+"logs/dashboard-"+d+".json"),"gh") || changed; }catch(e){} } }
+      }catch(e){}
+    }
+    const today = isoIST();
+    try{ changed = upsert(await fetchJSON(RAW+"logs/dashboard-"+today+".json"),"gh") || changed; }catch(e){
+      const last = DAYS.filter(d=>!d.example).map(d=>d.date).sort().pop();
+      if(last) changed = upsert(await fetchJSON(RAW+"logs/dashboard-"+last+".json"),"gh") || changed;
+    }
+    src.gh=true; src.ghAt=new Date().toISOString();
+  }catch(e){ src.gh=false; }
+  setStatus(); if(changed) render();
+  setTimeout(()=>pollGitHub(false), marketHours()? 60000 : 900000);
+}
+async function connectDb(){
+  try{
+    const db = await claude.use("db"); if(!db) return;
+    db.collection("days").onSnapshot(snap=>{
+      let changed=false; snap.docs.forEach(s=>{ if(s.exists) changed = upsert(JSON.parse(JSON.stringify(s.data())),"db") || changed; });
+      src.db=true; src.dbAt=new Date().toISOString(); setStatus(); if(changed) render();
+    }, ()=>{ src.db=false; setStatus(); });
+  }catch(e){}
+}
+
+function pickInitial(){
+  let h = ""; try{ h = decodeURIComponent(location.hash.slice(1)); }catch(e){}
+  const f = DAYS.find(d=>d.date===h); if(f){ cur_pinned = true; return f; }
+  const real = DAYS.filter(d=>!d.example); return real[real.length-1] || DAYS[0];
+}
+
+function renderStrategy(d){
+  const box=document.getElementById("strat"), sg=d.strategy;
+  if(!sg){ box.style.display="none"; return; }      // v1 days have no strategy block
+  box.style.display="";
+  const pct=(x,dg=1)=>x==null?"–":Number(x).toFixed(dg).replace(/\.0$/,"")+"%";
+  const lv=sg.brake_level||0;
+  const BR=[["Normal","--green"],["Half size −15%","--block"],["Cash −25%","--sell"]][Math.min(lv,2)];
+  const bd=[`<span class="badge" style="--c:var(${BR[1]})" title="Drawdown brake level ${lv}">Brake: ${BR[0]}</span>`];
+  if(sg.account_stop) bd.push('<span class="badge" style="--c:var(--sell)">Account stop</span>');
+  if(sg.ai_stop) bd.push('<span class="badge" style="--c:var(--hold)">AI stop: no new buys</span>');
+  if(sg.mode) bd.push(`<span class="badge" style="--c:var(--muted)">${esc(sg.mode)}</span>`);
+  document.getElementById("sgbadges").innerHTML=bd.join("");
+  const inv=Math.max(0,Math.min(100,sg.invested_pct||0)), mn=sg.min_invested;
+  document.getElementById("sginv").textContent=`Invested in metals ${pct(inv)} · in cash (LIQUIDBEES) ${pct(100-inv)}`;
+  document.getElementById("sgmin").textContent = mn!=null ? `Minimum invested ${pct(mn)}` : "";
+  const g=document.getElementById("sggauge");
+  g.setAttribute("aria-label",`Invested ${pct(inv)}`);
+  g.innerHTML=`<i style="width:${inv}%"></i>`+(mn!=null?`<b style="left:${Math.min(100,mn)}%" title="Minimum invested ${pct(mn)}"></b>`:"");
+  const T=d.targets||[];
+  const head='<div class="row h"><div>Metal</div><div>Trend</div><div>Why</div><div>Target vs actual</div><div>σ60</div><div>Stop</div></div>';
+  const rows=T.map(t=>{
+    const on=t.trend==="ON", c=SYM[t.symbol]||{c:"--muted",n:t.symbol};
+    const tg=Math.max(0,Math.min(100,t.target_pct||0)), ac=Math.max(0,Math.min(100,t.actual_pct||0));
+    return `<div class="row"><div data-l="Metal"><b style="color:var(${c.c})">●</b> ${esc(c.n)}</div>
+      <div data-l="Trend"><span class="chip" style="--c:var(${on?"--green":"--skip"})">${on?"ON":"OFF"}</span></div>
+      <div class="why-c" data-l="Why"><p class="why">${esc(t.reason||"–")}</p></div>
+      <div class="num" data-l="Target vs actual">${pct(t.target_pct)} vs ${pct(t.actual_pct)}<div class="mini" style="--c:var(${c.c})" title="bar = actual, line = target"><i style="width:${ac}%"></i><b style="left:${tg}%"></b></div></div>
+      <div class="num" data-l="σ60">${t.sigma60!=null?(t.sigma60*100).toFixed(1)+"%":"–"}</div>
+      <div class="num" data-l="Stop">${t.stop!=null?inr(t.stop,2):"–"}</div></div>`;
+  }).join("");
+  document.getElementById("sgtable").innerHTML = T.length ? head+rows : '<div class="row"><div class="why">No daily trend check recorded yet today (it runs once, around 15:10 IST).</div></div>';
+  const ex=T.filter(t=>t.exit_level!=null||t.ai_stop!=null).map(t=>`${t.symbol}: ${t.exit_level!=null?"trend exit "+inr(t.exit_level,2):""}${t.exit_level!=null&&t.ai_stop!=null?" · ":""}${t.ai_stop!=null?"AI stop "+inr(t.ai_stop,2):""}`);
+  document.getElementById("sgnote").textContent = "Stop = the tighter of the trend exit level and any AI stop (the higher price). σ60 = 60-day annual volatility; target = min(cap, 14% ÷ σ60)."+(ex.length?" "+ex.join(" · "):"");
+}
+function renderDays(){
+  const el = document.getElementById("days"); el.innerHTML="";
+  [...DAYS].reverse().forEach(d=>{
+    const b=document.createElement("button"); b.className="day"+(d===cur?" on":"");
+    const n=d.counts, tr=(n.BUY||0)+(n.SELL||0);
+    b.innerHTML=`<b>${esc(fmtDate(d))}${d.example?" ✎":""}</b><div class="p ${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl)} ${d.close>=100000?"🟢":"🔴"}</div><div class="t">${tr} trade${tr===1?"":"s"} · ${n.BLOCK||0} blocked</div>`;
+    b.onclick=()=>{cur=d;cur_pinned=true;hidden.clear();expandAll=false;try{history.replaceState(null,"","#"+d.date);}catch(e){}render();};
+    el.appendChild(b);
+  });
+}
+let cur_pinned = false, WANTED = ""; try{ WANTED = decodeURIComponent(location.hash.slice(1)); }catch(e){}
+function render(){
+  if(!cur_pinned){ const w=DAYS.find(d=>d.date===WANTED); if(w){ cur=w; cur_pinned=true; } else { const real=DAYS.filter(d=>!d.example); cur = real[real.length-1] || DAYS[0]; } }   // follow the newest day
+  cur = DAYS.find(d=>d.date===cur.date) || cur;
+  const d=cur; renderDays();
+  document.getElementById("moneyh").textContent = (d.date===isoIST() && marketHours()) ? "Where the money is right now" : "Where the money was at close";
+  document.getElementById("upd").textContent = d.example ? "" : `${fmtDate(d)} · ${d.weekday||""}`;
+  const bn=document.getElementById("banner");
+  bn.innerHTML = d.example
+    ? `<div class="banner ex"><b>EXAMPLE DAY (made-up data for design review).</b> Real days so far had no trades, so this shows what a day with a buy, a skip, a partial sell and a block looks like.${d.strategy?' It also shows the new trend strategy (v2) card with made-up numbers: gold trend ON at an 85% target, silver OFF.':''}</div>`
+    : `<div class="banner">${esc(d.summary||"")}${d.thrift?" · routines ran in THRIFT mode":""}</div>`;
+  const cush=d.cushion;
+  document.getElementById("kpis").innerHTML = [
+    ["Value at close",inr(d.close,2),`opened ${inr(d.open,2)}`],
+    ["Day P&L",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}%`],
+    ["Green line",d.close>=100000?'<span class="pos">Green ✓</span>':'<span class="neg">Red</span>',`vs ₹1,00,000 start`],
+    ["Safety floor",inr(d.floor),`cushion ${inr(cush)}`],
+    ["LIQUIDBEES income",inr(d.liquid_income,2),`costs paid ${inr(d.costs,2)}`],
+  ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join("");
+  // allocation
+  const al=d.alloc, tot=Object.values(al).reduce((a,b)=>a+b,0)||1;
+  document.getElementById("bar").innerHTML = Object.keys(SYM).map(s=>al[s]>0?`<span title="${s} ${inr(al[s])}" style="width:${al[s]/tot*100}%;background:var(${SYM[s].c})"></span>`:"").join("");
+  document.getElementById("inst").innerHTML = Object.keys(SYM).map(s=>{
+    const h=(d.holdings||[]).find(x=>x.symbol===s)||{}; const ds=d.decisions.filter(x=>x.symbol===s);
+    const b=ds.filter(x=>x.action==="BUY").length, se=ds.filter(x=>x.action==="SELL").length, bl=ds.filter(x=>x.action==="BLOCK").length;
+    const pl=ds.filter(x=>x.action==="SELL").reduce((a,x)=>a+(x.pnl||0),0);
+    const rows = s==="LIQUIDBEES"
+      ? `<div class="r"><i>Parked</i><span>${inr(al[s],2)}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>Income today</i><span>${inr(d.liquid_income,2)}</span></div>`
+      : `<div class="r"><i>Held at close</i><span>${h.qty?h.qty+" units · "+inr(al[s],2):"none"}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>Buys · Sells · Blocks</i><span>${b} · ${se} · ${bl}</span></div>${h.unrealized!=null?`<div class="r"><i>Open P&L</i><span class="${h.unrealized>=0?"pos":"neg"}">${sgn(h.unrealized,2)}</span></div>`:""}${se?`<div class="r"><i>Booked P&L</i><span class="${pl>=0?"pos":"neg"}">${sgn(pl,2)}</span></div>`:""}${h.stop?`<div class="r"><i>Stop</i><span>${inr(h.stop,2)}</span></div>`:""}`;
+    return `<div class="ins" style="--c:var(${SYM[s].c})"><div class="n">${SYM[s].n}</div>${rows}</div>`;
+  }).join("");
+  renderStrategy(d);
+  renderChart(d); renderCounts(d); renderTimeline(d); renderNotes(d);
+  document.getElementById("tmr").textContent = d.tomorrow || "–";
+}
+const toMin = t => { const [h,m]=t.split(":").map(Number); return h*60+m; };
+function renderChart(d){
+  const svg=document.getElementById("chart"), W=1000,H=300,L=64,R=16,T=14,B=30;
+  const t0=toMin("09:15"), t1=toMin("15:30");
+  const x=t=>L+(toMin(t)-t0)/(t1-t0)*(W-L-R);
+  const vals=d.ticks.map(r=>r[1]).concat([d.open,d.close,100000]).filter(v=>v!=null);
+  let lo=Math.min(...vals), hi=Math.max(...vals); const pad=Math.max(25,(hi-lo)*0.2); lo-=pad; hi+=pad;
+  const floorOff = d.floor<lo;
+  const y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  let g="";
+  for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--line")}"/><text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end" fill="${css("--muted")}">${Math.round(v).toLocaleString("en-IN")}</text>`;}
+  ["09:15","10:00","11:00","12:00","13:00","14:00","15:00","15:30"].forEach(t=>g+=`<text x="${x(t)}" y="${H-10}" font-size="11" text-anchor="middle" fill="${css("--muted")}">${t}</text>`);
+  const ref=(v,c,lab,dash)=>{ if(v<lo||v>hi) return ""; return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${c}" stroke-dasharray="${dash}" stroke-width="1.5"/><text x="${W-R-4}" y="${y(v)-4}" font-size="11" text-anchor="end" fill="${c}">${lab}</text>`;};
+  g+=ref(100000,css("--green"),"₹1,00,000 green line","6 4").replace(/y="([\d.]+)" font-size="11" text-anchor="end"/,(m,v)=>`y="${+v+16}" font-size="11" text-anchor="end"`);
+  g+=floorOff?`<text x="${W-R-4}" y="${H-B-6}" font-size="11" text-anchor="end" fill="${css("--red")}">↓ floor ${inr(d.floor)} is ${inr(d.close-d.floor)} below (off chart)</text>`:ref(d.floor,css("--red"),"floor "+inr(d.floor),"2 4");
+  if(d.ticks.length){
+    const pts=d.ticks.map(r=>`${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join(" ");
+    g+=`<polyline points="${pts}" fill="none" stroke="${css("--accent")}" stroke-width="2.2" stroke-linejoin="round"/>`;
+    if(toMin(d.ticks[0][0])>t0+20) g+=`<rect x="${L}" y="${T}" width="${x(d.ticks[0][0])-L}" height="${H-T-B}" fill="${css("--chip")}" opacity=".6"/><text x="${(L+x(d.ticks[0][0]))/2}" y="${T+18}" font-size="11" text-anchor="middle" fill="${css("--muted")}">no engine data</text>`;
+  } else g+=`<text x="${W/2}" y="${H/2}" font-size="13" text-anchor="middle" fill="${css("--muted")}">No intraday data for this day</text>`;
+  // decision markers (group by minute)
+  const groups={}; d.decisions.forEach((q,i)=>{ if(hidden.has(q.action)) return; (groups[q.time+q.action]=groups[q.time+q.action]||[]).push(i); });
+  Object.values(groups).forEach(ix=>{ const q=d.decisions[ix[0]]; const v=q.value_after??d.close; const cx=x(q.time), cy=y(v);
+    const c=css(ACT[q.action]); const big=q.action==="BUY"||q.action==="SELL";
+    g+=`<g class="mk" data-i="${ix[0]}" data-n="${ix.length}" style="cursor:pointer">${big?`<path d="M${cx} ${q.action==="BUY"?cy+14:cy-14} l-7 ${q.action==="BUY"?10:-10} h14z" transform="translate(0,${q.action==="BUY"?-6:6})" fill="${c}"/>`:""}<circle cx="${cx}" cy="${cy}" r="${big?6:4}" fill="${c}" stroke="${css("--card")}" stroke-width="1.5"/></g>`; });
+  svg.innerHTML=g;
+  const tip=document.getElementById("tip");
+  svg.querySelectorAll(".mk").forEach(m=>{
+    const q=d.decisions[+m.dataset.i], n=+m.dataset.n;
+    m.onmouseenter=e=>{const r=svg.getBoundingClientRect(), c=m.querySelector("circle"); tip.style.display="block"; tip.style.left=(c.cx.baseVal.value/W*r.width)+"px"; tip.style.top=(c.cy.baseVal.value/H*r.height)+"px"; tip.textContent=`${q.time} ${q.action} ${q.symbol}${q.qty?" ×"+q.qty:""}${n>1?` (+${n-1} more)`:""}`;};
+    m.onmouseleave=()=>tip.style.display="none";
+    m.onclick=()=>{ const li=document.getElementById("d"+q.time.replace(":","")+q.action); if(li){li.scrollIntoView({behavior:"smooth",block:"center"}); li.style.background=css("--chip"); setTimeout(()=>li.style.background="",1200);} };
+  });
+  document.getElementById("legend").innerHTML = `<span><span class="dot" style="--c:var(--accent)"></span> portfolio value</span>`+Object.keys(ACT).map(a=>`<span><span class="dot" style="--c:var(${ACT[a]})"></span> ${a}</span>`).join("")+`<span>tap a dot to jump to its reason</span>`;
+}
+function renderCounts(d){
+  document.getElementById("counts").innerHTML = Object.keys(ACT).map(a=>`<button class="cnt${hidden.has(a)?" off":""}" data-a="${a}"><span class="dot" style="--c:var(${ACT[a]})"></span>${ACTN[a]} <b>${d.counts[a]||0}</b></button>`).join("");
+  document.querySelectorAll(".cnt").forEach(b=>b.onclick=()=>{const a=b.dataset.a; hidden.has(a)?hidden.delete(a):hidden.add(a); renderChart(d); renderCounts(d); renderTimeline(d);});
+}
+function step(q){
+  const amt = q.action==="BUY"||q.action==="SELL" ? `${q.qty} × ${inr(q.price,2)} = ${inr(q.amount,2)}` : (q.price?`price ${inr(q.price,2)}`:"");
+  const meta=[amt, q.stop?`stop ${inr(q.stop,2)}`:"", q.risk?`worst-case risk ${inr(q.risk)}`:"", q.pnl!=null?`booked ${sgn(q.pnl,2)}`:"", q.trigger?`trigger: ${q.trigger}`:"", q.value_after?`portfolio ${inr(q.value_after,2)}`:""].filter(Boolean).join(" · ");
+  const verb = {BUY:`bought ${q.qty} units (${inr(q.amount,2)})`, SELL:`sold ${q.qty} units (${inr(q.amount,2)})${q.pnl!=null?`, booked ${sgn(q.pnl,2)}`:""}`,
+    SKIP:"buy skipped", BLOCK:"buy blocked", HOLD:"kept the position"}[q.action] || q.action;
+  const one = q.price ? `<div class="one">📍 ${q.time} · ${esc(q.symbol)} market price <b>${inr(q.price,2)}</b> → ${verb}</div>` : "";
+  return one + `<div class="h"><span class="tag" style="--c:var(${ACT[q.action]})">${q.action}</span>${esc(q.symbol)}${q.qty&&(q.action==="BUY"||q.action==="SELL")?` · ${q.qty} units`:""}</div><div class="why"><b>Why:</b> ${esc(q.reason)}</div><div class="meta">${esc(meta)}</div>`;
+}
+let mode = "cat";
+const CATS = [
+  {k:"allowed", t:"✅ Allowed: trades the engine made", acts:["BUY","SELL"], empty:"No buys or sells today."},
+  {k:"blocked", t:"⛔ Blocked: buys the safety rules stopped", acts:["BLOCK"], empty:"Nothing was blocked today."},
+  {k:"skipped", t:"⏭ Skipped: a signal was there but a rule said wait", acts:["SKIP"], empty:"Nothing was skipped today."},
+  {k:"held", t:"✋ Held: kept a position, no change", acts:["HOLD"], empty:"No hold decisions today."}];
+function li(q, fresh, extra){ return `<li class="st${fresh?" new":""}" id="d${q.time.replace(":","")}${q.action}"><div class="tm">${q.time}</div><div>${step(q)}${extra||""}</div></li>`; }
+function renderTimeline(d){
+  const el=document.getElementById("tl");
+  document.querySelectorAll(".tab").forEach(b=>{ b.classList.toggle("on", b.dataset.m===mode); b.onclick=()=>{ mode=b.dataset.m; renderTimeline(d); }; });
+  const s = seen[d.date]; seen[d.date] = new Set(d.decisions.map(dkey));
+  const isNew = q => !!s && !s.has(dkey(q));
+  const list = d.decisions.filter(q=>!hidden.has(q.action));
+  if(mode==="min"){
+    const ch = d.checks || {rows:[]};
+    if(!ch.rows || !ch.rows.length){ el.innerHTML = `<li class="empty">Minute-by-minute checks start from Thu 15 Oct 2026 (the engine did not log them before).</li>`; return; }
+    const dec = new Set(d.decisions.map(q=>q.time));
+    const syms = ch.syms || ["GOLDBEES","SILVERBEES","HINDCOPPER"];
+    let prev = [];
+    const body = ch.rows.map(r=>{ const cells = syms.map((s,i)=>{ const txt = ch.texts[r[2][i]]||""; const same = prev[i]===r[2][i]; return `<td class="${same?"same":""}">${esc(txt)}</td>`; }).join("");
+      prev = r[2]; return `<tr class="${dec.has(r[0])?"hit":""}"><td class="tm">${r[0]}</td><td class="tm">${inr(r[1])}</td>${cells}</tr>`; }).join("");
+    el.innerHTML = `<li style="list-style:none"><div class="meta" style="margin-bottom:6px">${ch.rows.length} checks. Each cell starts with that minute's market price. Grey text = same as the minute before. Highlighted rows = a decision was logged that minute.</div><div class="minwrap"><table class="mins"><thead><tr><th>Time</th><th>Value</th>${syms.map(s=>`<th>${s}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div></li>`;
+    return;
+  }
+  if(mode==="cat"){
+    el.innerHTML = CATS.map(c=>{
+      const items = list.filter(q=>c.acts.includes(q.action)), all = d.decisions.filter(q=>c.acts.includes(q.action)).length;
+      if(c.acts.every(a=>hidden.has(a))) return "";
+      let body;
+      if(!items.length) body = `<li class="empty" style="padding:10px 0">${c.empty}</li>`;
+      else if(c.k==="blocked"){       // split by why (trigger), then list every single one
+        const by = {}; items.forEach(q=>(by[q.trigger||"Other"]=by[q.trigger||"Other"]||[]).push(q));
+        body = Object.entries(by).map(([trg,qs])=>{ const syms={}; qs.forEach(q=>syms[q.symbol]=(syms[q.symbol]||0)+1);
+          return `<div class="sub2">${esc(trg)} · ${qs.length} (${Object.entries(syms).map(([k,v])=>esc(k)+" "+v).join(", ")})</div>`+qs.map(q=>li(q,isNew(q))).join(""); }).join("");
+      } else body = items.map(q=>li(q,isNew(q))).join("");
+      return `<details class="cat" open><summary><span>${c.t}</span><span>${all}</span></summary><ul class="tl body">${body}</ul></details>`;
+    }).join("");
+    return;
+  }
+  // full timeline: engine start/stop, every decision, every routine note, in time order (nothing collapsed)
+  const rows = list.map(q=>({time:q.time, html:li(q,isNew(q))}));
+  (d.notes||[]).forEach(n=>rows.push({time:n.time, html:`<li class="st note"><div class="tm">${esc(n.time)}</div><div><span class="tag">${esc(n.who)}</span><span class="why">${esc(n.text)}</span></div></li>`}));
+  if(d.ticks.length){
+    const a=d.ticks[0], z=d.ticks[d.ticks.length-1];
+    rows.push({time:a[0], html:`<li class="st sys"><div class="tm">${a[0]}</div><div><span class="tag">engine</span><span class="why">Engine running: first price check, portfolio ${inr(a[1],2)}. From here it checks prices every minute and headlines every 10 minutes.</span></div></li>`});
+    if(z[0]!==a[0]) rows.push({time:z[0]+"~", html:`<li class="st sys"><div class="tm">${z[0]}</div><div><span class="tag">engine</span><span class="why">Last check so far: portfolio ${inr(z[1],2)}.</span></div></li>`});
+  }
+  rows.sort((x,y)=> x.time<y.time?-1:x.time>y.time?1:0);
+  el.innerHTML = rows.length ? rows.map(r=>r.html).join("") : `<li class="empty">Nothing logged this day.</li>`;
+}
+function renderNotes(d){
+  const el=document.getElementById("notes");
+  el.innerHTML = d.notes.length ? d.notes.map(n=>`<li class="st note"><div class="tm">${esc(n.time)}</div><div><span class="tag">${esc(n.who)}</span><span class="why">${esc(n.text)}</span></div></li>`).join("") : `<li class="empty">No routine notes.</li>`;
+}
+cur = pickInitial(); render(); setStatus(); pollGitHub(true); connectDb();
+</script>
+</body>
+</html>
