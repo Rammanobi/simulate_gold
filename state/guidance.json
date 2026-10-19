@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-19T12:16:34+05:30",
+ "updated": "2026-10-19T13:16:45+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD: flat (-0.07%), Warsh remarks eased Fed hike bets; no event. SILVER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 Oct are 4 days out, keep neutral and revisit before then. | 11:16 no material change | 12:16 no material change",
+ "note": "...07%), Warsh remarks eased Fed hike bets; no event. SILVER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 Oct are 4 days out, keep neutral and revisit before then. | 11:16 no material change | 12:16 no material change | 13:16 no material change",
  "prices_at_update": {
-  "GOLDBEES": 119.86,
-  "SILVERBEES": 198.19,
-  "HINDCOPPER": 447.2
+  "GOLDBEES": 119.87,
+  "SILVERBEES": 198.22,
+  "HINDCOPPER": 446.9
  }
 }
