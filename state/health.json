@@ -1,5 +1,5 @@
 {
- "last_run": "2026-10-19T13:12:56+05:30",
+ "last_run": "2026-10-19T13:17:04+05:30",
  "results": [
   {
    "check": "engine_run_missing",
@@ -11,7 +11,7 @@
    "check": "ticks_stale",
    "severity": "high",
    "category": "engine_not_running",
-   "detail": "last tick row is 53 min old (limit 12)"
+   "detail": "last tick row is 57 min old (limit 12)"
   }
  ],
  "all_green": false
