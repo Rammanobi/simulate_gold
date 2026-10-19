@@ -128,3 +128,54 @@ def test_minute_checks_are_compact_and_complete(tmp_path):
     assert ch["rows"][0][0] == "09:15" and ch["rows"][-1][0] == "15:29"
     assert ch["texts"][ch["rows"][5][2][1]].startswith("Buys paused until 13:21")
     assert len(ch["texts"]) <= 102 and path.stat().st_size < 200 * 1024
+
+
+def v2_root(tmp_path: Path, brake=None) -> Path:
+    root = make_root(tmp_path)
+    recs = [
+        json.loads(dec("09:48", "BUY", "GOLDBEES", "target 85% = min(1, 0.14/0.165)", qty=40, price=119.7,
+                       amount=4788.0, stop=118.26, trigger="Trend check")),
+        {"time": "15:10", "action": "TARGET", "symbol": "GOLDBEES", "trigger": "Trend check", "stop": 118.26,
+         "exit_level": 117.9, "state": "ON", "sigma": 0.1647, "target_pct": 85.0, "actual_pct": 4.8,
+         "reason": "GOLDBEES trend ON (close 121.40 > SMA200 118.90); sigma60 0.165; target 85%, actual 5%"},
+        {"time": "15:10", "action": "TARGET", "symbol": "SILVERBEES", "trigger": "Trend check", "state": "OFF",
+         "sigma": 0.31, "target_pct": 0.0, "actual_pct": 0.0,
+         "reason": "SILVERBEES trend OFF (close 120.09 < SMA200 121.40); sigma60 0.310; target 0%, actual 0%"},
+    ]
+    if brake:
+        recs.append({"time": "15:11", "action": "BLOCK", "symbol": "ALL", "trigger": "Drawdown brake", "reason": brake})
+    (root / "logs" / f"decisions-{D}.jsonl").write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    return root
+
+
+def test_v1_day_has_no_strategy_block(tmp_path):
+    doc = dashboard.build(D, make_root(tmp_path), NOW)
+    assert "strategy" not in doc and doc["targets"] == []
+
+
+def test_v2_day_has_strategy_and_targets(tmp_path):
+    doc = dashboard.build(D, v2_root(tmp_path), NOW)
+    s = doc["strategy"]
+    assert s["brake_level"] == 0 and s["account_stop"] is False and s["ai_stop"] is False
+    assert 0 < s["invested_pct"] < 10 and "min_invested" not in s
+    g, sv = doc["targets"]
+    assert (g["symbol"], g["trend"], g["sigma60"], g["target_pct"], g["actual_pct"]) == ("GOLDBEES", "ON", 0.1647, 85.0, 4.8)
+    assert g["reason"] == "close 121.40 > SMA200 118.90" and g["stop"] == 118.26 and g["exit_level"] == 117.9
+    assert sv["trend"] == "OFF" and sv["reason"] == "close 120.09 < SMA200 121.40" and "stop" not in sv
+    assert doc["counts"]["BUY"] == 1 and "TARGET" not in doc["counts"]
+
+
+def test_v2_brake_and_account_stop_levels(tmp_path):
+    doc = dashboard.build(D, v2_root(tmp_path, "Drawdown brake level 2: value 70,000 is 26% from its peak"), NOW)
+    assert doc["strategy"]["brake_level"] == 2
+    (tmp_path / "b").mkdir()
+    doc = dashboard.build(D, v2_root(tmp_path / "b", "Drawdown brake level 1: x"), NOW)
+    assert doc["strategy"]["brake_level"] == 1
+
+
+def test_v2_min_invested_is_shown_when_configured(tmp_path):
+    root = v2_root(tmp_path)
+    (root / "config").mkdir()
+    (root / "config" / "params.yaml").write_text("strategy:\n  mode: v2_trend\n  min_invested: 0.3\n  account_stop: 75000\n")
+    s = dashboard.build(D, root, NOW)["strategy"]
+    assert s["min_invested"] == 30.0 and s["mode"] == "v2_trend"
