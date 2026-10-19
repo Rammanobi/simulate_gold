@@ -1,4 +1,4 @@
-# Brief 2026-10-19 09:05 IST (Mon) | NSE CLOSED (pre-open); opens 09:15
+# Brief 2026-10-19 09:11 IST (Mon) | NSE CLOSED (pre-open); opens 09:15
 
 ## Portfolio
 value ₹100,052 | floor ₹99,500 | cushion ₹552 | best profit ₹52 | day P&L n/a
@@ -18,7 +18,7 @@ HINDCOPPER 458.9 (as of 15:29) | vs prev close +1.29% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=neutral, COPPER=neutral | 13 min old
+GOLD=neutral, SILVER=neutral, COPPER=neutral | 19 min old
 note: GOLD: no Mon overnight data; Fri spot ~$4,164 (-0.1%), DXY 102.0 (-0.5%), US10Y ~5.08%. SILVER: Fri ~$56.9, n…
 
 ## Fast-lane requests today
