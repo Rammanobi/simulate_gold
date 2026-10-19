@@ -1,5 +1,5 @@
 {
  "on": true,
- "since": "2026-10-16T10:48:02+05:30",
+ "since": "2026-10-19T10:47:20+05:30",
  "reason": "HIGH incident not fixed within 30 min: watchdog_stale"
 }

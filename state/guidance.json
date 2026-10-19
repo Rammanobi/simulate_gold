@@ -1,14 +1,14 @@
 {
- "updated": "2026-10-16T15:16:21+05:30",
+ "updated": "2026-10-19T11:16:53+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "...at, no new facts. SILVER: +0.9% bounce since last update but still -1.6% on day after CPI crash; mixed evidence, neutral, no favour. COPPER: +1.1%, HINDCOPPER results date unknown; neutral. | 11:16 no material change | 12:17 no material change | 14:16 no material change | 15:16 no material change",
+ "note": "GOLD: flat (-0.07%), Warsh remarks eased Fed hike bets; no event. SILVER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 Oct are 4 days out, keep neutral and revisit before then. | 11:16 no material change",
  "prices_at_update": {
-  "GOLDBEES": 120.21,
-  "SILVERBEES": 199.99,
-  "HINDCOPPER": 458.6
+  "GOLDBEES": 120.16,
+  "SILVERBEES": 198.34,
+  "HINDCOPPER": 449.15
  }
 }

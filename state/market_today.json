@@ -1,35 +1,25 @@
 {
- "date": "2026-10-16",
+ "date": "2026-10-19",
  "market": [
   {
    "name": "Gold (COMEX/spot)",
-   "move_pct": 0.05,
-   "note": "Flat near 4173 dollars after post-CPI selloff"
+   "move_pct": -0.14,
+   "note": "Fri 16 Oct close ~$4,164; no Monday overnight data"
   },
   {
    "name": "Silver (COMEX/spot)",
-   "move_pct": 0.45,
-   "note": "Small rebound to 57.66 after 6% CPI crash"
+   "move_pct": 0.0,
+   "note": "Fri ~$56.9; Fri move not confirmed"
   },
   {
    "name": "Copper (COMEX HG)",
-   "move_pct": 1.1,
-   "note": "Up to 6.59 dollars per lb"
+   "move_pct": 0.3,
+   "note": "Fri 6.53 USD/lb, Trading Economics"
   },
   {
    "name": "Dollar index",
-   "move_pct": -0.01,
-   "note": "Flat at 101.98"
-  },
-  {
-   "name": "US 10Y yield",
-   "move_pct": 0.01,
-   "note": "Steady near 5.08%, still elevated"
-  },
-  {
-   "name": "USD/INR",
-   "move_pct": 0.23,
-   "note": "Rupee weaker at 94.97"
+   "move_pct": -0.54,
+   "note": "Fri 102.00 as yields eased"
   }
  ]
 }
