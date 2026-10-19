@@ -97,7 +97,7 @@ def item_from_daily(day: dict, now: datetime, report_url: str = "") -> dict:
     closed = bool(day.get("closed"))
     pnl = float(p.get("day_pnl", 0) or 0)
     rows = [["Portfolio", inr(float(p.get("close", 0) or 0))], ["Day P&L", sg(pnl)],
-            ["Floor", inr(float(p.get("floor", 0) or 0))],
+            ["Account stop" if p.get("v2") else "Floor", inr(float(p.get("floor", 0) or 0))],
             ["Cash in LIQUIDBEES", inr(float(p.get("cash_in_liquidbees", 0) or 0))],
             ["Trades", f"{buys + sells} ({buys} buys, {sells} sells)"]]
     summary = day.get("one_line_summary") or ("Market closed." if closed else f"Day P&L {sg(pnl)}.")

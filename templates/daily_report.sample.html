@@ -63,6 +63,7 @@ h2{font-size:.78rem;font-weight:700;letter-spacing:.09em;text-transform:uppercas
 .note{font-size:.76rem;color:var(--muted)}
 
 /* gauge */
+if(P.v2){const h=document.getElementById('h-floor');if(h)h.textContent='Account stop and brakes';}
 .gauge{display:flex;flex-direction:column;gap:12px}
 .gtitle{font-size:1.25rem;font-weight:800;letter-spacing:-.01em}
 .gtitle .num{font-weight:600}
@@ -247,13 +248,14 @@ $('hero').innerHTML=
  '<p class="note">'+esc(D._note)+'</p>';
 
 /* gauge */
+if(P.v2){const h=document.getElementById('h-floor');if(h)h.textContent='Account stop and brakes';}
 const FLOOR=P.floor,NEXT=P.floor+1000; // next step shown on the bar: floor + 1,000 = 1,00,500
 const gp=Math.max(0,Math.min(1,(P.close-FLOOR)/(NEXT-FLOOR)));
 $('gauge').innerHTML=
- '<div class="gtitle"><span class="num">'+rs(P.distance_to_floor)+'</span> above the floor</div>'+
+ '<div class="gtitle"><span class="num">'+rs(P.distance_to_floor)+'</span> above the '+(P.v2?'account stop':'floor')+'</div>'+
  '<div class="gwrap"><div class="gnow" style="left:clamp(64px,'+(gp*100)+'%,calc(100% - 64px))">Now <b>'+rs(P.close)+'</b></div>'+
  '<div class="gbar" role="img" aria-label="Portfolio '+rs(P.close)+', floor '+rs(FLOOR)+', next step '+rs(NEXT)+'"><div class="gfill" style="width:'+(gp*100)+'%"></div><div class="gpin" style="left:'+(gp*100)+'%"></div></div>'+
- '<div class="glab"><span>Floor<b>'+rs(FLOOR)+'</b></span><span>Next step<b>'+rs(NEXT)+'</b></span></div></div>'+
+ '<div class="glab"><span>'+(P.v2?'Account stop':'Floor')+'<b>'+rs(FLOOR)+'</b></span><span>'+(P.v2?'Peak value':'Next step')+'<b>'+rs(NEXT)+'</b></span></div></div>'+
  '<p class="note">'+esc(P.floor_next_step)+'</p>';
 
 /* chart */
@@ -290,9 +292,9 @@ D.decisions.forEach((d,i)=>{
 s+='</svg><div class="tip" id="tip" role="tooltip"></div>';
 $('cin').innerHTML=s;
 $('legend').innerHTML=['BUY','SELL','SKIP','HOLD'].map(a=>'<span>'+miniSVG(a,14)+WORD[a]+'</span>').join('')+
-  (floorIn?'<span><i class="swatch"></i>Safety floor</span>':'');
-$('fnote').textContent=floorIn?'':'Safety floor '+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. Dotted-out values on the left axis are in rupees.';
-if(!floorIn)$('fnote').textContent='Safety floor '+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. The line at '+rs(D.start_capital)+' is the opening value.';
+  (floorIn?'<span><i class="swatch"></i>'+(P.v2?'Account stop':'Safety floor')+'</span>':'');
+$('fnote').textContent=floorIn?'':(P.v2?'Account stop ':'Safety floor ')+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. Dotted-out values on the left axis are in rupees.';
+if(!floorIn)$('fnote').textContent=(P.v2?'Account stop ':'Safety floor ')+rs(FLOOR)+' is '+rs(lo-FLOOR)+' below the bottom of this chart, so it is not drawn. The line at '+rs(D.start_capital)+' is the opening value.';
 
 /* timeline */
 const FILTERS=[
