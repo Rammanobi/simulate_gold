@@ -27,7 +27,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 ## Steps
 
-1. `git pull --rebase --autostash -q`; `python tools/context.py`. WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
+1. `git pull --rebase --autostash -q`; then `python tools/memory_ltm.py regime --write`, `python tools/memory_ltm.py check`,
+   `python tools/memory_ltm.py perf --write` (code only, one command per Bash call), then `python tools/context.py --view weekly`
+   (performance, alignment, regime, theses, calendar, lessons, ledger, STM window, this week's notes). WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
 2. **Stats by Python, never by hand.** Run from the repo root and keep the JSON:
    ```bash
    python - <<'EOF'
@@ -79,14 +81,34 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 3. **Weekly note** `memory/weekly/WEEK.md`, ≤ 25 lines: the numbers (week %, vs GOLDBEES % and its source,
    trades, wins/losses, realised P&L, max intraweek drawdown in ₹, floor and cushion under v1; under v2 the drawdown from peak, brake level, trend targets vs actual and the result vs GOLDBEES buy-and-hold), which bias calls helped
    or hurt (with dates), events that mattered, and data or system problems.
-4. **Curate `memory/lessons.md`** (≤ 40 bullets). Each bullet: one sentence + `(evidence: dates or numbers)`.
-   Promote a daily lesson candidate only if it is backed by numbers or seen on ≥ 2 days. Merge duplicates,
-   delete bullets that later evidence contradicts or that have had no supporting evidence for 6 weeks.
-   No rule-change ideas here (those go to proposals).
-5. **Events.** Check the next 3 weeks for US CPI, FOMC, NFP, RBI policy, Hindustan Copper results/board
-   meetings and the Union Budget (≤ 5 web calls, official sources first). Add missing ones:
-   `python tools/guidance.py events add --date YYYY-MM-DD --type CPI|FOMC|JOBS|RBI|HINDCOPPER_RESULTS|BUDGET [--time HH:MM]`
-   (IST date of the NSE session before the release). Flag wrong existing entries; never hand-edit.
+4. **LTM review (Opus): lessons.** A lesson must hold for at least 4 weeks. Candidates live in the ledger
+   (`lesson list`); the tool refuses `promote` unless the candidate is 28+ days old with 3+ supporting dates over
+   2+ ISO weeks and no newer contradiction. For each candidate with new evidence this week:
+   `python tools/memory_ltm.py lesson contradict ID --evidence "D: fact"` when the facts argue against it, or
+   `python tools/memory_ltm.py lesson promote ID` when it qualifies, or `lesson drop ID --reason "…"`. Retire a promoted
+   lesson that later evidence contradicts or that has had no support for 8 weeks:
+   `python tools/memory_ltm.py lesson retire ID --reason "…"` (it goes to `archive/memory/lessons-retired.md`).
+   You may merge bullets in `memory/lessons.md` by hand (prose, ≤ 40 bullets, each with `(evidence:` and `held since`),
+   then you MUST run `python tools/memory_ltm.py lint` and fix what it reports. No rule-change ideas here.
+4b. **LTM review: theses** (one per metal, every week; ≤ 12 lines each). Use the regime and driver numbers from
+   the view and ≤ 5 web calls for evidence that code cannot compute (central-bank buying, China demand, ETF flows,
+   import duty), each as number + source + date:
+   `python tools/memory_ltm.py thesis set --metal GOLD --stance constructive --invalidate close_below:GOLDBEES:112 --evidence "COMEX gold r126 +14% (yahoo, 17 Oct)" --risk "FOMC 28 Oct"`
+   Stance is `constructive`, `neutral` or `cautious`; only `cautious` has an effect (it lowers the bias ceiling), so if you
+   doubt the code's regime label, write `cautious` and say why; you can never write "the regime is really UP".
+   `--invalidate` is mandatory and machine-checked: `close_below|close_above:SYMBOL:price`, `regime_is:METAL:LABEL`,
+   `driver_below|driver_above:TICKER:pct`, or `date:YYYY-MM-DD`.
+4c. **LTM review: calendar** (8-week sweep, ≤ 5 web calls, official sources first). Add each missing event:
+   `python tools/memory_ltm.py calendar add --date YYYY-MM-DD --type CPI --time HH:MM --metals GOLD,SILVER --impact 3 --expect "consensus/prior" --source bls.gov --confirmed --by weekly`
+   Types: CPI, FOMC, JOBS, RBI, HINDCOPPER_RESULTS, BUDGET (a confirmed one inside 21 days also updates `state/events.json`),
+   and informational INDIA_DUTY, CHINA_DATA, OTHER. Holidays and month-end are filled by code. IST date of the NSE
+   session before the release. Flag wrong existing entries; never hand-edit, never remove a confirmed engine event.
+4d. **LTM review: performance and alignment scorecard.** Read `performance.json` and its `by_alignment` table. After 4+ weeks
+   of data you may PROPOSE (step 6) a change to a core multiplier or ceiling with the numbers; you never apply one.
+   **First Saturday of the month:** write `memory/monthly/YYYY-MM.md` (≤ 15 lines, the previous month): numbers copied from
+   `performance.json`, what drove the month, which alignment states paid, green or not. It is the owner's scorecard.
+5. **Events** are covered by step 4c (it syncs `state/events.json`). Use `python tools/guidance.py events add …` only for an
+   engine event you could not enter through the calendar tool.
 6. **Proposals** `reports/weekly/WEEK-proposals.md`, at most 3, or the single line "No proposals this week."
    Each: the parameter (`config/params.yaml` path, current → proposed), safer or riskier, the evidence
    (numbers, dates; one week alone is weak evidence, say so), a suggested out-of-sample test (e.g. replay
@@ -98,7 +120,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `body` = ≤ 15 plain lines (numbers, top lesson change, proposal titles). Hook blocks → report, stop, no retry.
 9. **Commit and push:**
    ```bash
-   git add -- $(git ls-files -mo --exclude-standard -- memory reports/weekly state/events.json state/budget.json)
+   git add -- $(git ls-files -mo --exclude-standard -- memory reports/weekly state/events.json state/budget.json archive/memory)
    git diff --cached --quiet || git commit -qm "routine(weekly): WEEK review"
    ```
    Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`. If the
@@ -111,8 +133,9 @@ strong, multi-week evidence. Never propose removing the floor, tripwire or month
 
 ## Output contract
 
-Writes `memory/weekly/WEEK.md`, `memory/lessons.md`, `memory/brief.md`, `reports/weekly/WEEK-proposals.md`,
-`state/events.json` (via tool). Final message, ≤ 6 lines: week %, GOLDBEES %, lessons added/removed/total,
+Writes `memory/weekly/WEEK.md`, `memory/lessons.md`, `memory/monthly/YYYY-MM.md`, `memory/brief.md`,
+`reports/weekly/WEEK-proposals.md`, and via tools `memory/ltm/*` (regime, calendar, theses, ledger, performance), `archive/memory/*`,
+`state/events.json`. Final message, ≤ 6 lines: week %, GOLDBEES %, lessons added/removed/total,
 proposal titles, events added, email status, pushed sha, `models used: opus[, sonnet]`.
 
 ## Failure handling
@@ -123,5 +146,5 @@ after 3 tries or rebase conflict: abort, report, stop.
 
 ## Token thrift
 
-Never read raw logs into context; the script summarises them. Only this week's daily notes. ≤ 5 web calls.
+Never read raw logs into context; the script summarises them. Only the `--view weekly` context and this week's daily notes. ≤ 5 web calls.
 Edit lessons.md in place instead of rewriting it from scratch when changes are small.

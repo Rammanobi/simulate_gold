@@ -7,7 +7,7 @@ Thresholds live in config/params.yaml under `routines:`.
 Think if ANY of: guidance.json missing or too old; an instrument moved more than move_factor x its fast-lane 10-minute
 threshold since the last guidance; a new headline with urgency >= 3 since the last guidance; an event today or
 tomorrow; an open position within 1% of its stop; cushion under 300; no guidance written yet today (first run of
-the day); --force.
+the day); the alignment state (LTM x STM, memory/stm) of a metal changed since the last guidance; --force.
 """
 from __future__ import annotations
 
@@ -17,7 +17,22 @@ from pathlib import Path
 
 from _common import ROOT, parse_now, utf8_stdout
 
-from simgold import brief, config
+from simgold import brief, config, memstore
+
+
+def alignment_changes(root: Path, now: datetime, p: dict) -> list[str]:
+    """Reasons for each metal whose alignment state differs from the one stored by the last `guidance.py set/touch`.
+    No stored alignment (older guidance.json) -> no reason, so the rollout does not cause a THINK storm."""
+    old = brief.load_json(Path(root) / "state" / "guidance.json", {})
+    old = old.get("alignment") if isinstance(old, dict) else None
+    if not isinstance(old, dict) or not old:
+        return []
+    try:
+        cur = memstore.current_alignment(root, now, p)
+    except Exception:
+        return []
+    return [f"alignment state changed for {m}: {old[m]} -> {cur[m]['state']}" for m in memstore.METALS
+            if m in old and old[m] != cur[m]["state"]]
 
 
 def evaluate(root: Path, now: datetime, force: bool = False, params: dict | None = None) -> list[str]:
@@ -67,6 +82,8 @@ def evaluate(root: Path, now: datetime, force: bool = False, params: dict | None
             hot.sort(reverse=True)
             why.append(f"{len(hot)} new headline(s) with urgency >= {r['headline_urgency']} since the last guidance "
                        f"(top: u{hot[0][0]} {brief._cut(hot[0][1], 60)})")
+
+        why += alignment_changes(root, now, p)
 
     ev = brief.upcoming_events(root, now.date(), r["event_lookahead_days"])
     for e in ev:

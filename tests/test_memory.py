@@ -214,7 +214,9 @@ def cli(root, *args, now=NOW):
 
 
 def test_set_writes_the_shape_the_engine_reads(tmp_path):
+    from memfix import seed_memory
     root = make_root(tmp_path, guidance_age_min=None, prices={"GOLDBEES": 100.0})
+    seed_memory(root, asof="2026-10-13")              # trend UP and short term UP: ceiling is favour
     r = cli(root, "set", "--bias", "GOLD=favour", "SILVER=neutral", "COPPER=block", "--note", "dollar weaker")
     assert r.returncode == 0, r.stderr
     g = json.loads((root / "state" / "guidance.json").read_text())
