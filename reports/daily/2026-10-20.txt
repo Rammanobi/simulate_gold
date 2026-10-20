@@ -1,0 +1,20 @@
+GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
+Tuesday 20 Oct 2026
+
+MARKET CLOSED
+NSE is closed today (Dussehra). No trades were made and the system did nothing.
+
+Portfolio: ₹1,00,104   Floor: ₹99,500
+
+TOMORROW
+No scheduled events on the calendar for tomorrow; normal rules apply.
+
+💡 Thrift mode: running on plan limits
+
+Fallback was used on 2026-10-13, 2026-10-15 (Claude routines were not running).
+
+Watchdog: 4 checks today, all green
+
+Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-20
+
+This is a paper simulation. No real money or orders were placed.
