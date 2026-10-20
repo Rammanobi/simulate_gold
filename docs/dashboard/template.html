@@ -195,6 +195,7 @@ const isoIST = () => { const n=istNow(); return n.getFullYear()+"-"+String(n.get
 function marketHours(){ const n=istNow(), m=n.getHours()*60+n.getMinutes(), w=n.getDay(); return w>0 && w<6 && m>=9*60 && m<=15*60+50; }
 function hasRealTrade(){ return DAYS.some(d=>!d.example && ((d.counts.BUY||0)+(d.counts.SELL||0))>0); }
 function upsert(doc, via){
+  if(doc && /^\d{4}-\d{2}-\d{2}$/.test(doc.date||"") && [0,6].includes(new Date(doc.date+"T00:00:00").getDay()) && !(doc.decisions||[]).length) return false;   // skip empty weekend days
   if(!doc || !/^\d{4}-\d{2}-\d{2}$/.test(doc.date||"") || !Array.isArray(doc.decisions)) return false;
   doc.counts = doc.counts || {}; doc.alloc = doc.alloc || {}; doc.ticks = doc.ticks || []; doc.notes = doc.notes || [];
   const i = DAYS.findIndex(d=>d.date===doc.date);
@@ -312,8 +313,8 @@ function render(){
     : `<div class="banner">${esc(d.summary||"")}${d.thrift?" · routines ran in THRIFT mode":""}</div>`;
   const cush=d.cushion;
   document.getElementById("kpis").innerHTML = [
+    ["Today's profit",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}% · this day only`],
     ["Value at close",inr(d.close,2),`opened ${inr(d.open,2)}`],
-    ["Day P&L",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}%`],
     ["Green line",d.close>=100000?'<span class="pos">Green ✓</span>':'<span class="neg">Red</span>',`vs ₹1,00,000 start`],
     d.strategy ? riskTile(d) : ["Safety floor",inr(d.floor),`cushion ${inr(cush)}`],
     ["LIQUIDBEES income",inr(d.liquid_income,2),`costs paid ${inr(d.costs,2)}`],

@@ -2,13 +2,11 @@ GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
 Monday 12 Oct 2026 (sample data, not a real trading day)
 
 HEADLINE
-Total profit ₹147 since the start · up ₹147 today
+Today's profit: +₹147.00
 Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest.
-Profit increased by ₹147.00 since the previous trading day (₹0.00 → ₹147.00).
 
-Total since the start: +₹147 (value ₹1,00,147 vs ₹1,00,000 at the start)
-Today:                 +₹147 (+0.15%; opened the day at ₹1,00,000)
-Total this month:      +₹147 (+0.15% since the 1st)
+Today's profit:   +₹147.00 (+0.15%; opened the day at ₹1,00,000)
+Portfolio value:  ₹1,00,147
 
 PORTFOLIO AND FLOOR
 Floor:              ₹99,500
