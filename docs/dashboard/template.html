@@ -124,6 +124,19 @@ svg{display:block;width:100%;height:auto}
   .tg .row>[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--muted)}
   .tg .row>.why-c{grid-column:1/-1}
 }
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+.ht{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.ht th{font-size:11px;color:var(--muted);font-weight:600;text-align:right;padding:7px 10px;background:var(--chip);white-space:nowrap}
+.ht td{padding:8px 10px;border-top:1px solid var(--line);text-align:right;vertical-align:top;white-space:nowrap}
+.ht th:first-child,.ht td:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
+.ht th:first-child{background:var(--chip)}
+.ht td small,.ht th small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.ht .rs{white-space:normal;text-align:left;min-width:220px;max-width:420px;color:var(--muted);font-size:12px}
+.ht .sw{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:6px}
+.ht .sd{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--c);border-radius:5px;padding:0 6px}
+.hl{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:-4px 0 12px}
+.hl span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:5px}
+.hnote{font-size:12px;color:var(--muted);margin-top:8px}
 </style>
 </head>
 <body>
@@ -150,6 +163,21 @@ svg{display:block;width:100%;height:auto}
   <h2 id="moneyh">Where the money was at close</h2>
   <div class="bar" id="bar"></div>
   <div class="inst" id="inst"></div>
+</div>
+
+<div class="card" id="holdcard">
+  <h2>Your holdings</h2>
+  <div class="bar" id="hbar"></div>
+  <div class="hl" id="hleg"></div>
+  <div class="tw"><table class="ht" id="htable"></table></div>
+  <div class="hnote" id="hnote"></div>
+</div>
+
+<div class="card" id="ledcard">
+  <h2>Every purchase</h2>
+  <div class="tabs" id="ledtabs"></div>
+  <div class="tw" style="max-height:560px;overflow:auto"><table class="ht" id="ledtable"></table></div>
+  <div class="hnote" id="lednote"></div>
 </div>
 
 <div class="card">
@@ -331,9 +359,53 @@ function render(){
       : `<div class="r"><i>Held at close</i><span>${h.qty?h.qty+" units · "+inr(al[s],2):"none"}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>Buys · Sells · Blocks</i><span>${b} · ${se} · ${bl}</span></div>${h.unrealized!=null?`<div class="r"><i>Open P&L</i><span class="${h.unrealized>=0?"pos":"neg"}">${sgn(h.unrealized,2)}</span></div>`:""}${se?`<div class="r"><i>Booked P&L</i><span class="${pl>=0?"pos":"neg"}">${sgn(pl,2)}</span></div>`:""}${h.stop?`<div class="r"><i>Stop</i><span>${inr(h.stop,2)}</span></div>`:""}`;
     return `<div class="ins" style="--c:var(${SYM[s].c})"><div class="n">${SYM[s].n}</div>${rows}</div>`;
   }).join("");
-  renderStrategy(d);
+  renderStrategy(d); renderHoldings(d);
   renderChart(d); renderCounts(d); renderTimeline(d); renderNotes(d);
   document.getElementById("tmr").textContent = d.tomorrow || "–";
+}
+let ledFilter = "ALL";
+function holdRows(d){
+  const al=d.alloc||{}, tot=Object.values(al).reduce((a,b)=>a+b,0)||1;
+  return Object.keys(SYM).map(s=>{
+    const h=(d.holdings||[]).find(x=>x.symbol===s)||{};
+    if(s==="LIQUIDBEES"){ const v=h.value!=null?h.value:(al[s]||0); const ap=h.approx!==false;
+      return {symbol:s,value:v,share:h.share_pct!=null?h.share_pct:v/tot*100,units:h.units!=null?h.units:v/1000,price:h.price!=null?h.price:1000,approx:ap}; }
+    const units=h.units!=null?h.units:(h.qty||0), avg=h.avg_price!=null?h.avg_price:(h.avg||0);
+    const value=h.value!=null?h.value:(al[s]||0), invested=h.invested!=null?h.invested:units*avg;
+    const gain=h.gain!=null?h.gain:(h.unrealized!=null?h.unrealized:(units?value-invested:0));
+    return {symbol:s,units,avg,value,invested,gain,pct:h.gain_pct!=null?h.gain_pct:(invested?gain/invested*100:0),
+      price:h.price!=null?h.price:h.close,share:h.share_pct!=null?h.share_pct:value/tot*100,first:h.first_buy||"",realised:h.realised||0};
+  });
+}
+function renderHoldings(d){
+  const rows=holdRows(d), tot=rows.reduce((a,r)=>a+r.value,0)||1;
+  document.getElementById("hbar").innerHTML = rows.map(r=>r.value>0?`<span title="${esc(SYM[r.symbol].n)} ${inr(r.value)} · ${r.share.toFixed(1)}%" style="width:${r.value/tot*100}%;background:var(${SYM[r.symbol].c})"></span>`:"").join("");
+  document.getElementById("hleg").innerHTML = rows.map(r=>`<span style="--c:var(${SYM[r.symbol].c})">${esc(SYM[r.symbol].n)} ${r.share.toFixed(1)}%</span>`).join("");
+  const body = rows.map(r=>{
+    const nm=`<span class="sw" style="--c:var(${SYM[r.symbol].c})"></span><b>${r.symbol}</b><small>${esc(SYM[r.symbol].n.replace(/ \(.*/,""))}${r.first?" · since "+esc(r.first):""}</small>`;
+    if(r.symbol==="LIQUIDBEES") return `<tr><td>${nm}</td><td>≈${r.units.toLocaleString("en-IN",{maximumFractionDigits:0})}${r.approx?"<small>approx.</small>":""}</td><td>${r.approx?"~":""}${inr(r.price,r.approx?0:2)}<small>per unit</small></td><td>–</td><td><b>${inr(r.value,2)}</b></td><td>–</td><td>${r.share.toFixed(1)}%</td></tr>`;
+    if(!r.units) return `<tr><td>${nm}</td><td colspan="5" style="color:var(--muted);text-align:left">none held</td><td>${r.share.toFixed(1)}%</td></tr>`;
+    return `<tr><td>${nm}</td><td>${r.units.toLocaleString("en-IN")}</td><td>${inr(r.avg,2)}</td><td>${inr(r.invested,2)}</td><td><b>${inr(r.value,2)}</b><small>at ${inr(r.price,2)}</small></td><td class="${r.gain>=0?"pos":"neg"}">${sgn(r.gain,2)}<small>${(r.pct>=0?"+":"−")+Math.abs(r.pct).toFixed(2)}%</small></td><td>${r.share.toFixed(1)}%</td></tr>`;
+  }).join("");
+  document.getElementById("htable").innerHTML = `<thead><tr><th>Holding</th><th>Units</th><th>Avg buy price</th><th>Invested<small>incl. costs</small></th><th>Value now</th><th>Open gain</th><th>Share</th></tr></thead><tbody>${body}</tbody>`;
+  const held=rows.some(r=>r.symbol!=="LIQUIDBEES"&&r.units);
+  document.getElementById("hnote").textContent = (held?"Invested = units × average price + buying costs. Open gain = value minus invested, not yet booked. ":"No gold, silver or copper held: all the money is in LIQUIDBEES. ")+"LIQUIDBEES units are approximate (value ÷ about ₹1,000 a unit).";
+  renderLedger(d);
+}
+function renderLedger(d){
+  const led = Array.isArray(d.ledger) ? d.ledger : d.decisions.filter(x=>x.action==="BUY"||x.action==="SELL").map(x=>({date:d.date,time:x.time,symbol:x.symbol,side:x.action,units:x.qty,price:x.price,amount:x.amount,costs:null,pnl:x.pnl,reason:x.reason})).reverse();
+  const syms=["ALL","GOLDBEES","SILVERBEES","HINDCOPPER"];
+  if(!syms.includes(ledFilter)) ledFilter="ALL";
+  const tabs=document.getElementById("ledtabs");
+  tabs.innerHTML = syms.map(s=>`<button class="tab${s===ledFilter?" on":""}" data-s="${s}">${s==="ALL"?"All":esc(SYM[s].n.replace(/ \(.*/,""))} (${s==="ALL"?led.length:led.filter(e=>e.symbol===s).length})</button>`).join("");
+  tabs.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{ledFilter=b.dataset.s; renderLedger(d);});
+  const shown = led.filter(e=>ledFilter==="ALL"||e.symbol===ledFilter);
+  const tb=document.getElementById("ledtable");
+  tb.innerHTML = shown.length
+    ? `<thead><tr><th>Date · time</th><th>Side</th><th>Symbol</th><th>Units</th><th>Price</th><th>Amount</th><th>Costs</th><th>Booked P&amp;L</th><th style="text-align:left">Why</th></tr></thead><tbody>${shown.map(e=>`<tr><td>${esc(e.date)}<small>${esc(e.time)}</small></td><td><span class="sd" style="--c:var(${e.side==="BUY"?"--buy":"--sell"})">${esc(e.side)}</span></td><td><b>${esc(e.symbol)}</b></td><td>${Number(e.units).toLocaleString("en-IN")}</td><td>${inr(e.price,2)}</td><td>${inr(e.amount,2)}</td><td>${e.costs==null?"–":inr(e.costs,2)}</td><td class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}">${e.side==="SELL"&&e.pnl!=null?sgn(e.pnl,2):"–"}</td><td class="rs">${esc(e.reason)}</td></tr>`).join("")}</tbody>`
+    : `<tbody><tr><td style="text-align:left;white-space:normal;color:var(--muted)">${led.length?"No trades in this symbol yet.":"No buys or sells yet — all money is in LIQUIDBEES."}</td></tr></tbody>`;
+  const total = d.ledger_total!=null ? d.ledger_total : led.length;
+  document.getElementById("lednote").textContent = `${led.length} of ${total} trade${total===1?"":"s"} since the start, newest first${/^\d{4}-/.test(d.date)?", up to "+d.date:""}.${Array.isArray(d.ledger)?"":" (This older day document has only that day's trades.)"}`;
 }
 const toMin = t => { const [h,m]=t.split(":").map(Number); return h*60+m; };
 function renderChart(d){

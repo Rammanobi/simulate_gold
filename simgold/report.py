@@ -15,7 +15,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-from simgold import budget, config, trend
+from simgold import budget, config, holdings as holdings_mod, trend
 from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
 
 START_CAPITAL = 100_000.0
@@ -586,11 +586,26 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
             day["pnl_story"] = pnl_story(day)
         except Exception:      # rendering recomputes it; never fail the report over this
             pass
+    try:
+        day["holdings_view"] = _holdings_view(date, root, day)
+    except Exception:          # the report must never fail over this extra section
+        pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
     day["fallback_dates"] = fallback_dates(root)
     return day
+
+
+def _holdings_view(date: str, root: Path, day: dict) -> dict:
+    """Holdings rows and the trade ledger (newest 60) for the "Your holdings" / "Every purchase so far" sections."""
+    prices = {h["symbol"]: h["close"] for h in day.get("holdings_close", []) if h.get("close")}
+    p = day["portfolio"]
+    if day.get("closed"):
+        liquid = max(0.0, (_num(p.get("close"), 0.0) or 0.0) - sum(h.get("value", 0) or 0 for h in day.get("holdings_close", [])))
+    else:
+        liquid = _num(p.get("cash_in_liquidbees"), 0.0) or 0.0
+    return holdings_mod.view(date, root, prices, liquid, cap=holdings_mod.EMAIL_LEDGER_CAP)
 
 
 THRIFT_LINE = "\U0001F4A1 Thrift mode: running on plan limits"
@@ -1091,6 +1106,102 @@ def _glance_html(day: dict, link: str | None) -> str:
             f'cellpadding="0" cellspacing="0">\n{h}</table></td></tr>\n')
 
 
+def _holdings_html(day: dict) -> str:
+    """"Your holdings" table (units, average price, invested, value now, open gain, share) and "Every purchase so far"."""
+    v = day.get("holdings_view")
+    if not v or not v.get("rows"):
+        return ""
+    if day.get("closed") and not v.get("ledger"):      # a short "market closed" note stays short until there is something to show
+        return ""
+    th = f'padding:6px 2px;font-family:{FONT};font-size:11px;font-weight:700;color:#6b7280;border-bottom:1px solid #e5e7eb;'
+    head = (f'<tr><td style="{th}text-align:left;">Holding</td><td align="right" style="{th}">Units</td>'
+            f'<td align="right" style="{th}">Avg price</td><td align="right" style="{th}">Invested</td>'
+            f'<td align="right" style="{th}">Value now</td><td align="right" style="{th}">Open gain</td>'
+            f'<td align="right" style="{th}">Share</td></tr>')
+    tdp = f'padding:8px 2px;font-family:{FONT};font-size:11.5px;line-height:16px;color:#1f2937;border-bottom:1px solid #f1f1f1;'
+    body = ""
+    for r in v["rows"]:
+        name = f'<b>{esc(r["symbol"])}</b><div style="font-size:11px;color:#6b7280;">{esc(r["name"])}</div>'
+        if r["symbol"] == holdings_mod.LIQUID:
+            units = f'≈{r["units"]:,.0f}' + ('<div style="font-size:11px;color:#6b7280;">approx.</div>' if r.get("approx") else "")
+            body += (f'<tr><td style="{tdp}">{name}</td><td align="right" valign="top" style="{tdp}">{units}</td>'
+                     f'<td align="right" valign="top" style="{tdp}">{"~" + inr(r["price"]) if r.get("approx") else inr(r["price"], 2)}</td>'
+                     f'<td align="right" valign="top" style="{tdp}">–</td>'
+                     f'<td align="right" valign="top" style="{tdp}"><b>{inr(r["value"])}</b></td>'
+                     f'<td align="right" valign="top" style="{tdp}">–</td>'
+                     f'<td align="right" valign="top" style="{tdp}">{r["share_pct"]:.1f}%</td></tr>')
+        elif not r["units"]:
+            body += (f'<tr><td style="{tdp}">{name}</td><td colspan="5" valign="top" style="{tdp}color:#6b7280;">none held</td>'
+                     f'<td align="right" valign="top" style="{tdp}">0.0%</td></tr>')
+        else:
+            body += (f'<tr><td style="{tdp}">{name}</td><td align="right" valign="top" style="{tdp}">{r["units"]:,}</td>'
+                     f'<td align="right" valign="top" style="{tdp}">{inr(r["avg_price"], 2)}</td>'
+                     f'<td align="right" valign="top" style="{tdp}">{inr(r["invested"])}</td>'
+                     f'<td align="right" valign="top" style="{tdp}"><b>{inr(r["value"])}</b></td>'
+                     f'<td align="right" valign="top" style="{tdp}color:{_tone_color(r["gain"])};font-weight:700;">{sg(r["gain"])}'
+                     f'<div style="font-size:11px;">{pc(r["gain_pct"], 1)}</div></td>'
+                     f'<td align="right" valign="top" style="{tdp}">{r["share_pct"]:.1f}%</td></tr>')
+    held = [r for r in v["rows"] if r["symbol"] != holdings_mod.LIQUID and r["units"]]
+    note = ("Invested = units x average price + buying costs. Open gain = value now minus invested (not yet booked)."
+            if held else "No gold, silver or copper is held, so all the money is in LIQUIDBEES.")
+    out = (_section("Your holdings")
+           + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{head}{body}</table>'
+           f'<div style="font-family:{FONT};font-size:12px;line-height:17px;color:#6b7280;padding-top:8px;">{esc(note)}</div></td></tr>\n')
+    out += _section("Every purchase so far")
+    led = v.get("ledger") or []
+    if not led:
+        out += (f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">'
+                f'No buys or sells yet — all money is in LIQUIDBEES.</td></tr>\n')
+        return out
+    rows = ""
+    for e in led:
+        bg, fg = ACTION_STYLE.get(e["side"], ACTION_STYLE["HOLD"])
+        bits = [f'{e["units"]:,} {_plural(e["units"], "unit")} at {inr(e["price"], 2)}']
+        if e.get("costs") is not None:
+            bits.append(f'costs {inr(e["costs"], 2)}')
+        if e["side"] == "SELL" and e.get("pnl") is not None:
+            bits.append(f'booked <span style="color:{_tone_color(e["pnl"])};font-weight:700;">{sg(e["pnl"], 2)}</span>')
+        reason = f'<div style="font-size:12px;color:#6b7280;padding-top:2px;line-height:17px;">{esc(e["reason"])}</div>' if e.get("reason") else ""
+        rows += (f'<tr><td valign="top" style="padding:8px 0;border-bottom:1px solid #f1f1f1;font-family:{FONT};font-size:14px;line-height:19px;color:#1f2937;">'
+                 f'<span style="display:inline-block;background:{bg};color:{fg};font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;">{esc(e["side"])}</span> '
+                 f'<b>{esc(e["symbol"])}</b> <span style="color:#6b7280;font-size:12px;">{esc(e["date"])} {esc(e["time"])}</span>'
+                 f'<div style="font-size:13px;color:#374151;padding-top:2px;">{" · ".join(bits)}</div>{reason}</td>'
+                 f'<td align="right" valign="top" style="padding:8px 0 8px 8px;border-bottom:1px solid #f1f1f1;font-family:{FONT};font-size:14px;color:#1f2937;white-space:nowrap;">'
+                 f'<b>{inr(e["amount"])}</b></td></tr>')
+    total = v.get("ledger_total", len(led))
+    more = (f'<div style="font-family:{FONT};font-size:12px;color:#6b7280;padding-top:8px;">Showing the latest {len(led)} of {total}; the dashboard has all of them.</div>'
+            if total > len(led) else "")
+    out += f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{rows}</table>{more}</td></tr>\n'
+    return out
+
+
+def _holdings_text(day: dict) -> list[str]:
+    v = day.get("holdings_view")
+    if not v or not v.get("rows") or (day.get("closed") and not v.get("ledger")):
+        return []
+    L = ["YOUR HOLDINGS (units, average price, invested, value now, open gain, share)"]
+    for r in v["rows"]:
+        if r["symbol"] == holdings_mod.LIQUID:
+            L.append(f"{r['symbol']}: {inr(r['value'])}, {r['share_pct']:.1f}% of the money, about {r['units']:,.0f} units"
+                     + (" (approximate, at ~Rs 1,000 a unit)" if r.get("approx") else ""))
+        elif not r["units"]:
+            L.append(f"{r['symbol']}: none held, 0.0%")
+        else:
+            L.append(f"{r['symbol']}: {r['units']:,} {_plural(r['units'], 'unit')}, avg {inr(r['avg_price'], 2)}, invested {inr(r['invested'])}, "
+                     f"value {inr(r['value'])}, open gain {sg(r['gain'])} ({pc(r['gain_pct'], 1)}), {r['share_pct']:.1f}%")
+    L += ["", "EVERY PURCHASE SO FAR"]
+    led = v.get("ledger") or []
+    if not led:
+        L.append("No buys or sells yet — all money is in LIQUIDBEES.")
+    for e in led:
+        pl = f", booked {sg(e['pnl'], 2)}" if e["side"] == "SELL" and e.get("pnl") is not None else ""
+        co = f", costs {inr(e['costs'], 2)}" if e.get("costs") is not None else ""
+        L.append(f"{e['date']} {e['time']}  {e['side']:<4} {e['symbol']:<10} {e['units']:>5} @ {inr(e['price'], 2)} = {inr(e['amount'])}{co}{pl}  {e.get('reason', '')}")
+    if v.get("ledger_total", 0) > len(led):
+        L.append(f"(latest {len(led)} of {v['ledger_total']}; the dashboard has all of them)")
+    return L + [""]
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
@@ -1116,7 +1227,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                 + _tile("Today's profit", sg(0), INK, "market closed")
                 + _tile("Above the account stop" if p.get("v2") else "Distance to safety floor", inr(max(p["distance_to_floor"], 0)),
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
-                + '</tr></table></td></tr>\n' + _section("Tomorrow")
+                + '</tr></table></td></tr>\n' + _holdings_html(day) + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
         return head + body + _ops_html(day) + foot
 
@@ -1226,7 +1337,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + hero + tiles + gauge + _targets_html(day) + glance + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1243,7 +1354,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
-              "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),
+              *_holdings_text(day), "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),
               "This is a paper simulation. No real money or orders were placed."]
         return "\n".join(L) + "\n"
     story = pnl_story(day)
@@ -1278,6 +1389,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
         if report_url:
             L.append(f"{GLANCE_LINK_TEXT}: {report_url}")
         L.append("")
+    L += _holdings_text(day)
     if day["market"]:
         L.append("MARKET TODAY")
         w = max(len(m["name"]) for m in day["market"])

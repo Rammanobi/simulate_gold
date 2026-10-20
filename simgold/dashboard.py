@@ -2,7 +2,9 @@
 
 Shape (all keys always present): date, weekday, updated, live, open, close, pnl, pnl_pct, floor, cushion,
 liquid_income, costs, summary, tomorrow, counts{BUY,SELL,SKIP,BLOCK,HOLD}, alloc{GOLDBEES,SILVERBEES,HINDCOPPER,
-LIQUIDBEES}, holdings[], ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
+LIQUIDBEES}, holdings[] (GOLDBEES, SILVERBEES, HINDCOPPER, LIQUIDBEES rows: units, avg_price, invested, price, value, gain,
+gain_pct, share_pct, first_buy; old keys qty/avg/close/unrealized kept), ledger[] (every BUY/SELL up to the day, newest first:
+date, time, symbol, side, units, price, amount, costs, pnl, reason; capped at 500 rows) and ledger_total, ticks[[time, value, gold, silver, copper]], decisions[{time, action, symbol, qty, price,
 amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}], thrift,
 checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened), targets[] (empty on v1 days).
 Strategy v2 days only (strategy absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
@@ -24,7 +26,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from simgold import report
+from simgold import holdings as holdings_mod, report
 from simgold.market import now_ist
 
 log = logging.getLogger(__name__)
@@ -230,17 +232,36 @@ def _notes(root: Path, date: str, previous: list) -> list[dict]:
     return notes[-MAX_NOTES:]
 
 
+def _with_stops(rows: list[dict], closes: list[dict]) -> list[dict]:
+    """Keep the old per-holding stop fields next to the new holdings columns."""
+    by = {h["symbol"]: h for h in closes}
+    for r in rows:
+        h = by.get(r["symbol"])
+        if h:
+            for k in ("stop", "exit_level"):
+                if k in h:
+                    r[k] = h[k]
+    return rows
+
+
 def build(date: str, root: Path, now: datetime | None = None) -> dict:
     root = Path(root)
     day = report.build_day(date, root)
     p = day["portfolio"]
     path = root / "logs" / f"dashboard-{date}.json"
     prev = report._read_json(path, {}) or {}
-    holdings = [h for h in day.get("holdings_close", []) if h.get("symbol") in SYMS]
+    closes = [h for h in day.get("holdings_close", []) if h.get("symbol") in SYMS]
     alloc = {s: 0.0 for s in SYMS}
-    for h in holdings:
+    for h in closes:
         alloc[h["symbol"]] = round(float(h.get("value") or 0), 2)
     alloc["LIQUIDBEES"] = round(float(p.get("cash_in_liquidbees") or 0), 2)
+    try:        # holdings (4 rows, as of the day) and the full trade ledger up to and including the day
+        hv = holdings_mod.view(date, root, {h["symbol"]: h["close"] for h in closes if h.get("close")}, alloc["LIQUIDBEES"])
+        holdings = _with_stops(hv["rows"], closes)
+        ledger, ledger_total = hv["ledger"], hv["ledger_total"]
+    except Exception:  # noqa: BLE001 - never lose the day document over the extra view
+        log.warning("dashboard: holdings view failed for %s", date, exc_info=True)
+        holdings, ledger, ledger_total = closes, [], 0
     decisions = _raw_decisions(root / "logs" / f"decisions-{date}.jsonl")
     counts = {a: sum(1 for d in decisions if d["action"] == a) for a in ACTIONS}
     strategy, targets = _v2(root / "logs" / f"decisions-{date}.jsonl", root, alloc, p.get("close"))
@@ -250,7 +271,7 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "open": p["open"], "close": p["close"], "pnl": p["day_pnl"], "pnl_pct": p["day_pnl_pct"],
         "floor": p["floor"], "cushion": p["distance_to_floor"], "liquid_income": p["liquidbees_income"],
         "costs": p["costs_paid"], "summary": day.get("one_line_summary", ""), "tomorrow": day.get("tomorrow", ""),
-        "counts": counts, "alloc": alloc, "holdings": holdings,
+        "counts": counts, "alloc": alloc, "holdings": holdings, "ledger": ledger, "ledger_total": ledger_total,
         "ticks": _ticks(root / "logs" / f"ticks-{date}.csv"), "decisions": decisions,
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
         "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
