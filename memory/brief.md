@@ -1,20 +1,13 @@
-# Brief 2026-10-19 15:49 IST (Mon) | NSE CLOSED (session over)
+# Brief 2026-10-20 14:45 IST (Tue) | NSE CLOSED (NSE holiday); next session Wed 21 Oct
 
 ## Portfolio
-value ₹100,104 | account stop ₹99,500 | drawdown from peak 0.0% (peak ₹100,104) | brake level 0 (-15% halves, -25% flat) | best profit ₹104 | day P&L +₹52
+value ₹100,104 | account stop ₹99,500 | drawdown from peak 0.0% (peak ₹100,104) | brake level 0 (-15% halves, -25% flat) | best profit ₹104 | day P&L n/a
 
 ## Open positions
 none
 
 ## Today's decisions (time action symbol - reason)
-09:15 BLOCK GOLDBEES @120.11 - A news headline looks market-moving, so new buys in GOLDBEES are paused for 30…
-09:15 BLOCK SILVERBEES @199.19 - A news headline looks market-moving, so new buys in SILVERBEES are paused for 3…
-13:18 BLOCK GOLDBEES @120.1 - A news headline looks market-moving, so new buys in GOLDBEES are paused for 30…
-13:18 BLOCK HINDCOPPER @446.45 - A news headline looks market-moving, so new buys in HINDCOPPER are paused for 3…
-13:18 BLOCK SILVERBEES @198.33 - A news headline looks market-moving, so new buys in SILVERBEES are paused for 3…
-15:05 BLOCK GOLDBEES @119.84 - A news headline looks market-moving, so new buys in GOLDBEES are paused for 60…
-15:05 BLOCK SILVERBEES @197.38 - A news headline looks market-moving, so new buys in SILVERBEES are paused for 6…
-15:23 BLOCK HINDCOPPER @440.05 - HINDCOPPER is -4.01% from yesterday's close (trigger is 4.0%). New buys in HIND…
+(no decision log yet)
 
 ## Prices
 GOLDBEES 119.82 (as of 15:29) | vs prev close -0.32% | since last brief +0.00%
@@ -25,15 +18,11 @@ HINDCOPPER 440.4 (as of 15:29) | vs prev close -3.94% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=neutral, COPPER=neutral | 33 min old
+GOLD=neutral, SILVER=neutral, COPPER=neutral | 23.5 h old STALE for the engine
 note: ...VER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 O…
 
 ## Fast-lane requests today
-4 today, 2 fired the routine
-09:15 fired - News headline matched a trigger (monetary_policy, inflation_data): An…; News headline matched a trigger (monetary_policy, inflation_data): An…
-13:18 fired - News headline matched a trigger (geopolitics): China accelerates gold…; News headline matched a trigger (geopolitics): China accelerates gold…
-15:05 not fired - News headline matched a trigger (monetary_policy): Kevin Warsh gives…; News headline matched a trigger (monetary_policy): Kevin Warsh gives…
-15:23 not fired - HINDCOPPER is -4.01% from yesterday's close (trigger is 4.0%).
+none today
 
 ## Upcoming events (next 7 days)
 Fri 23 Oct hindcopper_results
