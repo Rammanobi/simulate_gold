@@ -139,8 +139,7 @@ def test_red_day_wording_and_reasons(red_root, tmp_path):
     day = report.build_day(RED_DAY, red_root)
     paths = report.write_reports(day, tmp_path / "out", RED_DAY, TEMPLATE)
     email = paths["email"].read_text(encoding="utf-8")
-    assert "Total loss ₹110 since the start" in email and "Down ₹310 today" in email and "#c0392b" in email
-    assert "Total moved from profit ₹200.00 to loss ₹110.00 since the previous trading day (−₹310.00)." in email
+    assert "Today's loss: −₹310.00" in email and "#c0392b" in email and "since the start" not in email
     assert "You're in the red" not in email
     assert "Where today's ₹310 loss came from" in email
     for d in day["decisions"]:
@@ -409,31 +408,38 @@ def _story_day(open_, close, breakdown, decisions=()):
             "portfolio": {"open": open_, "close": close, "day_pnl": round(close - open_, 2)}}
 
 
-def test_pnl_story_total_first_and_where_it_came_from():
+def test_pnl_story_is_that_days_profit_only():
     s = report.pnl_story(_story_day(100017.26, 100034.52, {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 17.26}))
-    assert (s["total_text"], s["today_text"]) == ("Total profit ₹35 since the start", "up ₹17 today")
+    assert s["headline"] == "Today's profit: +₹17.26"
     assert s["source"] == "Today's +₹17 is only LIQUIDBEES interest on idle cash — no trades were made."
-    assert s["vs_previous"] == "Profit increased by ₹17.26 since the previous trading day (₹17.26 → ₹34.52)."
+    assert set(s) == {"pnl", "headline", "source"}
     trades = [{"action": "BUY"}, {"action": "SELL"}]
     s = report.pnl_story(_story_day(100000, 100147, {"realized_trades": 41.5, "unrealized_open": 88.5, "liquidbees_income": 17}, trades))
     assert s["source"] == "Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest."
     s = report.pnl_story(_story_day(100035, 100018, {"realized_trades": -17, "unrealized_open": 0, "liquidbees_income": 0}, trades))
-    assert (s["total_text"], s["today_text"]) == ("Total profit ₹18 since the start", "down ₹17 today")
-    assert s["vs_previous"].startswith("Profit decreased by ₹17.00")
-    s = report.pnl_story(_story_day(99900, 99880, {"realized_trades": -20, "unrealized_open": 0, "liquidbees_income": 0}, trades))
-    assert s["total_text"] == "Total loss ₹120 since the start" and s["vs_previous"].startswith("Loss grew by ₹20.00")
+    assert s["headline"] == "Today's loss: −₹17.00"
     s = report.pnl_story(_story_day(100035, 100035, {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 0}))
-    assert s["today_text"] == "flat today" and s["vs_previous"] == "Profit stayed flat since the previous trading day at ₹35.00."
+    assert s["headline"] == "Today: no change (₹0)"
     assert s["source"] == "No change today: no trades were made."
 
 
-def test_email_and_text_headline_use_total_and_labelled_month(tmp_path):
+def test_three_days_of_plus_17_never_add_up(tmp_path):
+    for open_ in (100000.0, 100017.0, 100034.0):          # each day opens at the previous day's close
+        s = report.pnl_story(_story_day(open_, open_ + 17, {"realized_trades": 0, "unrealized_open": 0, "liquidbees_income": 17}))
+        assert s["headline"] == "Today's profit: +₹17.00"
+        assert "₹35" not in s["headline"] + s["source"] and "₹52" not in s["headline"] + s["source"]
+
+
+def test_email_and_text_show_only_the_days_profit(tmp_path):
     day = report.build_day(GLANCE_DAY, _glance_root(tmp_path))
-    assert day["pnl_story"]["total_text"] == "Total profit ₹35 since the start"
+    assert day["pnl_story"]["headline"] == "Today's profit: +₹17.26"
+    assert day["portfolio"]["day_pnl"] == pytest.approx(day["portfolio"]["close"] - day["portfolio"]["open"])
     email = report.render_email(day)
-    assert "Total profit ₹35 since the start" in email and "Up ₹17 today" in email
-    assert "only LIQUIDBEES interest on idle cash" in email and "Profit increased by ₹17.26" in email
-    assert "Total this month" in email and "Month so far" not in email and "You're in the green" not in email
     text = report.render_text(day)
-    assert "Total profit ₹35 since the start · up ₹17 today" in text
-    assert "Total since the start: +₹35" in text and "Total this month:" in text and "Month P&L" not in text
+    assert "Today's profit: +₹17.26" in email and "only LIQUIDBEES interest on idle cash" in email
+    assert "Portfolio value" in email and "Today's profit</div>" in email
+    for out in (email, text):
+        for bad in ("since the start", "Total profit", "Total loss", "Total this month", "Month so far", "since the previous",
+                    "since the 1st", "₹35", "You're in the green"):
+            assert bad not in out, bad
+    assert "Today's profit: +₹17.26" in text and "Month P&L" not in text
