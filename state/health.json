@@ -1,12 +1,5 @@
 {
- "last_run": "2026-10-21T10:07:13+05:30",
- "results": [
-  {
-   "check": "watchdog_stale",
-   "severity": "high",
-   "category": "watchdog_stale",
-   "detail": "the last healthcheck ran 287 min ago (limit 75)"
-  }
- ],
- "all_green": false
+ "last_run": "2026-10-21T10:16:37+05:30",
+ "results": [],
+ "all_green": true
 }
