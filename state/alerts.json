@@ -35,9 +35,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792577087.4048414,
+   "resolved_at": 1792590980.28816,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "engine_run_missing"
   },
   "watchdog|routines_silent|": {
