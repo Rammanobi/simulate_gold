@@ -1,14 +1,19 @@
 {
- "updated": "2026-10-19T15:16:12+05:30",
+ "updated": "2026-10-21T08:52:36+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
-  "COPPER": "neutral"
+  "COPPER": "block"
  },
- "note": "...VER: -0.8% on the day, no fresh news, a lone move merits no more than neutral. COPPER: -1.5%, results 23 Oct are 4 days out, keep neutral and revisit before then. | 11:16 no material change | 12:16 no material change | 13:16 no material change | 14:16 no material change | 15:16 no material change",
+ "note": "GOLD[WEAKENING]: COMEX gold -0.68% to 4131.8 on 20 Oct, DXY -0.20%, ceiling neutral, yahoo. SILVER[WEAKENING]: COMEX silver +0.98% to 57.54 after 5-session -5.4%, ceiling neutral, yahoo. COPPER[WEAKENING]: HINDCOPPER results 23 Oct within 2 trading days, block; COMEX HG +1.02%, yahoo.",
  "prices_at_update": {
-  "GOLDBEES": 119.86,
-  "SILVERBEES": 197.42,
-  "HINDCOPPER": 442.4
+  "GOLDBEES": 119.82,
+  "SILVERBEES": 197.44,
+  "HINDCOPPER": 440.4
+ },
+ "alignment": {
+  "GOLD": "WEAKENING",
+  "SILVER": "WEAKENING",
+  "COPPER": "WEAKENING"
  }
 }
