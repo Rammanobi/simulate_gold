@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-21T11:18:54+05:30",
+ "updated": "2026-10-21T12:16:47+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: GOLDBEES -1.4% since 08:52, no new confirming fact, stay at neutral default. SILVER[WEAKENING]: SILVERBEES -1.0%, stay neutral. COPPER[WEAKENING]: HINDCOPPER -2.8%, results 23 Oct, block. | 11:18 no material change",
+ "note": "GOLD[WEAKENING]: -1.4% on day, no new confirming fact, neutral. SILVER[WEAKENING]: -1.25%, neutral. COPPER[BREAKDOWN_RISK]: HINDCOPPER -5% shock, results 23 Oct, block.",
  "prices_at_update": {
-  "GOLDBEES": 118.2,
-  "SILVERBEES": 195.19,
-  "HINDCOPPER": 423.75
+  "GOLDBEES": 118.11,
+  "SILVERBEES": 194.97,
+  "HINDCOPPER": 419.15
  },
  "alignment": {
   "GOLD": "WEAKENING",
   "SILVER": "WEAKENING",
-  "COPPER": "WEAKENING"
+  "COPPER": "BREAKDOWN_RISK"
  }
 }
