@@ -24,21 +24,20 @@
    "acked": false,
    "category": "engine_not_running",
    "component": "watchdog",
-   "count": 2,
+   "count": 1,
    "deferred": false,
    "detail": "no market-hours workflow run is in progress during NSE hours",
    "emails": [],
-   "first_seen": 1792395776.9577181,
+   "first_seen": 1792577087.4048414,
    "fp": "watchdog|engine_run_missing|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1792396027.3453646,
-   "resolved_at": 1792398610.4091296,
+   "last_seen": 1792577087.4048414,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "engine_run_missing"
   },
   "watchdog|routines_silent|": {
@@ -128,12 +127,13 @@
  },
  "fires": {
   "date": "2026-10-21",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1792557434.4822557
+   1792557434.4822557,
+   1792577087.4048414
   ]
  },
- "last_high_fire": 1792557434.4822557,
+ "last_high_fire": 1792577087.4048414,
  "pending": [],
  "version": 1
 }
