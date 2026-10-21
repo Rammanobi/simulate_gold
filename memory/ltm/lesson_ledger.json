@@ -55,6 +55,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "b1cef8b4",
+   "text": "The 50% min_invested floor bought GOLDBEES with trend OFF on a -1.44% NSE day",
+   "status": "candidate",
+   "first_seen": "2026-10-21",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-21",
+     "text": "15:10 BUY GOLDBEES 423 @118.19, trend OFF, GOLDBEES -1.44% vs prev close"
+    }
+   ],
+   "contradict": []
   }
  ]
 }
