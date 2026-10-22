@@ -1,7 +1,7 @@
 {
- "updated": "2026-10-16T09:15:43+05:30",
- "HINDCOPPER": {
-  "block_until": "2026-10-16T10:15:43+05:30"
+ "updated": "2026-10-22T09:16:46+05:30",
+ "GOLDBEES": {
+  "tighten_stop": 116.4
  },
- "note": "A copper selloff headline on US inflation and easing Chile strike risk could not be confirmed and we hold no copper, so new HINDCOPPER buys are paused for one hour."
+ "note": "Gold opened about 2.2% lower with silver down 3% and no clear news found, so the gold stop is set at 116.40 to limit further loss."
 }
