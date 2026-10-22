@@ -1,35 +1,35 @@
 {
- "date": "2026-10-21",
+ "date": "2026-10-22",
  "market": [
   {
    "name": "Gold (COMEX)",
-   "move_pct": -0.68,
-   "note": "Settled 4131.8 on 20 Oct despite softer dollar"
+   "move_pct": -0.06,
+   "note": "Near 4140-4149, flat; crude revives rate-hike fears"
   },
   {
    "name": "Silver (COMEX)",
-   "move_pct": 0.98,
-   "note": "Bounce to 57.54 after a weak week"
+   "move_pct": -0.54,
+   "note": "Near 57.6-57.7, slightly lower"
   },
   {
-   "name": "Copper (COMEX HG)",
-   "move_pct": 1.02,
-   "note": "6.605 per lb, rebound after 5-session slide"
+   "name": "Copper (LME)",
+   "move_pct": -0.4,
+   "note": "About 14342 on 19 Oct, LME stocks at two-month high"
   },
   {
    "name": "Dollar index",
-   "move_pct": -0.2,
-   "note": "101.78, slightly softer"
+   "move_pct": 0.2,
+   "note": "Near 102, last confirmed close 101.99 on 19 Oct"
   },
   {
    "name": "US 10Y yield",
-   "move_pct": -0.37,
-   "note": "5.117%, a touch lower"
+   "move_pct": 0.0,
+   "note": "About 5.11-5.13%, near 2026 highs"
   },
   {
    "name": "USD/INR",
-   "move_pct": -0.24,
-   "note": "94.77, rupee slightly firmer"
+   "move_pct": 0.0,
+   "note": "No fresh level found; n/a"
   }
  ]
 }
