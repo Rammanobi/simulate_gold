@@ -27,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from simgold import config  # noqa: E402
 from simgold.inboxlink import daily_item_id, is_valid_id, own_pr_url, safe_id  # noqa: E402
 from simgold.report import inr, sg  # noqa: E402
 
@@ -98,7 +99,7 @@ def item_from_daily(day: dict, now: datetime, report_url: str = "") -> dict:
     pnl = float(p.get("day_pnl", 0) or 0)
     rows = [["Portfolio", inr(float(p.get("close", 0) or 0))], ["Day P&L", sg(pnl)],
             ["Account stop" if p.get("v2") else "Floor", inr(float(p.get("floor", 0) or 0))],
-            ["Cash in LIQUIDBEES", inr(float(p.get("cash_in_liquidbees", 0) or 0))],
+            ["Cash (idle money)" if config.idle_is_cash() else "Cash in LIQUIDBEES", inr(float(p.get("cash_in_liquidbees", 0) or 0))],
             ["Trades", f"{buys + sells} ({buys} buys, {sells} sells)"]]
     summary = day.get("one_line_summary") or ("Market closed." if closed else f"Day P&L {sg(pnl)}.")
     return {

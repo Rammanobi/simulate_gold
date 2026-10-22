@@ -27,6 +27,9 @@ from simgold.market import IST, is_trading_day  # noqa: E402
 
 ENGINE_WORKFLOW = "market-hours.yml"
 WINDOW = (dtime(9, 10), dtime(15, 40))
+# The engine itself stops at about 15:31 IST. "no workflow run in progress" is a fault only while the market is open; between 15:31 and
+# the end of WINDOW it is normal (raised a false engine_run_missing alert after the close on 22 Oct 2026).
+ENGINE_OPEN = (dtime(9, 15), dtime(15, 30))
 # ticks reach main with the engine's git sync, every 5 min (run_live --sync-every), so a row 5-7 min old is normal
 # on main. 5 raised a false ticks_stale at 15:16 IST on 14 Oct 2026 (row 6 min old) and a duplicate dispatch.
 TICK_MAX_AGE_MIN = 12
@@ -50,6 +53,12 @@ def real_git(root: Path, args: list[str]) -> str:
 def in_market_window(now: datetime) -> bool:
     now = now.astimezone(IST)
     return is_trading_day(now.date()) and WINDOW[0] <= now.time() <= WINDOW[1]
+
+
+def engine_should_run(now: datetime) -> bool:
+    """True only while NSE is open (09:15-15:30 IST on a trading day)."""
+    now = now.astimezone(IST)
+    return is_trading_day(now.date()) and ENGINE_OPEN[0] <= now.time() <= ENGINE_OPEN[1]
 
 
 def _load_json(p: Path):
@@ -84,7 +93,7 @@ def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
     out = []
     try:
         data = json.loads(gh(["api", f"repos/{repo}/actions/workflows/{ENGINE_WORKFLOW}/runs?status=in_progress&per_page=5"]))
-        if int(data.get("total_count", 0)) < 1:
+        if int(data.get("total_count", 0)) < 1 and engine_should_run(now):
             out.append(problem("engine_run_missing", "engine_not_running", "no market-hours workflow run is in progress during NSE hours"))
     except Exception as e:  # noqa: BLE001
         out.append(problem("engine_run_unknown", "warning", f"could not query workflow runs: {e}"))
@@ -180,7 +189,7 @@ def check_invariants(root: Path, pf: dict | None, now: datetime, git=real_git, c
             out.append(problem("floor_lowered", "floor_broken", f"floor {floor:,.0f} is lower than the previous day's floor {prev:,.0f}"))
         cd = pf.get("cooldowns") if isinstance(pf.get("cooldowns"), dict) else {}
         tripped = cd.get("no_buys_until")
-        if not v2 and value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
+        if not v2 and not config.idle_is_cash() and value > 0 and isinstance(lb, (int, float)) and not tripped and lb / value < LIQUID_MIN - 0.005 and in_market_window(now) \
                 and positions:
             out.append(problem("liquid_low", "invariant_warning",
                                f"LIQUIDBEES is {lb / value:.0%} of value (min {LIQUID_MIN:.0%}) and the tripwire has not fired"))

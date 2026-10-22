@@ -26,7 +26,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from simgold import holdings as holdings_mod, report
+from simgold import config, holdings as holdings_mod, report
 from simgold.market import now_ist
 
 log = logging.getLogger(__name__)
@@ -268,7 +268,8 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
     stamp = (now or now_ist()).isoformat(timespec="seconds")
     doc = {
         "date": date, "weekday": day.get("weekday", ""), "updated": stamp, "live": not day.get("closed", False),
-        "open": p["open"], "close": p["close"], "pnl": p["day_pnl"], "pnl_pct": p["day_pnl_pct"],
+        "idle": "cash" if config.idle_is_cash() else "liquidbees",
+        "open": p["open"], "prev_close_date": p.get("prev_close_date"), "close": p["close"], "pnl": p["day_pnl"], "pnl_pct": p["day_pnl_pct"],
         "floor": p["floor"], "cushion": p["distance_to_floor"], "liquid_income": p["liquidbees_income"],
         "costs": p["costs_paid"], "summary": day.get("one_line_summary", ""), "tomorrow": day.get("tomorrow", ""),
         "counts": counts, "alloc": alloc, "holdings": holdings, "ledger": ledger, "ledger_total": ledger_total,

@@ -138,6 +138,7 @@ class Engine:
         self.log: list[dict] = []
         self.check: dict[str, str] = {}     # one plain line per symbol per minute: logs/checks-DATE.jsonl
         self.rt = pf.runtime
+        self.idle_cash = config.idle_is_cash(self.p)      # capital.idle: cash (owner decision 2026-10-22) or liquidbees
         self.v2 = trend.is_v2(self.p)                       # strategy v2 (trend core) instead of the v1 score rules
         self.st = self.p.get("strategy") or {}
         self.v2_detail: dict = {}
@@ -171,11 +172,11 @@ class Engine:
         return guard.gap_multiplier(self.day, self.er.night_mult(sym), self.p)
 
     def record(self, action: str, sym: str, qty: int, price: float | None, reason: str, trigger: str,
-               pnl: float | None = None, extra: dict | None = None) -> dict:
+               pnl: float | None = None, extra: dict | None = None, costs: float | None = None) -> dict:
         pos = self.pf.positions.get(sym)
         rec = {
             "ts": self.now.isoformat(timespec="seconds"), "time": self.now.strftime("%H:%M"), "action": action,
-            "symbol": sym, "qty": int(qty), "price": round(price, 2) if price else None,
+            "symbol": sym, "qty": int(qty), "price": round(price, 4) if price else None,
             "amount": round(qty * price, 2) if price else 0.0,
             "pnl": round(pnl, 2) if pnl is not None else None, "reason": reason, "trigger": trigger,
             "stop": round(pos.ai_stop if self.v2 else pos.stop, 2) if pos and (pos.ai_stop if self.v2 else pos.stop) else None,
@@ -183,6 +184,8 @@ class Engine:
             if pos and sym in self.p["instruments"] else 0.0,
             "value_after": round(self.value(), 2), "floor": round(self.pf.floor, 2),
         }
+        if action in ("BUY", "SELL") and price and qty and costs is not None:       # the exact fill, in words, on every trade line
+            rec["reason"] = f"{reason} Fill: {int(qty)} × ₹{price:,.4f} = ₹{qty * price:,.2f}; costs ₹{costs:,.2f}."
         if self.v2 and pos and pos.exit_level:
             rec["exit_level"] = round(pos.exit_level, 2)
         if extra:
@@ -235,7 +238,7 @@ class Engine:
             pf.trades.append({"ts": self.now.isoformat(timespec="seconds"), "asset": sym, "side": "BUY", "qty": qty,
                               "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 2), "pnl": 0.0,
                               "reason": reason})
-            return {"qty": qty, "fill": fill, "pnl": None}
+            return {"qty": qty, "fill": fill, "pnl": None, "amount": amount, "cost": cost}
         pos = pf.positions.get(sym)
         if not pos or qty <= 0:
             return None
@@ -245,7 +248,10 @@ class Engine:
         cost = trade_costs(amount, "SELL", kind)
         share = qty / pos.qty
         pnl = (fill - pos.avg_cost) * qty - cost - pos.buy_costs * share
-        pf.liquidbees += amount - cost
+        if self.idle_cash:
+            pf.cash += amount - cost
+        else:
+            pf.liquidbees += amount - cost
         pf.realised_pnl += pnl
         pf.total_costs += cost
         pf.day_costs += cost
@@ -260,7 +266,7 @@ class Engine:
             self.pf.counters["losses_today"] = self.pf.counters.get("losses_today", 0) + 1
         if stop_out:
             self.cd.setdefault("stopped_out", {})[sym] = self.day.isoformat()
-        return {"qty": qty, "fill": fill, "pnl": pnl}
+        return {"qty": qty, "fill": fill, "pnl": pnl, "amount": amount, "cost": cost}
 
     def sell(self, sym: str, qty: int, reason: str, trigger: str, stop_out: bool = False) -> bool:
         px = self.price(sym)
@@ -269,7 +275,7 @@ class Engine:
         r = self._fill(sym, "SELL", qty, px, reason, trigger, stop_out)
         if not r:
             return False
-        self.record("SELL", sym, r["qty"], r["fill"], reason, trigger, pnl=r["pnl"])
+        self.record("SELL", sym, r["qty"], r["fill"], reason, trigger, pnl=r["pnl"], costs=round(r["cost"], 2))
         return True
 
     # ------------------------------------------------------------------ 1. housekeeping
@@ -295,16 +301,21 @@ class Engine:
             pf.day_costs_date = self.day.isoformat()
             pf.day_costs, pf.liquidbees_income_today = 0.0, 0.0
             pf.day_open_value = round(self.value(), 2)
-        # LIQUIDBEES interest: yield/365 per calendar day, credited daily (compounded)
+        if self.idle_cash and pf.liquidbees:
+            moved, pf.cash, pf.liquidbees = pf.liquidbees, pf.cash + pf.liquidbees, 0.0     # a balance move: value() is unchanged, no cost
+            self.record("HOLD", "ALL", 0, None, f"Idle money moved from LIQUIDBEES to cash (owner decision): ₹{moved:,.2f}. "
+                        "Cash earns nothing; buys and sells now go straight through cash.", "Idle cash")
+        # LIQUIDBEES interest: yield/365 per calendar day, credited daily (compounded); none when idle money is cash
         y = self.p["capital"]["liquid_yield_annual"] / 365.0
         if not pf.last_accrual:
             pf.last_accrual = self.day.isoformat()
         else:
             days = (self.day - date.fromisoformat(pf.last_accrual)).days
             if days > 0:
-                before = pf.liquidbees
-                pf.liquidbees *= (1 + y) ** days
-                pf.liquidbees_income_today += pf.liquidbees - before
+                if not self.idle_cash:
+                    before = pf.liquidbees
+                    pf.liquidbees *= (1 + y) ** days
+                    pf.liquidbees_income_today += pf.liquidbees - before
                 pf.last_accrual = self.day.isoformat()
         self.ratchet()
         pf.month = self.day.strftime("%Y-%m")
@@ -497,7 +508,7 @@ class Engine:
             for sym in list(pf.positions):
                 self.sell(sym, pf.positions[sym].qty,
                           f"Portfolio value ₹{value:,.0f} fell to within ₹{self.p['green_guard']['tripwire_buffer']} of the "
-                          f"safety floor ₹{pf.floor:,.0f}, so everything was sold and moved to LIQUIDBEES.", "Tripwire")
+                          f"safety floor ₹{pf.floor:,.0f}, so everything was sold and moved to " + ("cash." if self.idle_cash else "LIQUIDBEES."), "Tripwire")
             return
         for a in advice:                                # AI defence advice (already filtered)
             pos = pf.positions.get(a["sym"])
@@ -712,7 +723,7 @@ class Engine:
             c["buys_week"]["n"].get(sym, 0) + 1
         self.cd["last_buy_ts"] = now.isoformat()
         self.rt.get("streaks", {}).pop(sym, None)
-        self.record("BUY", sym, r["qty"], r["fill"], why, "Minute check")
+        self.record("BUY", sym, r["qty"], r["fill"], why, "Minute check", costs=round(r["cost"], 2))
 
 
     # ------------------------------------------------------------------ strategy v2: trend core (docs/RULEBOOK.md "Strategy v2")
@@ -1041,7 +1052,7 @@ class Engine:
             self.cd["last_buy_ts"] = self.now.isoformat()
             if sym in pf.positions:
                 pf.positions[sym].exit_level = i.exit_level or 0.0
-            self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check")
+            self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
             if sym in retry:

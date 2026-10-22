@@ -240,9 +240,9 @@ def test_costs_not_double_counted_and_engine_fields_preferred(tmp_path):
           "liquidbees_income_today": 17}
     day = report.build_day(GREEN_DAY, make_root(tmp_path, GREEN_DAY, decisions, ticks, pf, [("2026-10-09", 100000)]))
     p, b = day["portfolio"], day["pnl_breakdown"]
-    assert p["open"] == 99990 and p["day_pnl"] == pytest.approx(110)       # engine open value preferred
+    assert p["open"] == 100000 and p["day_pnl"] == pytest.approx(100)      # previous close (equity.csv), not the engine's 09:15 value
     assert b["realized_trades"] == 80 and p["costs_paid"] == 20
-    assert sum(b.values()) == pytest.approx(110, abs=1.0)
+    assert sum(b.values()) == pytest.approx(100, abs=1.0)
     assert any(d["symbol"] == "All metals" for d in day["decisions"])
     assert "already included" in report.render_email(day)
 

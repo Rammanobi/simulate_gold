@@ -13,7 +13,11 @@ from pathlib import Path
 
 from _common import ROOT, parse_now, utf8_stdout
 
-from simgold import brief, report
+from simgold import brief, config, report
+
+
+def _idle_income(p: dict) -> str:
+    return "idle money is cash (earns nothing)" if config.idle_is_cash() else f"LIQUIDBEES income {p['liquidbees_income']:,.0f}"
 
 
 def skeleton(date: str, root: Path, now=None) -> str:
@@ -31,12 +35,12 @@ def skeleton(date: str, root: Path, now=None) -> str:
     if p.get("v2"):
         L.append(f"- Account stop {p['floor']:,.0f} (above it by {p['distance_to_floor']:,.0f}); drawdown from peak "
                  f"{p.get('drawdown_from_peak', 0) * 100:.1f}%, brake level {p.get('brake_level', 0)}; costs {p['costs_paid']:,.0f}; "
-                 f"LIQUIDBEES income {p['liquidbees_income']:,.0f}")
+                 + _idle_income(p))
         for t in day.get("targets") or []:
             L.append(f"- Target {t['symbol']}: trend {t.get('state')}, sigma60 {t.get('sigma')}, target {t.get('target_pct')}%, actual {t.get('actual_pct')}%")
     else:
         L.append(f"- Floor {p['floor']:,.0f}; cushion {p['distance_to_floor']:,.0f}; costs {p['costs_paid']:,.0f}; "
-                 f"LIQUIDBEES income {p['liquidbees_income']:,.0f}")
+                 + _idle_income(p))
     L.append(f"- Counts: {c['buys']} buys, {c['sells']} sells, {c['skips']} skips, {c['blocks']} blocks, "
              f"{c['holds']} holds, {c['fast_lane_runs']} fast-lane runs")
     trades = [x for x in day["decisions"] if x["action"] in ("BUY", "SELL")]

@@ -1,7 +1,7 @@
 # simulate_gold: guide for Claude sessions
 
 **Paper trading only. No real money, no broker.** Starting capital ₹1,00,000 in GOLDBEES, SILVERBEES and
-HINDCOPPER (NSE); idle money sits in LIQUIDBEES. Goal: grow profit over months; evaluated monthly vs buy-and-hold; month-end green no longer required.
+HINDCOPPER (NSE); idle money is plain cash in the account (`capital.idle: cash`, owner decision 22 Oct 2026; earns nothing; `capital.idle: liquidbees` is the one-line rollback to LIQUIDBEES). Goal: grow profit over months; evaluated monthly vs buy-and-hold; month-end green no longer required.
 The active strategy is **v2 trend core** (`strategy.mode: v2_trend` in `config/params.yaml`, aggressive profile; rulebook section
 "Strategy v2"). Rollback to the old Green Guard score rules is one line: `strategy.mode: v1_scores`.
 

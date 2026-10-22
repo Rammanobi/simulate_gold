@@ -13,6 +13,9 @@ import copy
 from simgold import config
 
 config.load_params()["strategy"]["mode"] = "v1_scores"
+# The shipped file has `capital.idle: cash` (owner decision 2026-10-22). The older tests exercise the LIQUIDBEES path (the
+# one-line rollback `capital.idle: liquidbees`), so the cached params keep that; cash mode has its own tests (tests/test_idle_cash.py).
+config.load_params()["capital"]["idle"] = "liquidbees"
 
 
 def d5_params() -> dict:
@@ -28,4 +31,11 @@ def v2_params() -> dict:
     p = d5_params()
     st = p["strategy"]
     st["min_invested"], st["stop_to_gold"], st["entry"]["rsi_timing"] = 0.0, False, True
+    return p
+
+
+def cash_params(base: dict | None = None) -> dict:
+    """A deep copy of the params with idle money as plain cash (the shipped setting)."""
+    p = copy.deepcopy(base or config.load_params())
+    p["capital"]["idle"] = "cash"
     return p
