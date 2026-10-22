@@ -33,6 +33,7 @@ jobs:
     timeout-minutes: 360
     env:
       SIMGOLD_GIT_SYNC: "1"
+      SIMGOLD_LIVE_PUSH: "1"      # live P&L file to the `live` branch every tick (simgold/livepush.py); 0/unset = off
       TZ: Asia/Kolkata
       ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}       # optional; may be empty
       ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}   # optional; may be empty

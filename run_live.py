@@ -15,12 +15,14 @@ import argparse
 import logging
 import time
 from datetime import datetime, time as dtime
+from dataclasses import asdict
 from pathlib import Path
 
+import json
 import os
 import shutil
 
-from simgold import alerts, brief, config, dashboard, gitsync, market, runguard, trend
+from simgold import alerts, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -33,6 +35,8 @@ ROOT = Path(__file__).parent
 STATE, LOGS = ROOT / "state", ROOT / "logs"
 PF_PATH, NEWS_PATH, EQUITY_PATH = STATE / "portfolio.json", STATE / "news.json", STATE / "equity.csv"
 PF_BACKUP = STATE / "portfolio.backup.json"
+LIVE_PATH = STATE / "live_now.json"        # live P&L for the dashboard (engine-owned; also pushed to the `live` branch)
+LIVE_BUDGET_S = 40                         # skip the live push when the tick already used more than this of its 60 s
 TRADES_ARCHIVE = LOGS / "trades-archive.jsonl"
 PROTECTIVE_FROM = dtime(15, 15)       # time stop / score exit (15:15), overnight and month-end checks (15:20)
 
@@ -56,6 +60,14 @@ class Live:
         self.tickers = list(self.p["engine"]["tickers"].values())
         self.hist, self.hist_at, self.hist_fail = None, 0.0, 0
         self.last_tick_day = None
+        self.livepub = livepush.LivePublisher(ROOT)
+        self.series, self.live_prev, self.live_ts = [], {}, {}
+        try:
+            self.series = livepnl.series_from_ticks(LOGS / f"ticks-{now_ist().date().isoformat()}.csv")
+            lp = json.loads((STATE / "last_prices.json").read_text(encoding="utf-8"))
+            self.live_prev = {s: v["prev_close"] for s, v in lp.items() if isinstance(v, dict) and v.get("prev_close")}
+        except Exception:  # noqa: BLE001 - the live view is optional
+            pass
 
     def _daily(self):
         """Daily history (completed bars). A failed download must never fail the tick, because exits (fast-lane sells, the HINDCOPPER
@@ -90,16 +102,17 @@ class Live:
         return v
 
     def tick(self):
+        t0 = time.time()
         ts = now_ist()
         bars = intraday_bars(self.tickers)
         if not bars:
             log.info("no intraday bars (exchange closed or feed down) - nothing to do")
-            return self._protective_tick(ts)
+            return self._protective_tick(ts, t0)
         newest = max(b.index[-1] for b in bars.values())
         stale_min = self.p["engine"]["stale_feed_skip_min"]
         if not self.force and (ts - newest.to_pydatetime()).total_seconds() > stale_min * 60:
             log.info("feeds are stale (last bar %s) - no trading this tick", newest.strftime("%H:%M"))
-            return self._protective_tick(ts)
+            return self._protective_tick(ts, t0)
         self.mon.mark_fresh()
         try:
             self.news.refresh(llm_score=False)
@@ -110,19 +123,47 @@ class Live:
         self._save_pf()
         self._backup_state()
         self.last_tick_day = ts.date()
+        self._publish_live(ts, mkt, True, t0)
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
 
-    def _protective_tick(self, ts):
+    def _protective_tick(self, ts, t0=None):
         """Feed down or stale (early close, outage) from 15:15: still run the 15:15 exits and the 15:20 overnight and
         month-end checks on the last known prices. No buy can happen: the engine only buys on a fresh price."""
         if ts.time() < PROTECTIVE_FROM:
+            self._publish_live(ts, None, False, t0)
             return
         decisions = run_tick(self.pf, Market(now=ts, prices={}, price_ts={}, scores={}), self.env)
         self._save_pf()
         self._backup_state()
         self.last_tick_day = ts.date()
+        self._publish_live(ts, None, False, t0)
         log.info("protective tick on last known prices (feed stale): %d decisions", len(decisions))
+
+    def _publish_live(self, ts, mkt, feed_ok: bool, t0: float | None = None, market_open: bool | None = None):
+        """state/live_now.json every tick, then a push to the `live` branch. Runs after the portfolio is saved; it
+        catches everything, so a failure here can never block or fail trading."""
+        try:
+            if mkt is not None:
+                self.live_prev = dict(mkt.prev_close or self.live_prev)
+                self.live_ts = dict(mkt.price_ts or {})
+            prices = dict(mkt.prices) if mkt is not None else {}
+            pf = asdict(self.pf)
+            if market_open is None:
+                market_open = is_market_open(ts)
+            feed_ok = feed_ok or not market_open          # a closed market is not a feed problem
+            if feed_ok and market_open:
+                self.series = livepnl.add_point(self.series, ts.strftime("%H:%M"), livepnl.total_value(pf, prices, self.p))
+            d = livepnl.build(pf, prices, self.live_prev, livepnl.read_equity(EQUITY_PATH), self.p, ts, self.series,
+                              feed_ok=feed_ok, market_open=market_open, price_ts=self.live_ts)
+            payload = livepnl.dumps(d)
+            livepnl.write_local(LIVE_PATH, payload)
+            if t0 is not None and time.time() - t0 > LIVE_BUDGET_S:
+                log.info("live push skipped: the tick already used %.0f s", time.time() - t0)
+                return
+            self.livepub.publish(payload, ts)
+        except Exception:  # noqa: BLE001
+            log.exception("live P&L publish failed (trading is not affected)")
 
     def write_brief(self):
         """memory/brief.md for the Claude routines (cheap, no AI). Never raises."""
@@ -230,6 +271,10 @@ def main():
         alerts.set_safe_mode(STATE, args.safe_mode, notify=False)    # idempotent; the incident pipeline alerts separately
         log.error("SAFE MODE requested on the command line (%s): no new buys this session", args.safe_mode)
     live = Live(force=args.force, tick_seconds=args.tick_seconds)
+    try:
+        live.livepub.start()                       # fetch the tip of the `live` branch (never blocks trading)
+    except Exception:  # noqa: BLE001
+        log.exception("live branch start failed")
     started = last_sync = time.time()
     while True:
         t0 = time.time()
@@ -254,6 +299,10 @@ def main():
         time.sleep(max(1.0, args.tick_seconds - (time.time() - t0)))
     if live.last_tick_day and (args.once or now_ist().time() >= dtime(15, 25)):
         live.close_day()
+        try:
+            live._publish_live(now_ist(), None, True, None, market_open=False)     # final file: market closed
+        except Exception:  # noqa: BLE001
+            log.exception("final live publish failed")
     live.write_brief()                             # end of the run: always, even without git sync
     live.sync()                                    # final push of whatever is left (rewrites the brief once more)
 
