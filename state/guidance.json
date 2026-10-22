@@ -1,15 +1,15 @@
 {
- "updated": "2026-10-22T08:52:59+05:30",
+ "updated": "2026-10-22T11:17:53+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: COMEX gold ~4140 vs prev 4142.6, crude revives rate fears, business-standard.com. SILVER[WEAKENING]: COMEX silver ~57.6, -0.5%, india.com. COPPER[WEAKENING]: Hindustan Copper results 23 Oct, stock -10% on week, block, marketsmojo.com.",
+ "note": "GOLD[WEAKENING]: GOLDBEES -2.45% on day, near stop 116.40, no confirming news, keep neutral. SILVER[WEAKENING]: SILVERBEES -3.92% on day, no news, neutral. COPPER[WEAKENING]: Hindustan Copper results 23 Oct, block.",
  "prices_at_update": {
-  "GOLDBEES": 118.1,
-  "SILVERBEES": 194.95,
-  "HINDCOPPER": 420.55
+  "GOLDBEES": 116.9,
+  "SILVERBEES": 189.7,
+  "HINDCOPPER": 419.85
  },
  "alignment": {
   "GOLD": "WEAKENING",
