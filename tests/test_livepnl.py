@@ -106,9 +106,9 @@ def test_sell_today_realised_and_small_other():
     pf.liquidbees = 40000 + 8 + 10000 - 10
     prev = 100 * 100 * (1 - 0.0005) + 50 * 199.5 * (1 - 0.0005) + 40000
     d = livepnl.build(pfd(pf), {"GOLDBEES": 101.0}, {"GOLDBEES": 100.0}, [("2026-10-21", prev)], P, at("2026-10-22"), [])
-    assert d["today"]["parts"]["realised"] == 15.0
+    assert d["today"]["parts"]["realised"] == 25.0      # before the sell cost, which is counted once in `costs`
     assert d["today"]["parts"]["costs"] == -10.0
-    assert abs(d["today"]["parts"]["other"]) < 50
+    assert abs(d["today"]["parts"]["other"]) < 15
 
 
 def test_weekend_closed_and_price_fallbacks():
@@ -153,3 +153,34 @@ def test_write_local_is_atomic(tmp_path):
     livepnl.write_local(tmp_path / "live_now.json", b'{"v":1}\n')
     assert json.loads((tmp_path / "live_now.json").read_text()) == {"v": 1}
     assert [p.name for p in tmp_path.iterdir()] == ["live_now.json"]
+
+
+def test_sell_cost_is_counted_once():
+    pf = Portfolio(cash=0.0, liquidbees=1000.0)
+    pf.day_costs_date, pf.day_costs = "2026-10-22", 10.0
+    pf.trades = [{"ts": "2026-10-22T10:00:00+05:30", "asset": "SILVERBEES", "side": "SELL", "qty": 1, "costs": 10.0, "pnl": 15.0}]
+    parts = livepnl.build(pfd(pf), {}, {}, [], P, at("2026-10-22"), [])["today"]["parts"]
+    assert parts["realised"] + parts["costs"] == 15.0
+
+
+def test_tick_close_basis_reconciles_when_yahoo_prev_close_differs(tmp_path):
+    """21 Oct: the engine valued GOLDBEES at 118.10 (equity row), Yahoo's daily close says 119.83."""
+    logs = tmp_path
+    (logs / "ticks-2026-10-20.csv").write_text("time,value,floor,cash,liquidbees,GOLDBEES\n15:29,1,1,0,1,111.00\n")
+    (logs / "ticks-2026-10-21.csv").write_text(
+        "time,value,floor,cash,liquidbees,GOLDBEES,SILVERBEES\n15:28,1,1,0,1,118.00,190.00\n15:29,1,1,0,1,118.10,\n")
+    (logs / "ticks-2026-10-22.csv").write_text("time,value,floor,cash,liquidbees,GOLDBEES\n09:15,1,1,0,1,117.00\n")
+    tick = livepnl.prev_tick_closes(logs, "2026-10-22", ["GOLDBEES", "SILVERBEES", "HINDCOPPER"])
+    assert tick == {"GOLDBEES": 118.10, "SILVERBEES": 190.00}           # last non-empty value; today's file ignored
+    assert livepnl.prev_tick_closes(tmp_path / "nope", "2026-10-22", ["GOLDBEES"]) == {}
+    pf = Portfolio(cash=0.0, liquidbees=50125.61)
+    pf.day_costs_date, pf.liquidbees_income_today = "2026-10-22", 8.65
+    pf.positions["GOLDBEES"] = Position(qty=423, avg_cost=118.1891, opened="2026-10-21", last_price=117.06, buy_costs=27.23)
+    prev = 50116.96 + 423 * 118.10 * (1 - 0.0005)
+    basis = {"GOLDBEES": 119.83, **tick}                                  # Yahoo first, the tick close wins
+    d = livepnl.build(pfd(pf), {"GOLDBEES": 117.06}, basis, [("2026-10-21", prev)], P, at("2026-10-22"), [])
+    assert d["prices"]["GOLDBEES"]["prev_close"] == 118.10
+    assert d["prices"]["GOLDBEES"]["chg_pct"] == round((117.06 / 118.10 - 1) * 100, 3)
+    assert abs(d["today"]["parts"]["other"]) < 20
+    wrong = livepnl.build(pfd(pf), {"GOLDBEES": 117.06}, {"GOLDBEES": 119.83}, [("2026-10-21", prev)], P, at("2026-10-22"), [])
+    assert abs(wrong["today"]["parts"]["other"]) > 500

@@ -96,6 +96,33 @@ def prev_close_from_equity(rows, session_date: str, start_capital: float) -> tup
     return (best[0], float(best[1])) if best else (None, float(start_capital))
 
 
+def prev_tick_closes(logs_dir: Path, session_date: str, symbols) -> dict[str, float]:
+    """The engine's own last tick price per symbol on the previous trading day (last non-empty value of that column in the
+    newest logs/ticks-D.csv with D before the session). It is the same price the equity baseline was valued at, so the
+    table and the headline agree. Missing file or column: the symbol is left out (the caller falls back to Yahoo)."""
+    out: dict[str, float] = {}
+    try:
+        days = sorted(p for p in Path(logs_dir).glob("ticks-*.csv") if p.stem[6:] < session_date)
+        for path in reversed(days[-3:]):
+            with open(path, encoding="utf-8", newline="") as fh:
+                rows = list(csv.DictReader(fh))
+            for sym in symbols:
+                if sym in out:
+                    continue
+                for r in reversed(rows):
+                    try:
+                        v = float(r.get(sym))
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(v) and v > 0:
+                        out[sym] = v
+                    break
+            break                                   # only the previous trading day counts
+    except OSError:
+        pass
+    return out
+
+
 def series_from_ticks(path: Path) -> list[list]:
     """logs/ticks-D.csv ('time,value,...') -> [[HH:MM, value]]; the old and new column shapes both work. Never raises."""
     out: list[list] = []
@@ -216,7 +243,8 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
     same_day = pf.get("day_costs_date") == sd
     lb_income = _pos_num(pf.get("liquidbees_income_today")) if same_day else 0.0
     day_costs = _pos_num(pf.get("day_costs")) if same_day else 0.0
-    realised = sum(_pos_num(t.get("pnl")) for t in pf.get("trades") or []
+    # realised is shown before the sell costs: those are counted once, in `costs` (= day_costs)
+    realised = sum(_pos_num(t.get("pnl")) + _pos_num(t.get("costs")) for t in pf.get("trades") or []
                    if t.get("side") == "SELL" and str(t.get("ts", ""))[:10] == sd)
     today_pnl = total - pc_val
     other = today_pnl - (parts_pos + lb_income + realised - day_costs)

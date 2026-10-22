@@ -210,6 +210,7 @@ def make_live(tmp_path, monkeypatch, pubber):
         def refresh(self, **k): pass
     live.mon, live.news = Mon(), News()
     live.livepub, live.series, live.live_prev, live.live_ts = pubber, [], {}, {}
+    live.tick_prev, live.tick_prev_day = {}, None
     return run_live, live, st
 
 

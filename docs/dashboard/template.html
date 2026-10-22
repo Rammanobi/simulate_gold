@@ -137,6 +137,33 @@ svg{display:block;width:100%;height:auto}
 .hl{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:-4px 0 12px}
 .hl span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:5px}
 .hnote{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ---- Portfolio now (live P&L) ---- */
+.nowcard{margin-top:14px}
+.nowstat{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;margin:-2px 0 10px}
+.lb{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px;color:var(--ink);background:color-mix(in srgb,var(--c) 18%,var(--card));border:1px solid var(--c)}
+.lb:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+.lb.pulse:before{animation:pulse 2s infinite}
+.nowhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px}
+.nowlbl{font-size:13px;color:var(--muted);flex:1 1 100%}
+.nowbig{font-size:38px;line-height:1.15;font-weight:700;font-variant-numeric:tabular-nums}
+.nowbig .nowarr{font-size:.5em;vertical-align:.2em;margin-right:2px}
+.nowbig small{font-size:20px;font-weight:600;margin-left:10px}
+.nowsec{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0 14px}
+.nowsec div{background:var(--chip);border-radius:10px;padding:8px 12px}
+.nowsec .l{font-size:12px;color:var(--muted)}
+.nowsec .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.nowsec .v small{font-size:13px;font-weight:500;margin-left:6px}
+.nowt td,.nowt th{white-space:normal}
+.nowt th:first-child,.nowt td:first-child{position:static}
+.nowt td:first-child{font-weight:600}
+.nowt tr.dim td{color:var(--muted)}
+.nowt tfoot td{font-weight:700;border-top:2px solid var(--line)}
+.nowt .mini2{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:0 6px;margin-left:6px;background:var(--chip);color:var(--ink);border:1px solid var(--line)}
+.nowchartbox{position:relative;margin-top:14px}
+.nowchartbox h3{font-size:13px;margin:0 0 4px;color:var(--muted);font-weight:600}
+#nowchart{width:100%;height:auto;touch-action:pan-y}
+@media (max-width:640px){.nowbig{font-size:32px}.nowbig small{font-size:17px}.nowt th,.nowt td{padding:7px 6px}}
 </style>
 </head>
 <body>
@@ -149,6 +176,22 @@ svg{display:block;width:100%;height:auto}
 
 <div class="days" id="days"></div>
 <div id="banner"></div>
+<div class="card nowcard" id="nowcard">
+  <div class="sg-head"><h2>Portfolio now</h2><div class="badges" id="nowbadges"></div></div>
+  <div class="nowstat" id="nowstat">Loading live P&amp;L…</div>
+  <div id="nowbody" hidden>
+    <div class="nowhead"><div class="nowlbl" id="nowlbl"></div><div class="nowbig" id="nowbig"></div></div>
+    <div class="nowsec">
+      <div><div class="l">Open gain on holdings (after costs)</div><div class="v" id="nowopen"></div></div>
+      <div><div class="l">Since start (vs ₹1,00,000)</div><div class="v" id="nowsince"></div></div>
+      <div><div class="l">Portfolio value</div><div class="v" id="nowtotal"></div></div>
+    </div>
+    <div class="tw"><table class="ht nowt" id="nowrows"></table></div>
+    <div class="nowchartbox"><h3>Today's profit, minute by minute (IST)</h3><svg id="nowchart" role="img" aria-label="Intraday profit line"></svg><div class="tip" id="nowtip"></div></div>
+    <div class="hnote" id="nowparts"></div>
+  </div>
+  <div class="empty" id="nowerr" hidden>Live P&amp;L not reachable. The rest of the page still works.</div>
+</div>
 <div class="kpis card" style="padding:12px" id="kpis"></div>
 
 <div class="card" id="strat" style="display:none">
@@ -200,6 +243,7 @@ svg{display:block;width:100%;height:auto}
     <div id="tmr" class="why"></div>
   </div>
 </div>
+<div class="foot">Prices come from the engine once a minute (NSE 1-minute bars). There is no second-by-second feed; the seconds counter only shows how old the last update is.</div>
 <div class="foot">Live source: <code>logs/dashboard-DATE.json</code> in the public repo, written by the engine about every 5 minutes during market hours (checked here every minute), and a copy the Claude routines save hourly. Newest decisions flash when they arrive. The engine makes every decision; Claude only sets a bias and writes notes. Nothing here can place a trade.</div>
 </div>
 
@@ -508,7 +552,149 @@ function renderNotes(d){
   const el=document.getElementById("notes");
   el.innerHTML = d.notes.length ? d.notes.map(n=>`<li class="st note"><div class="tm">${esc(n.time)}</div><div><span class="tag">${esc(n.who)}</span><span class="why">${esc(n.text)}</span></div></li>`).join("") : `<li class="empty">No routine notes.</li>`;
 }
-cur = pickInitial(); render(); setStatus(); pollGitHub(true); connectDb();
+// ---------- Portfolio now: live P&L (engine -> branch "live" -> here) ----------
+const LIVE_URL = "https://raw.githubusercontent.com/"+REPO+"/live/now.json";
+let LIVE = null, liveVia = "live", liveFail = false, liveTimer = null, liveBusy = false, liveExample = false;
+const num = x => (typeof x==="number" && isFinite(x)) ? x : null;
+const fm = (x,d=0) => num(x)==null ? "–" : sgn(x,d);
+const fp = (x,d=2) => num(x)==null ? "" : (x>0?"+":x<0?"−":"")+Math.abs(x).toFixed(d)+"%";
+const cls = x => num(x)==null||x===0 ? "" : x>0 ? "pos" : "neg";
+const arrow = x => x>0?"▲ ":x<0?"▼ ":"";
+function mk(tag, c, text){ const e=document.createElement(tag); if(c) e.className=c; if(text!=null) e.textContent=text; return e; }
+function ist(d){ return new Date(d.getTime()+330*60000); }   // shift so UTC getters read IST
+function hms(ms){ const u=ist(new Date(ms)); return [u.getUTCHours(),u.getUTCMinutes(),u.getUTCSeconds()].map(v=>String(v).padStart(2,"0")).join(":"); }
+function dmon(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||""); if(!m) return ""; return Number(m[3])+" "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m[2])-1]; }
+function liveHours(){ const n=istNow(), m=n.getHours()*60+n.getMinutes(), w=n.getDay(); return w>0 && w<6 && m>=9*60+15 && m<=15*60+35; }
+function validLive(d){ return d && d.v===1 && typeof d.ts==="string" && isFinite(Date.parse(d.ts)) && d.today && d.open && d.total && Array.isArray(d.positions) && num(d.total_value)!=null; }
+function sampleLive(){      // design example: shown only while the page holds just the made-up example day and the feed is unreachable
+  const series=[]; let s=7;
+  for(let m=9*60+15;m<=11*60+42;m++){ const k=m-(9*60+15); s=(s*9301+49297)%233280;
+    const pnl=-393+Math.round((-80*Math.sin(Math.min(k,70)/70*Math.PI)+Math.max(0,k-70)*0.8*(1-Math.exp(-(k-70)/40))+(s/233280-.5)*40)*100)/100;
+    series.push([String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"),Math.round((100048.28+pnl)*100)/100,pnl]); }
+  series[series.length-1][1]=99769.63; series[series.length-1][2]=-278.65;
+  return {v:1,ts:"2026-10-22T11:42:37+05:30",session_date:"2026-10-22",market_open:true,feed_ok:true,start_capital:100000,prev_close_date:"2026-10-21",prev_close_value:100048.28,total_value:99769.63,
+    today:{pnl:-278.65,pct:-0.279,parts:{positions:-308.79,liquidbees:8.65,realised:0,costs:0,other:21.49}},open:{pnl:-385.84,pct:-0.771,invested:50021.21},total:{pnl:-230.37,pct:-0.230},
+    prices:{GOLDBEES:{price:117.40,prev_close:118.13,chg_pct:-0.618,bar:"11:41"},SILVERBEES:{price:190.95,prev_close:192.40,chg_pct:-0.754,bar:"11:41"},HINDCOPPER:{price:411.20,prev_close:408.10,chg_pct:0.760,bar:"11:41"}},
+    positions:[{symbol:"GOLDBEES",qty:423,avg_cost:118.1891,buy_costs:27.23,price:117.40,value:49635.37,invested:50021.21,open_pnl:-385.84,open_pct:-0.771,day_basis:118.13,day_pnl:-308.79,bought_today:false,opened:"2026-10-21"}],
+    liquidbees:{value:50134.26,accrued_today:8.65},cash:0,series:series};
+}
+function liveState(){      // -> {badges:[[text,color,pulse]], text}
+  if(!LIVE) return {badges:[], text: liveFail ? "" : "Loading live P&L…"};
+  const ms=Date.parse(LIVE.ts), age=Math.max(0,Math.round((Date.now()-ms)/1000));
+  const closed = !marketHours() || LIVE.market_open===false;
+  const delayed = liveFail || LIVE.feed_ok===false || (!closed && age>180);
+  const b=[];
+  if(liveExample) b.push(["Example data","--hold",false]);
+  else if(closed) b.push(["Market closed · last close "+dmon(LIVE.session_date),"--skip",false]);
+  if(!closed && !liveExample) b.push(delayed ? ["Delayed","--block",false] : ["Live","--buy",true]);
+  else if(delayed && !liveExample) b.push(["Delayed","--block",false]);
+  const ageTxt = age<120 ? age+" s ago" : age<3600 ? Math.round(age/60)+" min ago" : dmon(LIVE.ts);
+  let t = liveExample ? "Example numbers (live feed not reachable)" : "Updated "+hms(ms)+" IST · "+(closed&&age>=3600 ? dmon(LIVE.ts) : ageTxt);
+  if(liveVia==="main" && !liveExample) t += " · via main (5-min)";
+  return {badges:b, text:t};
+}
+function updateLiveStatus(){
+  const st=liveState(), bd=document.getElementById("nowbadges"), tx=document.getElementById("nowstat");
+  tx.textContent=st.text;
+  const key=JSON.stringify(st.badges);
+  if(bd.dataset.k!==key){ bd.dataset.k=key; bd.replaceChildren(...st.badges.map(([t,c,p])=>{ const e=mk("span","lb"+(p?" pulse":""),t); e.style.setProperty("--c","var("+c+")"); return e; })); }
+}
+function renderLive(){
+  const D=LIVE, body=document.getElementById("nowbody"), err=document.getElementById("nowerr");
+  err.hidden = !!D; body.hidden = !D; if(!D){ updateLiveStatus(); return; }
+  const closed = !marketHours() || D.market_open===false, t=D.today||{};
+  document.getElementById("nowlbl").textContent = (closed ? "Last session ("+dmon(D.session_date)+") vs previous close" : "Today vs yesterday's close")
+    + (num(D.prev_close_value)!=null ? " (" + inr(D.prev_close_value) + (D.prev_close_date ? " on "+dmon(D.prev_close_date) : "") + ")" : " (₹1,00,000 start)");
+  const big=document.getElementById("nowbig"); big.className="nowbig "+cls(t.pnl);
+  big.replaceChildren(mk("span","nowarr",arrow(t.pnl)), document.createTextNode(fm(t.pnl,0)), mk("small",""," "+fp(t.pct,2)));
+  const kv=(id,a,b)=>{ const e=document.getElementById(id); e.className="v "+cls(a); e.replaceChildren(document.createTextNode(fm(a,0)), mk("small","",fp(b,2))); };
+  kv("nowopen",(D.open||{}).pnl,(D.open||{}).pct); kv("nowsince",(D.total||{}).pnl,(D.total||{}).pct);
+  const tv=document.getElementById("nowtotal"); tv.className="v"; tv.textContent=inr(D.total_value,0);
+  // rows
+  const tb=document.getElementById("nowrows"); tb.replaceChildren();
+  const th=mk("thead"), hr=mk("tr"); ["Holding","Live price / today","Value / today ₹","Open gain / %"].forEach(h=>hr.appendChild(mk("th","",h))); th.appendChild(hr); tb.appendChild(th);
+  const tbody=mk("tbody"), held=new Set();
+  const cell=(tr,main,sub,c)=>{ const td=mk("td"); td.appendChild(mk("span",c||"",main)); if(sub!=null&&sub!==""){ const s=mk("small","",sub); td.appendChild(s); } tr.appendChild(td); return td; };
+  (D.positions||[]).forEach(p=>{ held.add(p.symbol); const pr=(D.prices||{})[p.symbol]||{}, tr=mk("tr");
+    const c0=mk("td"); c0.appendChild(document.createTextNode(p.symbol)); if(p.bought_today) c0.appendChild(mk("span","mini2","bought today")); c0.appendChild(mk("small","",(p.qty??"–")+" units")); tr.appendChild(c0);
+    const chg = num(pr.chg_pct)!=null ? pr.chg_pct : (num(pr.prev_close) ? (p.price/pr.prev_close-1)*100 : null);
+    const c1=cell(tr, inr(p.price,2), ""); const cs=mk("small",cls(chg),fp(chg,2)||"–"); c1.appendChild(cs);
+    cell(tr, inr(p.value,0), "today "+fm(p.day_pnl,0)).lastChild.className=cls(p.day_pnl);
+    const c3=cell(tr, fm(p.open_pnl,0), fp(p.open_pct,2)||"–", cls(p.open_pnl)); c3.lastChild.className=cls(p.open_pnl);
+    tbody.appendChild(tr); });
+  Object.keys(D.prices||{}).filter(s=>!held.has(s)).forEach(s=>{ const pr=D.prices[s], tr=mk("tr","dim");
+    const c0=mk("td"); c0.appendChild(document.createTextNode(s)); c0.appendChild(mk("small","","not held")); tr.appendChild(c0);
+    const c1=cell(tr, inr(pr.price,2), ""); c1.appendChild(mk("small",cls(pr.chg_pct),fp(pr.chg_pct,2)||"–"));
+    cell(tr,"–",""); cell(tr,"–",""); tbody.appendChild(tr); });
+  const lq=D.liquidbees||{}, tr=mk("tr");
+  const c0=mk("td"); c0.appendChild(document.createTextNode("LIQUIDBEES")); c0.appendChild(mk("small","","idle money")); tr.appendChild(c0);
+  cell(tr,"–",""); cell(tr, inr(lq.value,0), num(lq.accrued_today)!=null ? (lq.accrued_today>=0?"+":"−")+inr(Math.abs(lq.accrued_today),2)+" interest today" : "");
+  cell(tr,"–",""); tbody.appendChild(tr);
+  if(num(D.cash)>0){ const r=mk("tr"); const a=mk("td","","Cash"); r.appendChild(a); cell(r,"–",""); cell(r,inr(D.cash,0),""); cell(r,"–",""); tbody.appendChild(r); }
+  tb.appendChild(tbody);
+  const tf=mk("tfoot"), fr=mk("tr"); fr.appendChild(mk("td","","Portfolio value")); fr.appendChild(mk("td")); fr.appendChild(mk("td","",inr(D.total_value,0))); fr.appendChild(mk("td")); tf.appendChild(fr); tb.appendChild(tf);
+  const pa=t.parts||{}, bits=[["positions","Holdings"],["liquidbees","LIQUIDBEES interest"],["realised","Sold today"],["costs","Costs"],["other","Other (closing-price gap, spread)"]].filter(([k])=>num(pa[k])!=null).map(([k,n])=>n+" "+fm(pa[k],0));
+  document.getElementById("nowparts").textContent = bits.length ? "Today is made of: "+bits.join(" · ")+". Values are what the holdings would fetch after selling costs." : "";
+  updateLiveStatus(); drawLiveChart();
+}
+function drawLiveChart(){
+  const svg=document.getElementById("nowchart"), D=LIVE; if(!D) return;
+  const ser=(D.series||[]).filter(r=>Array.isArray(r)&&/^\d{2}:\d{2}$/.test(r[0])&&num(r[2])!=null);
+  const box=svg.parentNode, W=Math.max(280,Math.floor(box.clientWidth||svg.clientWidth||600)), H=W<520?190:240, L=W<520?40:48, R=14, T=12, B=24;
+  svg.setAttribute("viewBox","0 0 "+W+" "+H); svg.setAttribute("height",H); svg.style.height=H+"px";
+  const NS="http://www.w3.org/2000/svg", ln=css("--line"), mu=css("--muted"), up=css("--buy"), dn=css("--sell");
+  const t0=toMin("09:15"), t1=toMin("15:30"), x=t=>L+Math.min(1,Math.max(0,(toMin(t)-t0)/(t1-t0)))*(W-L-R);
+  const vals=ser.map(r=>r[2]).concat([0]); let lo=Math.min(...vals), hi=Math.max(...vals); const half=Math.max(50,(hi-lo)*0.1); lo-=half; hi+=half;
+  const y=v=>T+(hi-v)/(hi-lo)*(H-T-B), y0=y(0);
+  let g="";
+  for(let i=0;i<=4;i++){ const v=lo+(hi-lo)*i/4; g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${ln}" stroke-width="1"/><text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end" fill="${mu}">${(v>0?"+":v<0?"−":"")+Math.round(Math.abs(v)).toLocaleString("en-IN")}</text>`; }
+  const ticks = W<520 ? ["09:15","11:00","13:00","15:30"] : ["09:15","10:00","11:00","12:00","13:00","14:00","15:00","15:30"];
+  ticks.forEach(t=>{ g+=`<line x1="${x(t)}" x2="${x(t)}" y1="${H-B}" y2="${H-B+4}" stroke="${mu}"/><text x="${x(t)}" y="${H-6}" font-size="11" text-anchor="${t==="09:15"?"start":t==="15:30"?"end":"middle"}" fill="${mu}">${t}</text>`; });
+  const pts=ser.map(r=>[x(r[0]),y(r[2])]);
+  if(pts.length){
+    const line="M"+pts.map(p=>p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" L"), area=line+" L"+pts[pts.length-1][0].toFixed(1)+" "+y0.toFixed(1)+" L"+pts[0][0].toFixed(1)+" "+y0.toFixed(1)+" Z";
+    g+=`<defs><clipPath id="ncUp"><rect x="0" y="0" width="${W}" height="${Math.max(0,y0)}"/></clipPath><clipPath id="ncDn"><rect x="0" y="${y0}" width="${W}" height="${Math.max(0,H-y0)}"/></clipPath></defs>`;
+    g+=`<path d="${area}" fill="${up}" opacity=".14" clip-path="url(#ncUp)"/><path d="${area}" fill="${dn}" opacity=".14" clip-path="url(#ncDn)"/>`;
+  }
+  g+=`<line x1="${L}" x2="${W-R}" y1="${y0}" y2="${y0}" stroke="${css("--ink")}" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+  if(pts.length){
+    const line="M"+pts.map(p=>p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" L");
+    g+=`<path d="${line}" fill="none" stroke="${up}" stroke-width="2" stroke-linejoin="round" clip-path="url(#ncUp)"/><path d="${line}" fill="none" stroke="${dn}" stroke-width="2" stroke-linejoin="round" clip-path="url(#ncDn)"/>`;
+    const lp=pts[pts.length-1], lv=ser[ser.length-1][2];
+    g+=`<circle cx="${lp[0]}" cy="${lp[1]}" r="4.5" fill="${lv>=0?up:dn}" stroke="${css("--card")}" stroke-width="2"/>`;
+  } else g+=`<text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="${mu}">No minute data yet today</text>`;
+  g+=`<line id="nowx" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="${mu}" stroke-dasharray="2 3" style="display:none"/>`;
+  svg.innerHTML=g;      // static markup built from numbers and fixed strings only
+  const tip=document.getElementById("nowtip"), xl=svg.querySelector("#nowx");
+  const hide=()=>{ tip.style.display="none"; xl.style.display="none"; };
+  svg.onpointermove=ev=>{ if(!ser.length) return; const r=svg.getBoundingClientRect(), px=(ev.clientX-r.left)/r.width*W; let bi=0,bd=1e9; pts.forEach((p,i)=>{ const dd=Math.abs(p[0]-px); if(dd<bd){bd=dd;bi=i;} });
+    const p=pts[bi], row=ser[bi]; xl.setAttribute("x1",p[0]); xl.setAttribute("x2",p[0]); xl.style.display="";
+    tip.textContent=row[0]+" "+sgn(row[2],0); tip.style.left=Math.min(Math.max(p[0],40),W-40)+"px"; tip.style.top=Math.max(p[1],24)+"px"; tip.style.display="block"; };
+  svg.onpointerleave=hide; svg.onpointerdown=svg.onpointermove;
+}
+async function fetchLive(url){ const d=await fetchJSON(url); if(!validLive(d)) throw new Error("bad payload"); return d; }
+async function pollLive(){
+  clearTimeout(liveTimer); if(liveBusy) return; liveBusy=true;
+  try{
+    let d=null, via="live";
+    try{ d=await fetchLive(LIVE_URL); }catch(e){ via="main"; try{ d=await fetchLive(RAW+"state/live_now.json"); }catch(e2){ d=null; } }
+    if(d){
+      liveFail=false;
+      if(!LIVE || Date.parse(d.ts) >= Date.parse(LIVE.ts)){ LIVE=d; liveVia=via; liveExample=false; renderLive(); }
+      else updateLiveStatus();
+    } else {
+      liveFail=true;
+      if(!LIVE && DAYS.every(x=>x.example)){ LIVE=sampleLive(); liveExample=true; liveVia="live"; renderLive(); }
+      else if(!LIVE) renderLive(); else updateLiveStatus();
+    }
+  } finally { liveBusy=false; }
+  if(!document.hidden) liveTimer=setTimeout(pollLive, liveHours()?30000:900000);
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) pollLive(); else clearTimeout(liveTimer); });
+setInterval(updateLiveStatus,1000);
+let liveRz=0; window.addEventListener("resize",()=>{ cancelAnimationFrame(liveRz); liveRz=requestAnimationFrame(drawLiveChart); });
+try{ matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{ if(LIVE) drawLiveChart(); }); }catch(e){}
+cur = pickInitial(); render(); setStatus(); pollGitHub(true); connectDb(); if(!document.hidden) pollLive();
 </script>
 </body>
 </html>

@@ -61,6 +61,7 @@ class Live:
         self.last_tick_day = None
         self.livepub = livepush.LivePublisher(ROOT)
         self.series, self.live_prev, self.live_ts = [], {}, {}
+        self.tick_prev, self.tick_prev_day = {}, None
         try:
             self.series = livepnl.series_from_ticks(LOGS / f"ticks-{now_ist().date().isoformat()}.csv")
             lp = json.loads((STATE / "last_prices.json").read_text(encoding="utf-8"))
@@ -144,7 +145,7 @@ class Live:
         catches everything, so a failure here can never block or fail trading."""
         try:
             if mkt is not None:
-                self.live_prev = dict(mkt.prev_close or self.live_prev)
+                self.live_prev = dict(mkt.prev_close or self.live_prev)    # Yahoo previous close (fallback only)
                 self.live_ts = dict(mkt.price_ts or {})
             prices = dict(mkt.prices) if mkt is not None else {}
             pf = asdict(self.pf)
@@ -153,7 +154,12 @@ class Live:
             feed_ok = feed_ok or not market_open          # a closed market is not a feed problem
             if feed_ok and market_open:
                 self.series = livepnl.add_point(self.series, ts.strftime("%H:%M"), livepnl.total_value(pf, prices, self.p))
-            d = livepnl.build(pf, prices, self.live_prev, livepnl.read_equity(EQUITY_PATH), self.p, ts, self.series,
+            day = ts.date().isoformat()
+            if self.tick_prev_day != day:               # the engine's own previous-session close, once per day
+                self.tick_prev = livepnl.prev_tick_closes(LOGS, day, self.p["instruments"])
+                self.tick_prev_day = day
+            basis = {**self.live_prev, **self.tick_prev}
+            d = livepnl.build(pf, prices, basis, livepnl.read_equity(EQUITY_PATH), self.p, ts, self.series,
                               feed_ok=feed_ok, market_open=market_open, price_ts=self.live_ts)
             payload = livepnl.dumps(d)
             livepnl.write_local(STATE / "live_now.json", payload)       # engine-owned; also pushed to the `live` branch
