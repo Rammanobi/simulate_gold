@@ -35,9 +35,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792663561.6396174,
+   "resolved_at": 1792677343.8518193,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "engine_run_missing"
   },
   "watchdog|routines_silent|": {
@@ -118,9 +119,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792663561.6396174,
+   "resolved_at": 1792677343.8583317,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "watchdog_stale"
   }
  },
