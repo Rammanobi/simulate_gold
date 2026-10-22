@@ -13,6 +13,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
+from .config import idle_is_cash
 from .market import IST, is_market_open
 
 SCHEMA = 1
@@ -242,6 +243,9 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
 
     same_day = pf.get("day_costs_date") == sd
     lb_income = _pos_num(pf.get("liquidbees_income_today")) if same_day else 0.0
+    cash_v, lb_v = _pos_num(pf.get("cash")), _pos_num(pf.get("liquidbees"))
+    if idle_is_cash(params):                      # idle money is plain cash: no LIQUIDBEES balance, no accrual
+        cash_v, lb_v, lb_income = cash_v + lb_v, 0.0, 0.0
     day_costs = _pos_num(pf.get("day_costs")) if same_day else 0.0
     # realised is shown before the sell costs: those are counted once, in `costs` (= day_costs)
     realised = sum(_pos_num(t.get("pnl")) + _pos_num(t.get("costs")) for t in pf.get("trades") or []
@@ -267,8 +271,8 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
                   "pct": _num((total - start_capital) / start_capital * 100 if start_capital else None, 3)},
         "prices": price_rows,
         "positions": positions,
-        "liquidbees": {"value": _num(_pos_num(pf.get("liquidbees"))), "accrued_today": _num(lb_income)},
-        "cash": _num(_pos_num(pf.get("cash"))),
+        "liquidbees": {"value": _num(lb_v), "accrued_today": _num(lb_income)},
+        "cash": _num(cash_v),
         "series": decimate(rows),
     }
     return _clean(d)

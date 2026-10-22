@@ -43,6 +43,24 @@ SAMPLE_INBOX_URL = "https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh"  # sample
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
 
+# ---------------------------------------------------------------- idle money wording (capital.idle: cash | liquidbees)
+def _cash_mode() -> bool:
+    return config.idle_is_cash()
+
+
+def _idle() -> str:
+    """'Cash' when idle money is plain cash, else 'LIQUIDBEES'."""
+    return "cash" if _cash_mode() else "LIQUIDBEES"
+
+
+def fill_text(units, price, amount) -> str:
+    """'15 units × ₹121.4575 = ₹1,821.86': the exact fill price (up to 4 decimals), never rounded to 2 places."""
+    px = f"{float(price):,.4f}".rstrip("0")
+    if len(px.split(".")[1]) < 2:
+        px += "0" * (2 - len(px.split(".")[1]))
+    return f"{int(units):,} {_plural(int(units), 'unit')} × ₹{px} = {inr(amount, 2)}"
+
+
 # ---------------------------------------------------------------- formatting
 def _round(n: float, places: int = 0) -> Decimal:
     q = Decimal(1).scaleb(-places)
@@ -243,7 +261,7 @@ def no_trade_note(decisions: list[dict], have_log: bool) -> str:
         return f"No trades today. The system waited because {body}{more}."
     if not have_log:
         return "No trades today. No decision log was found for this date, so the system may not have run."
-    return "No trades today. The system waited because no entry met its rules, so the money stayed in LIQUIDBEES."
+    return "No trades today. The system waited because no entry met its rules, so the money stayed in " + ("cash." if _cash_mode() else "LIQUIDBEES.")
 
 
 def _downsample(ticks: list[dict], step: int = 30) -> list[list]:
@@ -496,7 +514,7 @@ def _glance_decisions(decisions: list[dict]) -> dict:
 def _glance_money(day: dict) -> dict:
     p = day.get("portfolio", {})
     parts = [(h["symbol"], _num(h.get("value"), 0.0) or 0.0) for h in day.get("holdings_close", [])]
-    parts.append(("LIQUIDBEES (cash)", _num(p.get("cash_in_liquidbees"), 0.0) or 0.0))
+    parts.append(("Cash" if _cash_mode() else "LIQUIDBEES (cash)", _num(p.get("cash_in_liquidbees"), 0.0) or 0.0))
     total = sum(v for _, v in parts)
     split = [{"name": name, "pct": round(v / total * 100)} for name, v in parts if v > 0] if total > 0 else []
     return {"value": p.get("close"), "day_pnl": p.get("day_pnl"), "split": split}
@@ -724,9 +742,12 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         open_ = START_CAPITAL if close == START_CAPITAL else min(close, START_CAPITAL)
         if not ticks and raw is not None and not raw:
             open_ = close
+    # Daily profit = today's close minus the previous trading day's close (state/equity.csv), the same basis as the live card
+    # (simgold/livepnl.py). The 09:15 opening value (portfolio.day_open_value) is only a fallback when there is no earlier close.
+    prev_close_date = max((d for d, _ in equity if d < date), default=None)
     pf_open = _num(portfolio.get("day_open_value"))
-    if pf_open and portfolio.get("day_costs_date") == date:
-        open_ = pf_open                       # engine-recorded value at the day's first tick
+    if not prior_eq and pf_open and portfolio.get("day_costs_date") == date:
+        open_ = pf_open
     day_pnl = close - open_
 
     # --- floor
@@ -801,7 +822,9 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
 
     lb_income = _num(portfolio.get("liquidbees_income_today"), _num(portfolio.get("liquidbees_income_day")))
     lb_estimated = False
-    if lb_income is None:
+    if _cash_mode():
+        lb_income = 0.0                                   # cash earns nothing
+    elif lb_income is None:
         lbv = next((t["liquidbees"] for t in ticks if t["liquidbees"]), None)
         if lbv is None:
             lbv = _liquidbees_value(portfolio)
@@ -859,7 +882,7 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         "day_of_month_run": 1 + sum(1 for d, _ in equity if d[:7] == date[:7] and d < date),
         "start_capital": START_CAPITAL,
         "portfolio": {
-            "open": round(open_, 2), "close": round(close, 2), "day_pnl": round(day_pnl, 2),
+            "open": round(open_, 2), "prev_close_date": prev_close_date, "close": round(close, 2), "day_pnl": round(day_pnl, 2),
             "day_pnl_pct": round(day_pct, 2), "month_pnl": round(month_pnl, 2),
             "month_pnl_pct": round(month_pnl / ms * 100, 2) if ms else 0.0,
             "floor": floor, "floor_next_step": next_step, "next_value": next_value,
@@ -968,9 +991,10 @@ def pnl_story(day: dict) -> dict:
     if r == 0:
         source = "No change today" + ("." if traded else ": no trades were made.")
     elif not traded and _round(realized) == 0 and _round(unrealized) == 0:
-        source = f"Today's {sg(pnl)} is only LIQUIDBEES interest on idle cash — no trades were made."
+        source = (f"Today's {sg(pnl)} is only LIQUIDBEES interest on idle cash — no trades were made." if not _cash_mode()
+                  else f"Today's {sg(pnl)} comes from price moves only — no trades were made.")
     else:
-        parts = [(realized, "from closed trades"), (unrealized, "from open positions"), (lb, "LIQUIDBEES interest")]
+        parts = [(realized, "from closed trades"), (unrealized, "from open positions")] + ([] if _cash_mode() else [(lb, "LIQUIDBEES interest")])
         bits = [f"{sg(v)} {label}" for v, label in parts if _round(v) != 0]
         source = f"Today's {sg(pnl)}: " + ", ".join(bits) + ("." if traded else "; no trades were made.")
     return {"pnl": round(pnl, 2), "headline": headline, "source": source}
@@ -1045,6 +1069,8 @@ def _decision_row(d: dict) -> str:
     price = inr(d["price"], 2)
     if d["action"] in ("SKIP", "BLOCK"):
         what = f"{esc(d['symbol'])} @ {price}"
+    elif d["action"] in ("BUY", "SELL") and d["qty"] and d["price"]:
+        what = f"{esc(d['symbol'])} " + esc(fill_text(d["qty"], d["price"], d["amount"] or d["qty"] * d["price"]))
     else:
         what = f"{d['qty']} {esc(d['symbol'])} @ {price}"
     pl = ""
@@ -1121,8 +1147,15 @@ def _holdings_html(day: dict) -> str:
     tdp = f'padding:8px 2px;font-family:{FONT};font-size:11.5px;line-height:16px;color:#1f2937;border-bottom:1px solid #f1f1f1;'
     body = ""
     for r in v["rows"]:
-        name = f'<b>{esc(r["symbol"])}</b><div style="font-size:11px;color:#6b7280;">{esc(r["name"])}</div>'
-        if r["symbol"] == holdings_mod.LIQUID:
+        name = (f'<b>Cash</b><div style="font-size:11px;color:#6b7280;">idle money, earns nothing</div>' if r.get("cash") else
+                f'<b>{esc(r["symbol"])}</b><div style="font-size:11px;color:#6b7280;">{esc(r["name"])}</div>')
+        if r["symbol"] == holdings_mod.LIQUID and r.get("cash"):
+            body += (f'<tr><td style="{tdp}">{name}</td><td align="right" valign="top" style="{tdp}">–</td>'
+                     f'<td align="right" valign="top" style="{tdp}">–</td><td align="right" valign="top" style="{tdp}">–</td>'
+                     f'<td align="right" valign="top" style="{tdp}"><b>{inr(r["value"], 2)}</b></td>'
+                     f'<td align="right" valign="top" style="{tdp}">–</td>'
+                     f'<td align="right" valign="top" style="{tdp}">{r["share_pct"]:.1f}%</td></tr>')
+        elif r["symbol"] == holdings_mod.LIQUID:
             units = f'≈{r["units"]:,.0f}' + ('<div style="font-size:11px;color:#6b7280;">approx.</div>' if r.get("approx") else "")
             body += (f'<tr><td style="{tdp}">{name}</td><td align="right" valign="top" style="{tdp}">{units}</td>'
                      f'<td align="right" valign="top" style="{tdp}">{"~" + inr(r["price"]) if r.get("approx") else inr(r["price"], 2)}</td>'
@@ -1143,7 +1176,7 @@ def _holdings_html(day: dict) -> str:
                      f'<td align="right" valign="top" style="{tdp}">{r["share_pct"]:.1f}%</td></tr>')
     held = [r for r in v["rows"] if r["symbol"] != holdings_mod.LIQUID and r["units"]]
     note = ("Invested = units x average price + buying costs. Open gain = value now minus invested (not yet booked)."
-            if held else "No gold, silver or copper is held, so all the money is in LIQUIDBEES.")
+            if held else "No gold, silver or copper is held, so all the money is in " + ("cash." if _cash_mode() else "LIQUIDBEES."))
     out = (_section("Your holdings")
            + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{head}{body}</table>'
            f'<div style="font-family:{FONT};font-size:12px;line-height:17px;color:#6b7280;padding-top:8px;">{esc(note)}</div></td></tr>\n')
@@ -1151,12 +1184,12 @@ def _holdings_html(day: dict) -> str:
     led = v.get("ledger") or []
     if not led:
         out += (f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">'
-                f'No buys or sells yet — all money is in LIQUIDBEES.</td></tr>\n')
+                f'No buys or sells yet — all money is in {"cash" if _cash_mode() else "LIQUIDBEES"}.</td></tr>\n')
         return out
     rows = ""
     for e in led:
         bg, fg = ACTION_STYLE.get(e["side"], ACTION_STYLE["HOLD"])
-        bits = [f'{e["units"]:,} {_plural(e["units"], "unit")} at {inr(e["price"], 2)}']
+        bits = [esc(fill_text(e["units"], e["price"], e["amount"]))]
         if e.get("costs") is not None:
             bits.append(f'costs {inr(e["costs"], 2)}')
         if e["side"] == "SELL" and e.get("pnl") is not None:
@@ -1175,13 +1208,21 @@ def _holdings_html(day: dict) -> str:
     return out
 
 
+def _cash_line(p: dict) -> str:
+    if _cash_mode():
+        return f"Cash (idle money): {inr(p['cash_in_liquidbees'], 2)} (earns nothing)"
+    return f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})"
+
+
 def _holdings_text(day: dict) -> list[str]:
     v = day.get("holdings_view")
     if not v or not v.get("rows") or (day.get("closed") and not v.get("ledger")):
         return []
     L = ["YOUR HOLDINGS (units, average price, invested, value now, open gain, share)"]
     for r in v["rows"]:
-        if r["symbol"] == holdings_mod.LIQUID:
+        if r["symbol"] == holdings_mod.LIQUID and r.get("cash"):
+            L.append(f"Cash (idle money): {inr(r['value'], 2)}, {r['share_pct']:.1f}% of the money (earns nothing)")
+        elif r["symbol"] == holdings_mod.LIQUID:
             L.append(f"{r['symbol']}: {inr(r['value'])}, {r['share_pct']:.1f}% of the money, about {r['units']:,.0f} units"
                      + (" (approximate, at ~Rs 1,000 a unit)" if r.get("approx") else ""))
         elif not r["units"]:
@@ -1192,11 +1233,11 @@ def _holdings_text(day: dict) -> list[str]:
     L += ["", "EVERY PURCHASE SO FAR"]
     led = v.get("ledger") or []
     if not led:
-        L.append("No buys or sells yet — all money is in LIQUIDBEES.")
+        L.append("No buys or sells yet — all money is in " + ("cash." if _cash_mode() else "LIQUIDBEES."))
     for e in led:
         pl = f", booked {sg(e['pnl'], 2)}" if e["side"] == "SELL" and e.get("pnl") is not None else ""
         co = f", costs {inr(e['costs'], 2)}" if e.get("costs") is not None else ""
-        L.append(f"{e['date']} {e['time']}  {e['side']:<4} {e['symbol']:<10} {e['units']:>5} @ {inr(e['price'], 2)} = {inr(e['amount'])}{co}{pl}  {e.get('reason', '')}")
+        L.append(f"{e['date']} {e['time']}  {e['side']:<4} {e['symbol']:<10} {fill_text(e['units'], e['price'], e['amount'])}{co}{pl}  {e.get('reason', '')}")
     if v.get("ledger_total", 0) > len(led):
         L.append(f"(latest {len(led)} of {v['ledger_total']}; the dashboard has all of them)")
     return L + [""]
@@ -1254,7 +1295,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
     dist = p["distance_to_floor"]
     tiles = ('<tr><td style="padding:20px 16px 0 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>\n'
              + _tile("Portfolio value", inr(p["close"]), INK, f"started at {inr(day['start_capital'])}") + "\n"
-             + _tile("Today's profit", sg(pnl, 2), _tone_color(pnl), pc(p["day_pnl_pct"], 2) + " today") + "\n"
+             + _tile("Today's profit", sg(pnl, 2), _tone_color(pnl), pc(p["day_pnl_pct"], 2) + f" vs yesterday's close {inr(p.get('open', 0))}") + "\n"
              + _tile("Above the account stop" if p.get("v2") else "Distance to safety floor", inr(abs(dist)), GREEN if dist > 0 else RED,
                      f"{'above' if dist >= 0 else 'below'} {inr(p['floor'])}"
                      + (f", {abs(p.get('drawdown_from_peak', 0)) * 100:.1f}% under the peak" if p.get("v2") else ""))
@@ -1305,8 +1346,8 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'<div style="font-size:13px;color:{_tone_color(h["unrealized"])};font-weight:700;padding-top:2px;">{sg(h["unrealized"])}</div></td></tr>\n')
     if not rows:
         rows = (f'<tr><td colspan="2" style="padding:8px 0;font-family:{FONT};font-size:15px;color:#1f2937;">No positions held overnight.</td></tr>\n')
-    rows += (f'<tr><td style="padding:8px 0;border-top:1px solid #f1f1f1;font-family:{FONT};font-size:15px;color:#1f2937;"><b>Cash</b> in LIQUIDBEES'
-             f'<div style="font-size:13px;color:#6b7280;padding-top:2px;">parked safely, earns a little</div></td>'
+    rows += (f'<tr><td style="padding:8px 0;border-top:1px solid #f1f1f1;font-family:{FONT};font-size:15px;color:#1f2937;"><b>Cash</b>{"" if _cash_mode() else " in LIQUIDBEES"}'
+             f'<div style="font-size:13px;color:#6b7280;padding-top:2px;">{"idle money, plain cash, earns nothing" if _cash_mode() else "parked safely, earns a little"}</div></td>'
              f'<td align="right" valign="top" style="padding:8px 0;border-top:1px solid #f1f1f1;font-family:{FONT};font-size:15px;color:#1f2937;"><b>{inr(p["cash_in_liquidbees"])}</b></td></tr>\n')
     money = _section("Where the money is now") + f'<tr><td style="padding:0 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">\n{rows}</table></td></tr>\n'
 
@@ -1315,7 +1356,8 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
     brows = _money_row("Trades closed (realized)", b["realized_trades"])
     if day["holdings_close"] or _round(b["unrealized_open"]) != 0:
         brows += _money_row(_holding_label(day), b["unrealized_open"])
-    brows += _money_row("LIQUIDBEES income", b["liquidbees_income"])
+    if not _cash_mode():
+        brows += _money_row("LIQUIDBEES income", b["liquidbees_income"])
     brows += _money_row("Total today", pnl, border=True, bold=True)
     brows += (f'<tr><td colspan="2" style="padding:6px 0 0;font-family:{FONT};font-size:13px;color:#6b7280;">'
               f'Costs (fees and taxes): {inr(p["costs_paid"])} paid today, already included above.</td></tr>')
@@ -1359,7 +1401,8 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
         return "\n".join(L) + "\n"
     story = pnl_story(day)
     L += ["HEADLINE", story["headline"], story["source"], "",
-          f"Today's profit:   {sg(p['day_pnl'], 2)} ({pc(p['day_pnl_pct'], 2)}; opened the day at {inr(p['open'])})",
+          f"Today's profit:   {sg(p['day_pnl'], 2)} ({pc(p['day_pnl_pct'], 2)}; vs yesterday's close {inr(p['open'], 2)}"
+          + (f", {p['prev_close_date']}" if p.get("prev_close_date") else "") + ")",
           f"Portfolio value:  {inr(p['close'])}", ""]
     for w in day["warnings"]:
         L.append("Note: " + w)
@@ -1370,7 +1413,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
               f"Above the stop:     {'-' if p['distance_to_floor'] < 0 else ''}{inr(p['distance_to_floor'])}",
               f"Drawdown from peak: {p.get('drawdown_from_peak', 0) * 100:.1f}% (peak {inr(p.get('peak', p['close']))}); brake level {p.get('brake_level', 0)}",
               f"Brakes:             {p.get('floor_next_step', '')}",
-              f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",
+              _cash_line(p),
               f"Costs paid today:   {inr(p['costs_paid'])}", ""]
         if day.get("targets"):
             L += ["TREND TARGETS (state, sigma60, target, actual)"] + [
@@ -1380,7 +1423,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
       L += ["PORTFOLIO AND FLOOR", f"Floor:              {inr(p['floor'])}",
           f"Distance to floor:  {'-' if p['distance_to_floor'] < 0 else ''}{inr(p['distance_to_floor'])}",
           f"Next step:          {p['floor_next_step'][:1].lower() + p['floor_next_step'][1:]}" if p.get("floor_next_step") else "Next step:          n/a",
-          f"Cash in LIQUIDBEES: {inr(p['cash_in_liquidbees'])} (LIQUIDBEES income today: {inr(p['liquidbees_income'])})",
+          _cash_line(p),
           f"Costs paid today:   {inr(p['costs_paid'])}", ""]
     gl = glance_lines(day)
     if gl:
@@ -1400,7 +1443,10 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     for d in day["decisions"]:
         qty = "--" if d["action"] in ("SKIP", "BLOCK") else str(d["qty"])
         pl = f" P&L {sg(d['pnl'], 2)}." if d["action"] == "SELL" and d.get("pnl") is not None else ""
-        L.append(f"{d['time']}  {d['action']:<5} {d['symbol']:<10} {qty:>4} @ {inr(d['price'], 2)}  {d['reason']}{pl}")
+        if d["action"] in ("BUY", "SELL") and d["qty"] and d["price"]:
+            L.append(f"{d['time']}  {d['action']:<5} {d['symbol']:<10} {fill_text(d['qty'], d['price'], d['amount'] or d['qty'] * d['price'])}  {d['reason']}{pl}")
+        else:
+            L.append(f"{d['time']}  {d['action']:<5} {d['symbol']:<10} {qty:>4} @ {inr(d['price'], 2)}  {d['reason']}{pl}")
     L += ["", "HOLDINGS AT CLOSE"]
     if day["holdings_close"]:
         for h in day["holdings_close"]:
@@ -1410,7 +1456,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
         L.append("No positions held overnight.")
     b = day["pnl_breakdown"]
     L += ["", "WHERE TODAY'S P&L CAME FROM", f"Trades closed (realized): {sg(b['realized_trades'])}",
-          f"Open positions (unrealised): {sg(b['unrealized_open'])}", f"LIQUIDBEES income: {sg(b['liquidbees_income'])}",
+          f"Open positions (unrealised): {sg(b['unrealized_open'])}", *([] if _cash_mode() else [f"LIQUIDBEES income: {sg(b['liquidbees_income'])}"]),
           f"Total: {sg(p['day_pnl'])}", f"(Costs of {inr(p['costs_paid'])} are already included above.)", "", "TOMORROW", day["tomorrow"], "",
           *_ops_text(day), *_inbox_text(day, inbox_url, sample), "This is a paper simulation. No real money or orders were placed."]
     return "\n".join(L) + "\n"

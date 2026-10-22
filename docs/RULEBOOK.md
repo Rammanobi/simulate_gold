@@ -1,7 +1,7 @@
 # simulate_gold: Rulebook (v1 Green Guard rules + v2 trend core)
 
 **This is paper trading. No real money is used.**
-Starting capital: ₹1,00,000. We trade GOLDBEES, SILVERBEES and HINDCOPPER on NSE. Any money not in a trade sits in LIQUIDBEES.
+Starting capital: ₹1,00,000. We trade GOLDBEES, SILVERBEES and HINDCOPPER on NSE. Any money not in a trade sits as **plain cash** in the account and earns nothing (owner decision, 22 Oct 2026; `capital.idle: cash`). Buys pay from cash and sales go back to cash, at the exact fill price shown on every line. One-line rollback to the old behaviour: `capital.idle: liquidbees` (idle money parked in LIQUIDBEES, which earns the modelled yield). Wherever this rulebook says LIQUIDBEES below, read "cash" while `capital.idle` is `cash`; a LIQUIDBEES balance left over at the switch is moved to cash once, at no cost, and the value does not change.
 
 > **Which rules are active?** `strategy.mode` in `config/params.yaml`. **`v2_trend`** (the section right below, the D5 "stay invested" profile) is the active strategy.
 > **`v1_scores`** is the older Green Guard design, sections 0 to 10 further down; they are unchanged and apply only when the mode is
@@ -31,7 +31,7 @@ The code is `simgold/trend.py` (pure rules), the engine's daily check (`simgold/
    but only while gold's own trend is ON (`stop_to_gold_requires_gold_trend`).
 3. **Invested floor** (`min_invested` 0.50, `floor_symbol` GOLDBEES): GOLDBEES is raised so that metals are at least 50% of the portfolio,
    **even when gold's own trend is OFF** ("GOLDBEES floor: metals 0% < min_invested 50% → target 50% gold (trend OFF, floor holding)").
-   If the total is over 100% everything is scaled down together. The rest is LIQUIDBEES. Set `min_invested: 0` and `stop_to_gold: false` for plain v2.
+   If the total is over 100% everything is scaled down together. The rest is cash (LIQUIDBEES only when `capital.idle: liquidbees`). Set `min_invested: 0` and `stop_to_gold: false` for plain v2.
 4. Rebalance only when |target − current| is more than **5 percentage points** of portfolio value; a move from zero (minimum 1%) or to zero always trades.
 5. Brakes (V2.4): level 1 (−15%) halves every weight but the gold floor is kept; level 2 (−25%) is flat, the floor included.
 
@@ -97,7 +97,7 @@ Profit size comes second. When a rule has to pick between safety and profit, it 
 
 Some words used below:
 
-- **Value**: cash + LIQUIDBEES + every position at its last price, *minus the cost to sell it*. It is checked every minute.
+- **Value**: cash (+ LIQUIDBEES when that mode is on) + every position at its last price, *minus the cost to sell it*. It is checked every minute.
 - **Floor**: the "Green Guard" line. Value must never go below it.
 - **Cushion**: value − floor. This is the only money we are allowed to risk.
 - **Score**: a number from 0.00 to 1.00 that the engine calculates for each instrument (section 3).
@@ -118,7 +118,7 @@ Who does what:
    - *Why the "− ₹500":* the agreement says the floor is exactly ₹1,00,000 when profit hits ₹500. Using plain "50% of best profit" would jump the floor to ₹1,00,250 at that moment and leave only ₹250 of room. This version starts at ₹1,00,000 and rises 50 paise for each extra rupee of best profit. To use the plain version instead, set `ratchet_offset: 0`.
    - Examples: best profit ₹1,500 gives a floor of ₹1,00,500. Best profit ₹4,500 gives ₹1,02,000.
 5. The floor **never goes down**. That includes the change from one month to the next (section 7).
-6. **Tripwire:** if value ≤ floor + **₹100**, the engine sells every trading position at once and moves the money to LIQUIDBEES. It makes no new buys until the next trading day.
+6. **Tripwire:** if value ≤ floor + **₹100**, the engine sells every trading position at once and moves the money to cash (LIQUIDBEES in the old mode). It makes no new buys until the next trading day.
 7. **Caution zone:** if value ≤ floor + **₹300**, the engine makes no new buys. Exits still work as normal.
 
 ---

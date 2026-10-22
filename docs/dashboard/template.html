@@ -170,7 +170,7 @@ svg{display:block;width:100%;height:auto}
 <div class="wrap">
 <header>
   <div><h1>Metals Daybook · Dashboard</h1>
-  <div class="sub">Paper trading only: virtual ₹1,00,000 in GOLDBEES · SILVERBEES · HINDCOPPER, with idle money in LIQUIDBEES</div></div>
+  <div class="sub">Paper trading only: virtual ₹1,00,000 in GOLDBEES · SILVERBEES · HINDCOPPER, with idle money held as plain cash</div></div>
   <div class="sub" style="text-align:right"><span id="live" class="live"><span class="ldot"></span><span id="livetxt">Loading…</span></span><div id="upd"></div></div>
 </header>
 
@@ -250,6 +250,8 @@ svg{display:block;width:100%;height:auto}
 <script>
 let DAYS = __DATA__;
 const REPO = "Rammanobi/simulate_gold", RAW = "https://raw.githubusercontent.com/"+REPO+"/main/";
+const px4 = x => x==null?"–":"₹"+Number(x).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:4});   // exact fill price, never rounded to 2 places
+const isCash = d => !!d && d.idle==="cash";
 const SYM = {GOLDBEES:{c:"--gold",n:"Gold (GOLDBEES)"},SILVERBEES:{c:"--silver",n:"Silver (SILVERBEES)"},HINDCOPPER:{c:"--copper",n:"Copper (HINDCOPPER)"},LIQUIDBEES:{c:"--liquid",n:"Cash (LIQUIDBEES)"}};
 const ACT = {BUY:"--buy",SELL:"--sell",SKIP:"--skip",BLOCK:"--block",HOLD:"--hold"};
 const ACTN = {BUY:"Bought",SELL:"Sold",SKIP:"Skipped",BLOCK:"Blocked",HOLD:"Held"};
@@ -341,7 +343,7 @@ function renderStrategy(d){
   if(sg.mode) bd.push(`<span class="badge" style="--c:var(--muted)">${esc(sg.mode)}</span>`);
   document.getElementById("sgbadges").innerHTML=bd.join("");
   const inv=Math.max(0,Math.min(100,sg.invested_pct||0)), mn=sg.min_invested;
-  document.getElementById("sginv").textContent=`Invested in metals ${pct(inv)} · in cash (LIQUIDBEES) ${pct(100-inv)}`;
+  document.getElementById("sginv").textContent=`Invested in metals ${pct(inv)} · in cash${isCash(d)?"":" (LIQUIDBEES)"} ${pct(100-inv)}`;
   document.getElementById("sgmin").textContent = mn!=null ? `Minimum invested ${pct(mn)}` : "";
   const g=document.getElementById("sggauge");
   g.setAttribute("aria-label",`Invested ${pct(inv)}`);
@@ -376,7 +378,7 @@ let cur_pinned = false, WANTED = ""; try{ WANTED = decodeURIComponent(location.h
 function render(){
   if(!cur_pinned){ const w=DAYS.find(d=>d.date===WANTED); if(w){ cur=w; cur_pinned=true; } else { const real=DAYS.filter(d=>!d.example); cur = real[real.length-1] || DAYS[0]; } }   // follow the newest day
   cur = DAYS.find(d=>d.date===cur.date) || cur;
-  const d=cur; renderDays();
+  const d=cur; SYM.LIQUIDBEES.n = isCash(d) ? "Cash (idle money)" : "Cash (LIQUIDBEES)"; renderDays();
   document.getElementById("moneyh").textContent = (d.date===isoIST() && marketHours()) ? "Where the money is right now" : "Where the money was at close";
   document.getElementById("upd").textContent = d.example ? "" : `${fmtDate(d)} · ${d.weekday||""}`;
   const bn=document.getElementById("banner");
@@ -386,10 +388,10 @@ function render(){
   const cush=d.cushion;
   document.getElementById("kpis").innerHTML = [
     ["Today's profit",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}% · this day only`],
-    ["Value at close",inr(d.close,2),`opened ${inr(d.open,2)}`],
+    ["Value at close",inr(d.close,2),`vs yesterday's close ${inr(d.open,2)}`],
     ["Green line",d.close>=100000?'<span class="pos">Green ✓</span>':'<span class="neg">Red</span>',`vs ₹1,00,000 start`],
     d.strategy ? riskTile(d) : ["Safety floor",inr(d.floor),`cushion ${inr(cush)}`],
-    ["LIQUIDBEES income",inr(d.liquid_income,2),`costs paid ${inr(d.costs,2)}`],
+    isCash(d) ? ["Costs paid",inr(d.costs,2),"idle cash earns nothing"] : ["LIQUIDBEES income",inr(d.liquid_income,2),`costs paid ${inr(d.costs,2)}`],
   ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join("");
   // allocation
   const al=d.alloc, tot=Object.values(al).reduce((a,b)=>a+b,0)||1;
@@ -399,7 +401,7 @@ function render(){
     const b=ds.filter(x=>x.action==="BUY").length, se=ds.filter(x=>x.action==="SELL").length, bl=ds.filter(x=>x.action==="BLOCK").length;
     const pl=ds.filter(x=>x.action==="SELL").reduce((a,x)=>a+(x.pnl||0),0);
     const rows = s==="LIQUIDBEES"
-      ? `<div class="r"><i>Parked</i><span>${inr(al[s],2)}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>Income today</i><span>${inr(d.liquid_income,2)}</span></div>`
+      ? `<div class="r"><i>${isCash(d)?"In cash":"Parked"}</i><span>${inr(al[s],2)}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>${isCash(d)?"Interest":"Income today"}</i><span>${isCash(d)?"none (cash earns nothing)":inr(d.liquid_income,2)}</span></div>`
       : `<div class="r"><i>Held at close</i><span>${h.qty?h.qty+" units · "+inr(al[s],2):"none"}</span></div><div class="r"><i>Share</i><span>${(al[s]/tot*100).toFixed(1)}%</span></div><div class="r"><i>Buys · Sells · Blocks</i><span>${b} · ${se} · ${bl}</span></div>${h.unrealized!=null?`<div class="r"><i>Open P&L</i><span class="${h.unrealized>=0?"pos":"neg"}">${sgn(h.unrealized,2)}</span></div>`:""}${se?`<div class="r"><i>Booked P&L</i><span class="${pl>=0?"pos":"neg"}">${sgn(pl,2)}</span></div>`:""}${h.stop?`<div class="r"><i>Stop</i><span>${inr(h.stop,2)}</span></div>`:""}`;
     return `<div class="ins" style="--c:var(${SYM[s].c})"><div class="n">${SYM[s].n}</div>${rows}</div>`;
   }).join("");
@@ -412,7 +414,7 @@ function holdRows(d){
   const al=d.alloc||{}, tot=Object.values(al).reduce((a,b)=>a+b,0)||1;
   return Object.keys(SYM).map(s=>{
     const h=(d.holdings||[]).find(x=>x.symbol===s)||{};
-    if(s==="LIQUIDBEES"){ const v=h.value!=null?h.value:(al[s]||0); const ap=h.approx!==false;
+    if(s==="LIQUIDBEES"){ const v=h.value!=null?h.value:(al[s]||0); const ap=isCash(d)?false:h.approx!==false;
       return {symbol:s,value:v,share:h.share_pct!=null?h.share_pct:v/tot*100,units:h.units!=null?h.units:v/1000,price:h.price!=null?h.price:1000,approx:ap}; }
     const units=h.units!=null?h.units:(h.qty||0), avg=h.avg_price!=null?h.avg_price:(h.avg||0);
     const value=h.value!=null?h.value:(al[s]||0), invested=h.invested!=null?h.invested:units*avg;
@@ -427,13 +429,14 @@ function renderHoldings(d){
   document.getElementById("hleg").innerHTML = rows.map(r=>`<span style="--c:var(${SYM[r.symbol].c})">${esc(SYM[r.symbol].n)} ${r.share.toFixed(1)}%</span>`).join("");
   const body = rows.map(r=>{
     const nm=`<span class="sw" style="--c:var(${SYM[r.symbol].c})"></span><b>${r.symbol}</b><small>${esc(SYM[r.symbol].n.replace(/ \(.*/,""))}${r.first?" · since "+esc(r.first):""}</small>`;
+    if(r.symbol==="LIQUIDBEES" && isCash(d)) return `<tr><td>${nm}</td><td>–</td><td>–</td><td>–</td><td><b>${inr(r.value,2)}</b></td><td>–</td><td>${r.share.toFixed(1)}%</td></tr>`;
     if(r.symbol==="LIQUIDBEES") return `<tr><td>${nm}</td><td>≈${r.units.toLocaleString("en-IN",{maximumFractionDigits:0})}${r.approx?"<small>approx.</small>":""}</td><td>${r.approx?"~":""}${inr(r.price,r.approx?0:2)}<small>per unit</small></td><td>–</td><td><b>${inr(r.value,2)}</b></td><td>–</td><td>${r.share.toFixed(1)}%</td></tr>`;
     if(!r.units) return `<tr><td>${nm}</td><td colspan="5" style="color:var(--muted);text-align:left">none held</td><td>${r.share.toFixed(1)}%</td></tr>`;
     return `<tr><td>${nm}</td><td>${r.units.toLocaleString("en-IN")}</td><td>${inr(r.avg,2)}</td><td>${inr(r.invested,2)}</td><td><b>${inr(r.value,2)}</b><small>at ${inr(r.price,2)}</small></td><td class="${r.gain>=0?"pos":"neg"}">${sgn(r.gain,2)}<small>${(r.pct>=0?"+":"−")+Math.abs(r.pct).toFixed(2)}%</small></td><td>${r.share.toFixed(1)}%</td></tr>`;
   }).join("");
   document.getElementById("htable").innerHTML = `<thead><tr><th>Holding</th><th>Units</th><th>Avg buy price</th><th>Invested<small>incl. costs</small></th><th>Value now</th><th>Open gain</th><th>Share</th></tr></thead><tbody>${body}</tbody>`;
   const held=rows.some(r=>r.symbol!=="LIQUIDBEES"&&r.units);
-  document.getElementById("hnote").textContent = (held?"Invested = units × average price + buying costs. Open gain = value minus invested, not yet booked. ":"No gold, silver or copper held: all the money is in LIQUIDBEES. ")+"LIQUIDBEES units are approximate (value ÷ about ₹1,000 a unit).";
+  document.getElementById("hnote").textContent = (held?"Invested = units × average price + buying costs. Open gain = value minus invested, not yet booked. ":"No gold, silver or copper held: all the money is in "+(isCash(d)?"cash.":"LIQUIDBEES. LIQUIDBEES units are approximate (value ÷ about ₹1,000 a unit)."));
   renderLedger(d);
 }
 function renderLedger(d){
@@ -446,8 +449,8 @@ function renderLedger(d){
   const shown = led.filter(e=>ledFilter==="ALL"||e.symbol===ledFilter);
   const tb=document.getElementById("ledtable");
   tb.innerHTML = shown.length
-    ? `<thead><tr><th>Date · time</th><th>Side</th><th>Symbol</th><th>Units</th><th>Price</th><th>Amount</th><th>Costs</th><th>Booked P&amp;L</th><th style="text-align:left">Why</th></tr></thead><tbody>${shown.map(e=>`<tr><td>${esc(e.date)}<small>${esc(e.time)}</small></td><td><span class="sd" style="--c:var(${e.side==="BUY"?"--buy":"--sell"})">${esc(e.side)}</span></td><td><b>${esc(e.symbol)}</b></td><td>${Number(e.units).toLocaleString("en-IN")}</td><td>${inr(e.price,2)}</td><td>${inr(e.amount,2)}</td><td>${e.costs==null?"–":inr(e.costs,2)}</td><td class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}">${e.side==="SELL"&&e.pnl!=null?sgn(e.pnl,2):"–"}</td><td class="rs">${esc(e.reason)}</td></tr>`).join("")}</tbody>`
-    : `<tbody><tr><td style="text-align:left;white-space:normal;color:var(--muted)">${led.length?"No trades in this symbol yet.":"No buys or sells yet — all money is in LIQUIDBEES."}</td></tr></tbody>`;
+    ? `<thead><tr><th>Date · time</th><th>Side</th><th>Symbol</th><th>Units</th><th>Price</th><th>Amount</th><th>Costs</th><th>Booked P&amp;L</th><th style="text-align:left">Why</th></tr></thead><tbody>${shown.map(e=>`<tr><td>${esc(e.date)}<small>${esc(e.time)}</small></td><td><span class="sd" style="--c:var(${e.side==="BUY"?"--buy":"--sell"})">${esc(e.side)}</span></td><td><b>${esc(e.symbol)}</b></td><td>${Number(e.units).toLocaleString("en-IN")}</td><td>${px4(e.price)}</td><td>${inr(e.amount,2)}</td><td>${e.costs==null?"–":inr(e.costs,2)}</td><td class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}">${e.side==="SELL"&&e.pnl!=null?sgn(e.pnl,2):"–"}</td><td class="rs">${esc(e.reason)}</td></tr>`).join("")}</tbody>`
+    : `<tbody><tr><td style="text-align:left;white-space:normal;color:var(--muted)">${led.length?"No trades in this symbol yet.":"No buys or sells yet — all money is in "+(isCash(d)?"cash.":"LIQUIDBEES.")}</td></tr></tbody>`;
   const total = d.ledger_total!=null ? d.ledger_total : led.length;
   document.getElementById("lednote").textContent = `${led.length} of ${total} trade${total===1?"":"s"} since the start, newest first${/^\d{4}-/.test(d.date)?", up to "+d.date:""}.${Array.isArray(d.ledger)?"":" (This older day document has only that day's trades.)"}`;
 }
@@ -491,11 +494,11 @@ function renderCounts(d){
   document.querySelectorAll(".cnt").forEach(b=>b.onclick=()=>{const a=b.dataset.a; hidden.has(a)?hidden.delete(a):hidden.add(a); renderChart(d); renderCounts(d); renderTimeline(d);});
 }
 function step(q){
-  const amt = q.action==="BUY"||q.action==="SELL" ? `${q.qty} × ${inr(q.price,2)} = ${inr(q.amount,2)}` : (q.price?`price ${inr(q.price,2)}`:"");
+  const amt = q.action==="BUY"||q.action==="SELL" ? `${q.qty} units × ${px4(q.price)} = ${inr(q.amount,2)}${q.costs!=null?` + costs ${inr(q.costs,2)}`:""}` : (q.price?`price ${inr(q.price,2)}`:"");
   const meta=[amt, q.stop?`stop ${inr(q.stop,2)}`:"", q.risk?`worst-case risk ${inr(q.risk)}`:"", q.pnl!=null?`booked ${sgn(q.pnl,2)}`:"", q.trigger?`trigger: ${q.trigger}`:"", q.value_after?`portfolio ${inr(q.value_after,2)}`:""].filter(Boolean).join(" · ");
   const verb = {BUY:`bought ${q.qty} units (${inr(q.amount,2)})`, SELL:`sold ${q.qty} units (${inr(q.amount,2)})${q.pnl!=null?`, booked ${sgn(q.pnl,2)}`:""}`,
     SKIP:"buy skipped", BLOCK:"buy blocked", HOLD:"kept the position"}[q.action] || q.action;
-  const one = q.price ? `<div class="one">📍 ${q.time} · ${esc(q.symbol)} market price <b>${inr(q.price,2)}</b> → ${verb}</div>` : "";
+  const one = q.price ? `<div class="one">📍 ${q.time} · ${esc(q.symbol)} ${q.action==="BUY"||q.action==="SELL"?"fill price":"market price"} <b>${px4(q.price)}</b> → ${verb}</div>` : "";
   return one + `<div class="h"><span class="tag" style="--c:var(${ACT[q.action]})">${q.action}</span>${esc(q.symbol)}${q.qty&&(q.action==="BUY"||q.action==="SELL")?` · ${q.qty} units`:""}</div><div class="why"><b>Why:</b> ${esc(q.reason)}</div><div class="meta">${esc(meta)}</div>`;
 }
 let mode = "cat";
@@ -627,13 +630,17 @@ function renderLive(){
     const c1=cell(tr, inr(pr.price,2), ""); c1.appendChild(mk("small",cls(pr.chg_pct),fp(pr.chg_pct,2)||"–"));
     cell(tr,"–",""); cell(tr,"–",""); tbody.appendChild(tr); });
   const lq=D.liquidbees||{}, tr=mk("tr");
-  const c0=mk("td"); c0.appendChild(document.createTextNode("LIQUIDBEES")); c0.appendChild(mk("small","","idle money")); tr.appendChild(c0);
-  cell(tr,"–",""); cell(tr, inr(lq.value,0), num(lq.accrued_today)!=null ? (lq.accrued_today>=0?"+":"−")+inr(Math.abs(lq.accrued_today),2)+" interest today" : "");
-  cell(tr,"–",""); tbody.appendChild(tr);
-  if(num(D.cash)>0){ const r=mk("tr"); const a=mk("td","","Cash"); r.appendChild(a); cell(r,"–",""); cell(r,inr(D.cash,0),""); cell(r,"–",""); tbody.appendChild(r); }
+  const cashOnly = !(num(lq.value)>0) && num(D.cash)>0;      // idle money is plain cash: one row, no interest
+  if(!cashOnly){
+    const c0=mk("td"); c0.appendChild(document.createTextNode("LIQUIDBEES")); c0.appendChild(mk("small","","idle money")); tr.appendChild(c0);
+    cell(tr,"–",""); cell(tr, inr(lq.value,0), num(lq.accrued_today)!=null ? (lq.accrued_today>=0?"+":"−")+inr(Math.abs(lq.accrued_today),2)+" interest today" : "");
+    cell(tr,"–",""); tbody.appendChild(tr);
+  }
+  if(cashOnly){ const r=mk("tr"); const a=mk("td","","Cash (idle money)"); a.appendChild(mk("small","","earns nothing")); r.appendChild(a); cell(r,"–",""); cell(r,inr(D.cash,0),""); cell(r,"–",""); tbody.appendChild(r); }
+  else if(num(D.cash)>0){ const r=mk("tr"); const a=mk("td","","Cash"); r.appendChild(a); cell(r,"–",""); cell(r,inr(D.cash,0),""); cell(r,"–",""); tbody.appendChild(r); }
   tb.appendChild(tbody);
   const tf=mk("tfoot"), fr=mk("tr"); fr.appendChild(mk("td","","Portfolio value")); fr.appendChild(mk("td")); fr.appendChild(mk("td","",inr(D.total_value,0))); fr.appendChild(mk("td")); tf.appendChild(fr); tb.appendChild(tf);
-  const pa=t.parts||{}, bits=[["positions","Holdings"],["liquidbees","LIQUIDBEES interest"],["realised","Sold today"],["costs","Costs"],["other","Other (closing-price gap, spread)"]].filter(([k])=>num(pa[k])!=null).map(([k,n])=>n+" "+fm(pa[k],0));
+  const pa=t.parts||{}, bits=[["positions","Holdings"],["liquidbees","LIQUIDBEES interest"],["realised","Sold today"],["costs","Costs"],["other","Other (closing-price gap, spread)"]].filter(([k])=>num(pa[k])!=null && !(k==="liquidbees" && !(num(lq.value)>0))).map(([k,n])=>n+" "+fm(pa[k],0));
   document.getElementById("nowparts").textContent = bits.length ? "Today is made of: "+bits.join(" · ")+". Values are what the holdings would fetch after selling costs." : "";
   updateLiveStatus(); drawLiveChart();
 }

@@ -104,3 +104,9 @@ def symbol_of(name: str) -> str:
     if n.endswith(".NS"):
         n = n[:-3]
     return load_params()["engine"]["aliases"].get(n, n)
+
+
+def idle_is_cash(p: dict | None = None) -> bool:
+    """True when idle money is plain cash (capital.idle: cash). A params dict without the key keeps the old LIQUIDBEES path."""
+    p = p if p is not None else load_params()
+    return str((p.get("capital") or {}).get("idle", "liquidbees")).strip().lower() == "cash"

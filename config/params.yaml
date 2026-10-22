@@ -3,6 +3,11 @@
 # The `engine:` section at the bottom holds engine-only extras (tickers, tolerances).
 capital:
   start: 100000
+  # Owner decision 2026-10-22: idle money is plain cash in the account (earns nothing), not LIQUIDBEES.
+  # `cash` = buys and sells go straight through the cash balance, no yield accrues, any LIQUIDBEES balance is
+  # moved to cash once (no cost). `liquidbees` = the old behaviour (idle money parked in LIQUIDBEES, earns the yield).
+  # One-line rollback: set idle: liquidbees.
+  idle: cash                        # cash | liquidbees
   park_symbol: LIQUIDBEES
   park_ticker: LIQUIDBEES.NS        # cash-parking instrument; modelled as a rupee balance
   liquid_credit: daily_pro_rata_calendar   # yield/365 per calendar day, credited daily

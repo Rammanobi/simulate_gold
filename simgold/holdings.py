@@ -18,8 +18,11 @@ import json
 import re
 from pathlib import Path
 
+from simgold import config
+
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
 LIQUID = "LIQUIDBEES"
+CASH_NAME = "Cash (idle money)"
 NAMES = {"GOLDBEES": "Gold", "SILVERBEES": "Silver", "HINDCOPPER": "Copper", LIQUID: "Cash (LIQUIDBEES)"}
 LIQUID_UNIT_APPROX = 1000.0          # a LIQUIDBEES unit is about Rs 1,000; used only when no price is known
 EMAIL_LEDGER_CAP = 60
@@ -154,13 +157,16 @@ def replay(trades: list[dict], upto: str | None = None) -> dict[str, dict]:
 
 
 def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, upto: str | None = None,
-            positions: dict | None = None, liquid_price: float | None = None) -> list[dict]:
+            positions: dict | None = None, liquid_price: float | None = None, idle_cash: bool | None = None) -> list[dict]:
     """The four holding rows (GOLDBEES, SILVERBEES, HINDCOPPER, LIQUIDBEES).
 
     `positions` (state/portfolio.json positions) is passed only for the engine's current day and then overrides the replay
     for units, average price, purchase costs and first-buy date. Metal rows: units, avg_price, invested (units x avg + costs),
     price, value, gain (value - invested), gain_pct, share_pct, first_buy, realised; compatibility keys qty/avg/close/unrealized.
-    The LIQUIDBEES row has value, share_pct and approximate units."""
+    The LIQUIDBEES row has value, share_pct and approximate units. With idle money as plain cash (capital.idle: cash) that
+    row is "Cash (idle money)": value and share only, no units or price (`cash: True`)."""
+    if idle_cash is None:
+        idle_cash = config.idle_is_cash()
     st = replay(trades, upto)
     rows: list[dict] = []
     for sym in SYMS:
@@ -191,6 +197,13 @@ def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, u
                      "qty": units, "avg": round(avg, 4), "close": (round(px, 4) if px is not None else None),
                      "unrealized": round(gain, 2)})
     lv = max(0.0, float(liquid_value or 0.0))
+    if idle_cash:
+        rows.append({"symbol": LIQUID, "name": CASH_NAME, "value": round(lv, 2), "share_pct": 0.0, "units": None, "price": None,
+                     "approx": False, "cash": True, "note": "plain cash in the account, earns nothing"})
+        total = sum(r["value"] for r in rows)
+        for r in rows:
+            r["share_pct"] = round(100.0 * r["value"] / total, 1) if total else 0.0
+        return rows
     lp = _f(liquid_price)
     approx = not (lp and lp > 0)
     unit_px = LIQUID_UNIT_APPROX if approx else lp

@@ -5,7 +5,7 @@ HEADLINE
 Today's profit: +₹147.00
 Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest.
 
-Today's profit:   +₹147.00 (+0.15%; opened the day at ₹1,00,000)
+Today's profit:   +₹147.00 (+0.15%; vs yesterday's close ₹1,00,000.00)
 Portfolio value:  ₹1,00,147
 
 PORTFOLIO AND FLOOR
@@ -31,11 +31,11 @@ Dollar index      −0.2%  Lower dollar usually helps gold
 USD/INR           +0.1%  Rupee slightly weaker
 
 DECISIONS
-09:52  BUY   GOLDBEES    190 @ ₹104.20  Dollar fell overnight and gold rose in Asia; price is above its 20-day average.
+09:52  BUY   GOLDBEES   190 units × ₹104.20 = ₹19,798.00  Dollar fell overnight and gold rose in Asia; price is above its 20-day average.
 11:05  SKIP  SILVERBEES   -- @ ₹141.90  Signal not strong enough (0.55, needs 0.65), and only ₹101 of today's risk budget was left.
-12:40  SELL  GOLDBEES     95 @ ₹105.10  Hit first target (+0.9%); sold half to lock profit and moved stop on the rest to the buy price. P&L +₹85.50.
-13:18  BUY   SILVERBEES   40 @ ₹142.50  Fast lane: US jobless claims jumped, rate-cut odds rose; Opus approved a small silver position.
-14:46  SELL  SILVERBEES   40 @ ₹141.40  Rally faded as the dollar bounced; Opus exited early instead of holding overnight. P&L −₹44.00.
+12:40  SELL  GOLDBEES   95 units × ₹105.10 = ₹9,984.50  Hit first target (+0.9%); sold half to lock profit and moved stop on the rest to the buy price. P&L +₹85.50.
+13:18  BUY   SILVERBEES 40 units × ₹142.50 = ₹5,700.00  Fast lane: US jobless claims jumped, rate-cut odds rose; Opus approved a small silver position.
+14:46  SELL  SILVERBEES 40 units × ₹141.40 = ₹5,656.00  Rally faded as the dollar bounced; Opus exited early instead of holding overnight. P&L −₹44.00.
 15:20  HOLD  GOLDBEES     95 @ ₹105.30  Overnight check passed: stop is at the buy price, so a gap down cannot touch the floor.
 
 HOLDINGS AT CLOSE

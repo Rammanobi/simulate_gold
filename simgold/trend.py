@@ -402,6 +402,8 @@ def decide(*, on: bool, target: float, cur: float, flat: bool, rsi_val: float | 
     New buys and adds also need: bias not "block"; entries not overbought (RSI(2) <= overbought);
     adds need an RSI(2) dip below dip_rsi (bias "favour" loosens it to favour_dip_rsi, it never removes it)."""
     thr, e = st["rebalance_threshold"], st["entry"]
+    # the suffix must match the real trend state: a floor buy happens with the trend OFF
+    no_pos = "trend ON and no position" if on else "no position; this is the gold floor buy (the trend is OFF)"
     if target <= 1e-9:
         if flat:
             return Decision("HOLD", "hold", 0.0, "no position and the target is 0")
@@ -426,11 +428,11 @@ def decide(*, on: bool, target: float, cur: float, flat: bool, rsi_val: float | 
         return Decision("SKIP", "wait", target, "Claude's bias for this metal is block, so no new buys or adds")
     r = rsi_val
     if not e.get("rsi_timing", True):                  # D5 "stay invested": entries and adds go straight to the target
-        return Decision("BUY", "entry" if flat else "add", target, "trend ON and no position" if flat else "below target")
+        return Decision("BUY", "entry" if flat else "add", target, (no_pos if flat else "below target"))
     if flat:
         if r is not None and r > e["overbought"]:
             return Decision("SKIP", "wait", target, f"RSI(2) {r:.1f} is overbought (above {e['overbought']:g}), so the entry waits")
-        return Decision("BUY", "entry", target, "trend ON and no position")
+        return Decision("BUY", "entry", target, no_pos)
     lim = e["favour_dip_rsi"] if bias == "favour" else e["dip_rsi"]       # favour only loosens the dip, it never removes it
     if r is not None and r < lim:
         return Decision("BUY", "add", target, f"RSI(2) {r:.1f} < {lim:g} dip" + (" (bias favour loosens it)" if bias == "favour" else ""))

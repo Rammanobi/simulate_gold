@@ -12,6 +12,8 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
+from . import config
+
 START_CAPITAL = 100000.0
 CASH_RATE = 0.065          # all-cash LIQUIDBEES benchmark, per year, pro rata per calendar day
 LIQUID_YIELD = 0.063       # engine's modelled LIQUIDBEES yield (config/params.yaml), for the income estimate
@@ -250,7 +252,7 @@ def _verdict(ret_pct, dd_pct, gold: dict, cash: dict, green: bool) -> str:
     elif dd_pct > 0.0:
         s += " but with a drawdown gold did not have"
     if cash.get("available") and ret_pct < cash["return_pct"]:
-        s += f"; below the cash (LIQUIDBEES) return of {cash['return_pct']:+.2f}%"
+        s += f"; below the {'return idle money would have earned in LIQUIDBEES' if config.idle_is_cash() else 'cash (LIQUIDBEES) return'} of {cash['return_pct']:+.2f}%"
     s += "." if green else "; ended below the Rs 1,00,000 line."
     return s
 
@@ -336,7 +338,7 @@ def evaluate(root, month: str | None = None, benchmark_csv=None) -> dict:
     silver = _bench("Buy-and-hold SILVERBEES", "SILVERBEES", None, start_d, end_d, closes)
     mix = _bench("50/50 gold-silver", "GOLDBEES", "SILVERBEES", start_d, end_d, closes)
     cash_ret = CASH_RATE * days / 365 * 100
-    cash = {"name": "All-cash LIQUIDBEES (6.5%/yr)", "available": days > 0, "start_date": start_d.isoformat(),
+    cash = {"name": ("Idle money in LIQUIDBEES instead (6.5%/yr)" if config.idle_is_cash() else "All-cash LIQUIDBEES (6.5%/yr)"), "available": days > 0, "start_date": start_d.isoformat(),
             "end_date": end_d.isoformat(), "return_pct": round(cash_ret, 3), "max_drawdown_pct": 0.0}
     benches = [gold, silver, mix, cash]
     for b in benches:
@@ -403,7 +405,7 @@ def rows(r: dict) -> list[tuple[str, str]]:
         ("Avg win / avg loss", f"{_rs(t['avg_win'])} / {_rs(t['avg_loss'])}"),
         ("Profit factor", str(pf)),
         ("Costs paid", _rs(r["costs_paid"])),
-        ("LIQUIDBEES income", f"{_rs(r['liquidbees_income_est'])} est."
+        ("LIQUIDBEES income (before the switch to cash)" if config.idle_is_cash() else "LIQUIDBEES income", f"{_rs(r['liquidbees_income_est'])} est."
          + (f" ({r['liquidbees_income_share_pct']}% of profit)" if r["liquidbees_income_share_pct"] is not None else "")),
     ]
     for b in r["benchmarks"]:
