@@ -1,15 +1,15 @@
 {
- "updated": "2026-10-22T11:17:53+05:30",
+ "updated": "2026-10-22T13:17:44+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: GOLDBEES -2.45% on day, near stop 116.40, no confirming news, keep neutral. SILVER[WEAKENING]: SILVERBEES -3.92% on day, no news, neutral. COPPER[WEAKENING]: Hindustan Copper results 23 Oct, block.",
+ "note": "GOLD[WEAKENING]: GOLDBEES 117.38 above stop 116.40, no news, neutral. SILVER[WEAKENING]: no news, neutral. COPPER[WEAKENING]: HindCopper results 23 Oct, block.",
  "prices_at_update": {
-  "GOLDBEES": 116.9,
-  "SILVERBEES": 189.7,
-  "HINDCOPPER": 419.85
+  "GOLDBEES": 117.38,
+  "SILVERBEES": 190.0,
+  "HINDCOPPER": 413.6
  },
  "alignment": {
   "GOLD": "WEAKENING",
