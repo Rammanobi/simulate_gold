@@ -1,6 +1,7 @@
 name: tests
 on:
   push:
+    branches-ignore: [live]      # the engine pushes the live P&L file here every minute (simgold/livepush.py)
   pull_request:
 permissions:
   contents: read          # tests never write; do not inherit a write-all default token

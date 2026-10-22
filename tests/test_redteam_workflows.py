@@ -142,3 +142,15 @@ def test_report_retry_backup_email_step_is_gated_and_uses_the_right_secrets():
     assert _on(doc)["workflow_dispatch"]["inputs"]["force_backup"]["type"] == "boolean"
     commit = next(s for s in steps if s.get("name") == "Commit the retry state")
     assert commit["if"] == "always()" and "state/report_retry.json" in commit["run"]
+
+
+def test_push_workflows_ignore_the_live_branch_and_market_hours_enables_the_live_push():
+    """The engine pushes the live P&L to branch `live` every minute: nothing may run on that push."""
+    for name, (_, doc) in WF.items():
+        push = (_on(doc) or {}).get("push")
+        if name == "tests.yml" or push is not None:
+            push = push or {}
+            ok = push.get("branches") == ["main"] or "live" in (push.get("branches-ignore") or [])
+            assert ok, f"{name} would run on every push to the live branch"
+    env = WF["market-hours.yml"][1]["jobs"]["trade"]["env"]
+    assert str(env["SIMGOLD_LIVE_PUSH"]) == "1" and str(env["SIMGOLD_GIT_SYNC"]) == "1"

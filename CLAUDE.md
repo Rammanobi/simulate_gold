@@ -38,7 +38,7 @@ The active strategy is **v2 trend core** (`strategy.mode: v2_trend` in `config/p
 
 | Owner | Paths |
 |---|---|
-| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` (incl. `logs/dashboard-D.json`) |
+| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/live_now.json` (live P&L; also pushed every tick to the `live` branch, file `now.json`, by `simgold/livepush.py`), `state/last_prices.json`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` (incl. `logs/dashboard-D.json`) |
 | Routines (via tools) | `state/guidance.json`, `state/fastlane.json`, `state/events.json`, `state/market_today.json`, `state/tomorrow.txt`, `state/budget.json` |
 | Routines (via tools) | `memory/ltm/*.json` (`regime`, `calendar`, `theses`, `lesson_ledger`, `performance`) and `memory/ltm/theses.md` (`tools/memory_ltm.py`); `memory/stm/days/D.json`, `memory/stm/window.json`, `memory/stm/today.jsonl` (`tools/memory_stm.py`); `archive/memory/lessons-retired.md`, `archive/memory/theses-YYYY.md` (written by those tools) |
 | Routines (direct writes) | the prose under `memory/` (`daily/`, `weekly/`, `monthly/`, `lessons.md` via `lint`), `reports/daily/**`, `reports/weekly/**` (weekly review only) |
