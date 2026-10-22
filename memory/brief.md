@@ -1,4 +1,4 @@
-# Brief 2026-10-22 09:01 IST (Thu) | NSE CLOSED (pre-open); opens 09:15
+# Brief 2026-10-22 09:07 IST (Thu) | NSE CLOSED (pre-open); opens 09:15
 
 ## Portfolio
 value ₹100,048 | account stop ₹75,000 | drawdown from peak -0.1% (peak ₹100,138) | brake level 0 (-15% halves, -25% flat) | best profit ₹138 | day P&L n/a
@@ -18,7 +18,7 @@ HINDCOPPER 420.55 (as of 15:29) | vs prev close -4.66% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=neutral, COPPER=block | 9 min old
+GOLD=neutral, SILVER=neutral, COPPER=block | 15 min old
 note: GOLD[WEAKENING]: COMEX gold ~4140 vs prev 4142.6, crude revives rate fears, business-standard.com. SILVER[WEA…
 
 ## Fast-lane requests today
