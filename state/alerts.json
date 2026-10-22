@@ -28,17 +28,16 @@
    "deferred": false,
    "detail": "no market-hours workflow run is in progress during NSE hours",
    "emails": [],
-   "first_seen": 1792655224.692113,
+   "first_seen": 1792663561.6396174,
    "fp": "watchdog|engine_run_missing|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1792655224.692113,
-   "resolved_at": 1792657139.2738738,
+   "last_seen": 1792663561.6396174,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "engine_run_missing"
   },
   "watchdog|routines_silent|": {
@@ -110,31 +109,31 @@
    "component": "watchdog",
    "count": 1,
    "deferred": false,
-   "detail": "the last healthcheck ran 120 min ago (limit 75)",
+   "detail": "the last healthcheck ran 79 min ago (limit 75)",
    "emails": [],
-   "first_seen": 1792655224.692113,
+   "first_seen": 1792663561.6396174,
    "fp": "watchdog|watchdog_stale|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1792655224.692113,
-   "resolved_at": 1792657139.27584,
+   "last_seen": 1792663561.6396174,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "watchdog_stale"
   }
  },
  "fires": {
   "date": "2026-10-22",
-  "n": 2,
+  "n": 3,
   "ts": [
    1792643754.7951255,
-   1792655224.692113
+   1792655224.692113,
+   1792663561.6396174
   ]
  },
- "last_high_fire": 1792655224.692113,
+ "last_high_fire": 1792663561.6396174,
  "pending": [],
  "version": 1
 }
