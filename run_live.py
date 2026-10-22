@@ -35,7 +35,6 @@ ROOT = Path(__file__).parent
 STATE, LOGS = ROOT / "state", ROOT / "logs"
 PF_PATH, NEWS_PATH, EQUITY_PATH = STATE / "portfolio.json", STATE / "news.json", STATE / "equity.csv"
 PF_BACKUP = STATE / "portfolio.backup.json"
-LIVE_PATH = STATE / "live_now.json"        # live P&L for the dashboard (engine-owned; also pushed to the `live` branch)
 LIVE_BUDGET_S = 40                         # skip the live push when the tick already used more than this of its 60 s
 TRADES_ARCHIVE = LOGS / "trades-archive.jsonl"
 PROTECTIVE_FROM = dtime(15, 15)       # time stop / score exit (15:15), overnight and month-end checks (15:20)
@@ -157,7 +156,7 @@ class Live:
             d = livepnl.build(pf, prices, self.live_prev, livepnl.read_equity(EQUITY_PATH), self.p, ts, self.series,
                               feed_ok=feed_ok, market_open=market_open, price_ts=self.live_ts)
             payload = livepnl.dumps(d)
-            livepnl.write_local(LIVE_PATH, payload)
+            livepnl.write_local(STATE / "live_now.json", payload)       # engine-owned; also pushed to the `live` branch
             if t0 is not None and time.time() - t0 > LIVE_BUDGET_S:
                 log.info("live push skipped: the tick already used %.0f s", time.time() - t0)
                 return

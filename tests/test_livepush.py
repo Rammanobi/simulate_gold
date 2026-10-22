@@ -191,7 +191,7 @@ def make_live(tmp_path, monkeypatch, pubber):
     st.mkdir(); lg.mkdir()
     monkeypatch.setattr(run_live, "STATE", st); monkeypatch.setattr(run_live, "LOGS", lg)
     monkeypatch.setattr(run_live, "PF_PATH", st / "portfolio.json"); monkeypatch.setattr(run_live, "PF_BACKUP", st / "pb.json")
-    monkeypatch.setattr(run_live, "LIVE_PATH", st / "live_now.json"); monkeypatch.setattr(run_live, "EQUITY_PATH", st / "equity.csv")
+    monkeypatch.setattr(run_live, "EQUITY_PATH", st / "equity.csv")
     monkeypatch.setattr(run_live, "TRADES_ARCHIVE", lg / "ta.jsonl")
     ts = datetime.now(IST)
     monkeypatch.setattr(run_live, "now_ist", lambda: ts)
