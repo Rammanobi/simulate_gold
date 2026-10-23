@@ -152,30 +152,30 @@
    "component": "watchdog",
    "count": 1,
    "deferred": false,
-   "detail": "the last healthcheck ran 79 min ago (limit 75)",
+   "detail": "the last healthcheck ran 77 min ago (limit 75)",
    "emails": [],
-   "first_seen": 1792663561.6396174,
+   "first_seen": 1792730465.1253953,
    "fp": "watchdog|watchdog_stale|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1792663561.6396174,
-   "resolved_at": 1792677343.8583317,
+   "last_seen": 1792730465.1253953,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "watchdog_stale"
   }
  },
  "fires": {
   "date": "2026-10-23",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1792727100.7817414
+   1792727100.7817414,
+   1792730465.1253953
   ]
  },
- "last_high_fire": 1792663561.6396174,
+ "last_high_fire": 1792730465.1253953,
  "pending": [],
  "version": 1
 }
