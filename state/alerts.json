@@ -77,9 +77,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792743340.1195502,
+   "resolved_at": 1792762423.4426284,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "engine_run_missing"
   },
   "watchdog|guidance_stale|": {
@@ -97,18 +98,19 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792743340.1195502,
+   "resolved_at": 1792762423.443624,
    "resolved_emailed": false,
    "severity": "medium",
-   "status": "open",
+   "status": "resolved",
    "step": "guidance_stale"
   },
   "watchdog|routines_silent|": {
    "acked": false,
    "category": "routines_silent",
    "component": "watchdog",
-   "count": 2,
+   "count": 3,
    "deferred": false,
-   "detail": "guidance.json was last written by the fallback (limit 3 h): the Claude routines are not running (usage limit or credits?)",
+   "detail": "no daily report reports/daily/2026-10-23.json after 16:30 IST: the Claude routines are not running (usage limit or credits?)",
    "emails": [],
    "first_seen": 1792743340.1195502,
    "fp": "watchdog|routines_silent|",
@@ -116,7 +118,7 @@
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1792749592.0055866,
+   "last_seen": 1792762423.3662994,
    "resolved_emailed": false,
    "severity": "high",
    "status": "open",
@@ -158,9 +160,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792743340.1195502,
+   "resolved_at": 1792762423.4443471,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "ticks_stale"
   },
   "watchdog|watchdog_stale|": {
@@ -178,9 +181,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792749592.0055866,
+   "resolved_at": 1792762423.445444,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "watchdog_stale"
   }
  },
