@@ -1,35 +1,17 @@
 {
- "last_run": "2026-10-23T13:45:35+05:30",
+ "last_run": "2026-10-23T15:29:50+05:30",
  "results": [
   {
    "check": "routines_silent",
    "severity": "high",
    "category": "routines_silent",
-   "detail": "guidance.json was last written 3.5 h ago (limit 3 h): the Claude routines are not running (usage limit or credits?)"
+   "detail": "guidance.json was last written by the fallback (limit 3 h): the Claude routines are not running (usage limit or credits?)"
   },
   {
    "check": "watchdog_stale",
    "severity": "high",
    "category": "watchdog_stale",
-   "detail": "the last healthcheck ran 148 min ago (limit 75)"
-  },
-  {
-   "check": "engine_run_missing",
-   "severity": "high",
-   "category": "engine_not_running",
-   "detail": "no market-hours workflow run is in progress during NSE hours"
-  },
-  {
-   "check": "ticks_stale",
-   "severity": "high",
-   "category": "engine_not_running",
-   "detail": "last tick row is 86 min old (limit 12)"
-  },
-  {
-   "check": "guidance_stale",
-   "severity": "medium",
-   "category": "stale_guidance",
-   "detail": "guidance is 3.5 h old (limit 3 h)"
+   "detail": "the last healthcheck ran 104 min ago (limit 75)"
   }
  ],
  "all_green": false
