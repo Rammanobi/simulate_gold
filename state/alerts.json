@@ -1,5 +1,47 @@
 {
  "alerts": {
+  "engine|price feed|": {
+   "acked": false,
+   "category": "data_source_down",
+   "component": "engine",
+   "count": 1,
+   "deferred": false,
+   "detail": "no fresh prices for 19 min during market hours",
+   "emails": [],
+   "first_seen": 1792727100.7817414,
+   "fp": "engine|price feed|",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1792727100.7817414,
+   "resolved_at": 1792727160.562452,
+   "resolved_emailed": false,
+   "severity": "medium",
+   "status": "resolved",
+   "step": "price-feed"
+  },
+  "engine|tick|runtimeerror": {
+   "acked": false,
+   "category": "transient_fetch",
+   "component": "engine",
+   "count": 1,
+   "deferred": false,
+   "detail": "tick failed once: RuntimeError: no data returned for ['GOLDBEES.NS', 'SILVERBEES.NS', 'HINDCOPPER.NS']",
+   "emails": [],
+   "first_seen": 1792727100.77979,
+   "fp": "engine|tick|runtimeerror",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1792727100.77979,
+   "resolved_at": 1792727167.1781573,
+   "resolved_emailed": false,
+   "severity": "low",
+   "status": "resolved",
+   "step": "tick"
+  },
   "system|safe mode|": {
    "acked": false,
    "category": "system_unstable",
@@ -127,12 +169,10 @@
   }
  },
  "fires": {
-  "date": "2026-10-22",
-  "n": 3,
+  "date": "2026-10-23",
+  "n": 1,
   "ts": [
-   1792643754.7951255,
-   1792655224.692113,
-   1792663561.6396174
+   1792727100.7817414
   ]
  },
  "last_high_fire": 1792663561.6396174,
