@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-23T08:52:41+05:30",
+ "updated": "2026-10-23T10:17:01+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: COMEX gold -2.9% to 4029 (Yahoo, delayed), gap >1.5% unverified by news. SILVER[WEAKENING]: COMEX silver -6.0% to 53.98 (Yahoo), gap >2.7% unverified. COPPER[BREAKDOWN_RISK]: Hindustan Copper Q2 results board meeting today, HG -1.7%.",
+ "note": "GOLD[WEAKENING]: GOLDBEES -2.4% vs prev close, weekly decline on Fed outlook; mixed after big move. SILVER[BREAKDOWN_RISK]: SILVERBEES -6.9% vs prev close, shock down. COPPER[WEAKENING]: HINDCOPPER -4.0% on results day, results call 18:00 IST.",
  "prices_at_update": {
-  "GOLDBEES": 117.35,
-  "SILVERBEES": 189.9,
-  "HINDCOPPER": 413.4
+  "GOLDBEES": 115.25,
+  "SILVERBEES": 181.57,
+  "HINDCOPPER": 396.05
  },
  "alignment": {
   "GOLD": "WEAKENING",
-  "SILVER": "WEAKENING",
-  "COPPER": "BREAKDOWN_RISK"
+  "SILVER": "BREAKDOWN_RISK",
+  "COPPER": "WEAKENING"
  }
 }
