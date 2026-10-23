@@ -81,7 +81,7 @@ HINDCOPPER results are due tomorrow (23 Oct), so expect a wider copper move at t
 
 Fallback was used on 2026-10-13, 2026-10-15, 2026-10-23 (Claude routines were not running).
 
-Watchdog: 12 checks today, 5 problems, see incidents
+Watchdog: 14 checks today, 5 problems, see incidents
 
 Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-23
 

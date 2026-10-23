@@ -489,7 +489,7 @@
   "total_value": 98980.67
  },
  "fixed_today": [],
- "system_health": "Watchdog: 12 checks today, 5 problems, see incidents",
+ "system_health": "Watchdog: 14 checks today, 5 problems, see incidents",
  "thrift": true,
  "fallback_dates": [
   "2026-10-13",
