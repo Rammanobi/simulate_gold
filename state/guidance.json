@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-23T10:17:01+05:30",
+ "updated": "2026-10-23T13:46:24+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: GOLDBEES -2.4% vs prev close, weekly decline on Fed outlook; mixed after big move. SILVER[BREAKDOWN_RISK]: SILVERBEES -6.9% vs prev close, shock down. COPPER[WEAKENING]: HINDCOPPER -4.0% on results day, results call 18:00 IST.",
+ "note": "[fallback: DeepSeek] Sharp NSE declines across all metals and today's HINDCOPPER results event risk support blocking gold, silver, and copper.",
  "prices_at_update": {
-  "GOLDBEES": 115.25,
-  "SILVERBEES": 181.57,
-  "HINDCOPPER": 396.05
+  "GOLDBEES": 115.78,
+  "SILVERBEES": 184.52,
+  "HINDCOPPER": 395.2
  },
  "alignment": {
   "GOLD": "WEAKENING",
-  "SILVER": "BREAKDOWN_RISK",
+  "SILVER": "WEAKENING",
   "COPPER": "WEAKENING"
  }
 }
