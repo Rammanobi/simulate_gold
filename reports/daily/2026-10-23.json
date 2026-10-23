@@ -489,13 +489,11 @@
   "total_value": 98980.67
  },
  "fixed_today": [],
- "system_health": "Watchdog: 11 checks today, 5 problems, see incidents",
+ "system_health": "Watchdog: 12 checks today, 5 problems, see incidents",
  "thrift": true,
  "fallback_dates": [
   "2026-10-13",
   "2026-10-15",
   "2026-10-23"
- ],
- "fallback": true,
- "fallback_summary": "On 2026-10-23, the paper account closed at 98,980.67, down 759.17 for the day. There were no buys and one sell, a losing sale that lost 1,166. Value is 23,981 above the 75,000 account stop and 1.2% below its peak, with brake level 0 and no warnings."
+ ]
 }

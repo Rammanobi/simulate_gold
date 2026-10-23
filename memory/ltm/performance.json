@@ -1,20 +1,20 @@
 {
- "updated": "2026-10-22T17:43:43+05:30",
+ "updated": "2026-10-23T20:34:49+05:30",
  "months": [
   {
    "month": "2026-10",
    "start": 100000.0,
-   "end": 99739.84,
-   "pct": -0.26,
+   "end": 98980.67,
+   "pct": -1.019,
    "green": false,
-   "bh_goldbees_pct": -2.086,
-   "bh_gold_silver_pct": -4.281,
-   "liquidbees_pct": 0.196,
-   "excess_vs_goldbees": 1.809,
-   "max_dd_rs": 363.77,
-   "trades": 1,
-   "win_rate": null,
-   "costs": 27.23,
+   "bh_goldbees_pct": -3.312,
+   "bh_gold_silver_pct": -6.347,
+   "liquidbees_pct": null,
+   "excess_vs_goldbees": 2.276,
+   "max_dd_rs": 1122.94,
+   "trades": 2,
+   "win_rate": 0.0,
+   "costs": 46.52,
    "by_alignment": {},
    "core_pnl": null,
    "tactical_pnl": null
@@ -22,9 +22,9 @@
  ],
  "trial": {
   "start": 100000.0,
-  "end": 99739.84,
-  "pct": -0.26,
+  "end": 98980.67,
+  "pct": -1.019,
   "green": false,
-  "bh_goldbees_pct": -2.086
+  "bh_goldbees_pct": -3.312
  }
 }
