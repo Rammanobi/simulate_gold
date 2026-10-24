@@ -1,14 +1,14 @@
-# Backtest 2022-07-25 → 2026-10-17
+# Backtest 2022-07-25 → 2026-10-24
 
 Starting capital ₹1,00,000. News layer OFF (technical + macro only). Costs and slippage included.
 
 | metric | strategy | gold ETF buy & hold |
 |---|---|---|
-| final_equity | ₹167,088 | ₹274,817 |
-| cagr | 12.90% | 27.00% |
+| final_equity | ₹167,088 | ₹269,151 |
+| cagr | 12.84% | 26.24% |
 | max_drawdown | -14.73% | -24.44% |
-| sharpe | 1.31 | 1.32 |
-| avg_month | 1.04% | 2.07% |
+| sharpe | 1.31 | 1.29 |
+| avg_month | 1.04% | 2.03% |
 | median_month | 0.01% | 1.45% |
 | pct_months_positive | 50% | 67% |
 | pct_months_ge_3pct | 23% | 40% |
