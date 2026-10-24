@@ -45,7 +45,7 @@
   {
    "id": "f6c4def5",
    "text": "19 Oct: HINDCOPPER fell about 4% on the NSE day (440.4 vs prev close) while COMEX copper was +0.3%; the price-shock block fired at 15:23 with no position held.",
-   "status": "candidate",
+   "status": "dropped",
    "first_seen": "2026-10-19",
    "source": "daily",
    "support": [
@@ -54,7 +54,9 @@
      "text": "19 Oct: HINDCOPPER fell about 4% on the NSE day (440.4 vs prev close) while COMEX copper was +0.3%; the price-shock block fired at 15:23 with no posit"
     }
    ],
-   "contradict": []
+   "contradict": [],
+   "dropped": "2026-10-24",
+   "drop_reason": "duplicate of 1849585e (same 19 Oct HINDCOPPER fact)"
   },
   {
    "id": "b1cef8b4",

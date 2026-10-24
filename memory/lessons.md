@@ -12,5 +12,4 @@ Rules for this file:
 
 ## Lessons
 
-- On a hot US CPI day the news/price-shock blocks kept the book flat while silver fell sharply, and the day stayed green on LIQUIDBEES income alone (evidence: 15 Oct 2026 SILVERBEES -5.6%, 7 blocks, 0 trades, day P&L +₹17, cushion ₹535).
-- With zero positions, LIQUIDBEES income is ≈ ₹17 per trading day on ₹1,00,000, so a fully blocked week returns ≈ +0.05% and lags any rising GOLDBEES week (evidence: 14–16 Oct 2026 +₹17 each day; W42 +0.05% vs GOLDBEES ≈ +0.43%).
+- On a hot US CPI day the news/price-shock blocks kept the book flat while silver fell sharply, and the day stayed green on LIQUIDBEES income alone (evidence: 15 Oct 2026 SILVERBEES -5.6%, 7 blocks, 0 trades, day P&L +₹17, cushion ₹535; held since 2026-10-15).
