@@ -1,15 +1,15 @@
 {
- "updated": "2026-10-26T10:17:02+05:30",
+ "updated": "2026-10-26T11:16:42+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: flat, gold below 4000 USD, FOMC 28 Oct, ceiling neutral. SILVER[DEFENSIVE_SHOCK]: near one-year low, ceiling block. COPPER[DEFENSIVE]: +1.9% bounce in a DOWN trend, no confirming facts, stays block.",
+ "note": "GOLD[WEAKENING]: flat, gold below 4000 USD, FOMC 28 Oct, ceiling neutral. SILVER[DEFENSIVE_SHOCK]: near one-year low, ceiling block. COPPER[DEFENSIVE]: +1.9% bounce in a DOWN trend, no confirming facts, stays block. | 11:16 no material change",
  "prices_at_update": {
-  "GOLDBEES": 115.92,
-  "SILVERBEES": 184.68,
-  "HINDCOPPER": 406.55
+  "GOLDBEES": 115.9,
+  "SILVERBEES": 184.64,
+  "HINDCOPPER": 402.25
  },
  "alignment": {
   "GOLD": "WEAKENING",
