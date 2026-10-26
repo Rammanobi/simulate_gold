@@ -2,3 +2,4 @@
 {"last_run": "2026-10-26T04:00:59+05:30", "results": [], "all_green": true}
 {"last_run": "2026-10-26T06:37:02+05:30", "results": [], "all_green": true}
 {"last_run": "2026-10-26T08:53:10+05:30", "results": [], "all_green": true}
+{"last_run": "2026-10-26T10:16:36+05:30", "results": [{"check": "watchdog_stale", "severity": "high", "category": "watchdog_stale", "detail": "the last healthcheck ran 83 min ago (limit 75)"}], "all_green": false}
