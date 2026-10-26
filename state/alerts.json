@@ -182,9 +182,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1792989999.8984504,
+   "resolved_at": 1792993591.892056,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "watchdog_stale"
   }
  },
