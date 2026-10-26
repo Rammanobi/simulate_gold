@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-23T13:46:24+05:30",
+ "updated": "2026-10-26T08:52:16+05:30",
  "bias": {
-  "GOLD": "block",
+  "GOLD": "neutral",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "[fallback: DeepSeek] Sharp NSE declines across all metals and today's HINDCOPPER results event risk support blocking gold, silver, and copper.",
+ "note": "GOLD[WEAKENING]: COMEX gold 4023 +0.4%, DXY -0.2%, USDINR 94.93; ceiling neutral, FOMC 28 Oct (yahoo). SILVER[DEFENSIVE_SHOCK]: COMEX silver 54.23 +1.0% after -6% Fri; ceiling block (yahoo). COPPER[DEFENSIVE]: COMEX HG 6.47 -0.1%; post-results 23 Oct; ceiling block (yahoo).",
  "prices_at_update": {
-  "GOLDBEES": 115.78,
-  "SILVERBEES": 184.52,
-  "HINDCOPPER": 395.2
+  "GOLDBEES": 115.88,
+  "SILVERBEES": 184.0,
+  "HINDCOPPER": 399.0
  },
  "alignment": {
   "GOLD": "WEAKENING",
-  "SILVER": "WEAKENING",
-  "COPPER": "WEAKENING"
+  "SILVER": "DEFENSIVE_SHOCK",
+  "COPPER": "DEFENSIVE"
  }
 }

@@ -1,35 +1,35 @@
 {
- "date": "2026-10-23",
+ "date": "2026-10-26",
  "market": [
   {
    "name": "Gold (COMEX)",
-   "move_pct": -2.9,
-   "note": "Fell to 4029; Yahoo delayed, no news confirmation"
+   "move_pct": 0.37,
+   "note": "Small rebound to 4023 ahead of FOMC week"
   },
   {
    "name": "Silver (COMEX)",
-   "move_pct": -6.0,
-   "note": "Fell to 53.98; sharp drop, unverified by news"
+   "move_pct": 0.97,
+   "note": "Bounce to 54.23 after Friday's 6% drop"
   },
   {
    "name": "Copper (COMEX HG)",
-   "move_pct": -1.7,
-   "note": "6.43; Hindustan Copper results today"
+   "move_pct": -0.07,
+   "note": "Flat near 6.47"
   },
   {
    "name": "Dollar index",
-   "move_pct": -0.1,
-   "note": "101.65, little changed"
+   "move_pct": -0.17,
+   "note": "Slightly softer at 101.63"
   },
   {
    "name": "US 10Y yield",
-   "move_pct": -3.8,
-   "note": "4.95% per Yahoo; large move, unverified"
+   "move_pct": 0.71,
+   "note": "Friday close 4.99%"
   },
   {
    "name": "USD/INR",
-   "move_pct": 0.4,
-   "note": "94.69, rupee weaker"
+   "move_pct": 0.23,
+   "note": "Rupee weaker at 94.93"
   }
  ]
 }
