@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-27T08:52:35+05:30",
+ "updated": "2026-10-27T10:17:38+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: COMEX gold +0.3% to 4020, DXY +0.2%, INR weaker at 95.19; FOMC Wed 23:30 IST (yahoo). SILVER[DEFENSIVE]: COMEX silver -0.2% to 53.60, LTM and STM down (yahoo). COPPER[DEFENSIVE]: COMEX HG +1.4% to 6.57, LTM and STM down, thesis cautious (yahoo).",
+ "note": "GOLD[WEAKENING]: FOMC Wed 23:30 IST, ceiling neutral, no new facts. SILVER[DEFENSIVE]: LTM and STM down, FOMC tomorrow. COPPER[DOWNTREND]: +1.4% vs prev close but LTM down, thesis cautious, one fact only so no upgrade.",
  "prices_at_update": {
-  "GOLDBEES": 116.05,
-  "SILVERBEES": 184.35,
-  "HINDCOPPER": 407.75
+  "GOLDBEES": 116.27,
+  "SILVERBEES": 183.06,
+  "HINDCOPPER": 413.25
  },
  "alignment": {
   "GOLD": "WEAKENING",
   "SILVER": "DEFENSIVE",
-  "COPPER": "DEFENSIVE"
+  "COPPER": "DOWNTREND"
  }
 }
