@@ -1,4 +1,5 @@
 {
- "on": false,
- "cleared": "automatic: next pre-market, healthcheck clean"
+ "on": true,
+ "since": "2026-10-27T10:46:45+05:30",
+ "reason": "HIGH incident not fixed within 30 min: watchdog_stale"
 }
