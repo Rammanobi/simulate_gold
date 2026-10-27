@@ -1,5 +1,5 @@
 {
- "updated": "2026-10-27T14:18:31+05:30",
+ "updated": "2026-10-27T15:17:33+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "block",
@@ -7,9 +7,9 @@
  },
  "note": "GOLD[WEAKENING]: FOMC Wed 23:30 IST, ceiling neutral, no new facts. SILVER[DEFENSIVE]: LTM and STM down, FOMC tomorrow, no new facts. COPPER[DEFENSIVE]: LTM and STM down, thesis cautious, default block.",
  "prices_at_update": {
-  "GOLDBEES": 115.55,
-  "SILVERBEES": 180.5,
-  "HINDCOPPER": 409.2
+  "GOLDBEES": 115.67,
+  "SILVERBEES": 181.22,
+  "HINDCOPPER": 408.4
  },
  "alignment": {
   "GOLD": "WEAKENING",
