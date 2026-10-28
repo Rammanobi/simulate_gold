@@ -71,6 +71,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "cb7201b4",
+   "text": "Bias=block on gold kept the 50% GOLDBEES floor target unfilled through news-heavy sessions; book stayed 100% cash",
+   "status": "candidate",
+   "first_seen": "2026-10-28",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-28",
+     "text": "15:10 GOLDBEES floor target 50% SKIP, bias block, actual 0%"
+    }
+   ],
+   "contradict": []
   }
  ]
 }
