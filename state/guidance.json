@@ -1,19 +1,19 @@
 {
- "updated": "2026-10-28T11:17:44+05:30",
+ "updated": "2026-10-28T13:17:20+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: FOMC 23:30 IST, ceiling block, no new news. SILVER[DEFENSIVE]: FOMC, LTM and STM down. COPPER[DEFENSIVE]: LTM and STM down, cautious thesis.",
+ "note": "GOLD[WEAKENING]: FOMC 23:30 IST, ceiling block, no new news. SILVER[DEFENSIVE]: FOMC, LTM and STM down. COPPER[DOWNTREND]: LTM down, cautious thesis, month-end window; bounce today is one fact only, no upgrade.",
  "prices_at_update": {
-  "GOLDBEES": 116.72,
-  "SILVERBEES": 183.63,
-  "HINDCOPPER": 409.35
+  "GOLDBEES": 116.71,
+  "SILVERBEES": 183.53,
+  "HINDCOPPER": 412.4
  },
  "alignment": {
   "GOLD": "WEAKENING",
   "SILVER": "DEFENSIVE",
-  "COPPER": "DEFENSIVE"
+  "COPPER": "DOWNTREND"
  }
 }
