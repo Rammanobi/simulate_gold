@@ -49,11 +49,13 @@ SEVERITY = {
     "memory_cap": MEDIUM,             # a memory / log size cap exceeded
     "watchdog_stale": MEDIUM,         # the watchdog ran late (GitHub schedule lateness): reported, but never safe mode
     "invariant_warning": MEDIUM,      # e.g. LIQUIDBEES share below 30% without a tripwire
+    "allocation_stuck": MEDIUM,       # strategy v2: metals weight > 10 points off target at 2 daily checks in a row (never safe mode)
     # LOW
     "transient_fetch": LOW,           # a single transient fetch error
     "slow_run": LOW,
     "warning": LOW,
 }
+NO_SAFE_MODE = ("system_unstable", "allocation_stuck")      # alerts that never count toward switching safe mode on
 # Categories that only reflect GitHub scheduling lateness of a monitor, not a trading risk. They stay reported and
 # emailed but never count towards safe mode (neither as a HIGH left open nor in the distinct-incident count).
 SAFE_MODE_EXEMPT = frozenset({"watchdog_stale"})
@@ -571,7 +573,7 @@ def evaluate_safe_mode(state_dir, now: float | None = None, cfg: dict | None = N
     st = load_state(state_dir)
     today = day_of(now)
     todays = [e for e in st["alerts"].values() if day_of(e["first_seen"]) == today and e["fp"] != "system|safe mode|"
-              and e.get("category") != "system_unstable" and e.get("category") not in SAFE_MODE_EXEMPT]
+              and e.get("category") not in NO_SAFE_MODE and e.get("category") not in SAFE_MODE_EXEMPT]
     if len(todays) > cfg["safe_mode_incidents"]:
         return set_safe_mode(state_dir, f"{len(todays)} distinct incidents today (limit {cfg['safe_mode_incidents']})", now, cfg=cfg)
     for e in todays:

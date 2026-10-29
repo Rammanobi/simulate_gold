@@ -110,8 +110,8 @@ def test_every_playbook_has_step_zero(name):
 
 def test_thrift_rules_are_in_the_right_playbooks():
     t = lambda n: (ROOT / "routines" / f"{n}.md").read_text(encoding="utf-8")
-    assert "do NOT spawn the Opus subagent" in t("hourly")
-    assert "no Haiku research fan-out" in t("premarket") and "3 most important" in t("premarket")
+    assert "no subagent" in t("hourly") and "Sonnet alone" in t("hourly")              # 29 Oct 2026: one Sonnet-only run at 14:40
+    assert "no subagent" in t("premarket") and "5 web calls" in t("premarket")
     assert "short version" in t("weekly") and "No rule proposals unless the evidence is strong" in t("weekly")
     assert "only for HIGH severity or COMPLEX" in t("incident")
     assert "unchanged" in t("fastlane").split("## 0. Budget check")[1].split("## Steps")[0]

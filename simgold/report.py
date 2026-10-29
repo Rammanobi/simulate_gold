@@ -597,6 +597,120 @@ def glance_lines(day: dict) -> list[tuple[str, str]]:
 GLANCE_LINK_TEXT = "Every decision, every minute and the market price at each decision: open the dashboard"
 
 
+# --------------------------------------------------------------------- owner top lines (owner approval 2026-10-29)
+# Two plain lines rendered first in the email: you vs simply holding gold, and the one thing (if any) the owner has to do.
+# Kept as a separate block so it merges cleanly with the "Your money at a glance" block.
+START_DAY_FALLBACK = "2026-10-13"
+START_GOLD_SYMBOL = "GOLDBEES"
+
+
+def _tick_rows(path: Path) -> list[dict]:
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            return list(csv.DictReader(fh))
+    except OSError:
+        return []
+
+
+def _start_day(root: Path) -> str:
+    """The first day the engine ran: the earliest logs/ticks-DATE.csv (13 Oct 2026), else the fallback."""
+    days = sorted(m.group(1) for f in (Path(root) / "logs").glob("ticks-*.csv") if (m := re.fullmatch(r"ticks-(\d{4}-\d{2}-\d{2})\.csv", f.name)))
+    return days[0] if days else START_DAY_FALLBACK
+
+
+def _first_gold_price(root: Path, day: str) -> float | None:
+    """GOLDBEES price at the first engine tick of `day`: the first tick row that has a price column, else the first decision
+    record of that day (the older log shape keeps the prices in assets.GOLD.price)."""
+    for r in _tick_rows(Path(root) / "logs" / f"ticks-{day}.csv"):
+        v = _num(r.get(START_GOLD_SYMBOL))
+        if v and v > 0:
+            return v
+    try:
+        for line in (Path(root) / "logs" / f"decisions-{day}.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            v = _num(((rec.get("assets") or {}).get("GOLD") or {}).get("price")) if isinstance(rec, dict) else None
+            if v and v > 0:
+                return v
+            if isinstance(rec, dict) and rec.get("symbol") == START_GOLD_SYMBOL:
+                v = _num(rec.get("price"))
+                if v and v > 0:
+                    return v
+    except OSError:
+        pass
+    return None
+
+
+def _latest_gold_price(root: Path, date: str) -> float | None:
+    for r in reversed(_tick_rows(Path(root) / "logs" / f"ticks-{date}.csv")):
+        v = _num(r.get(START_GOLD_SYMBOL))
+        if v and v > 0:
+            return v
+    lp = _read_json(Path(root) / "state" / "last_prices.json", {}) or {}
+    v = _num((lp.get(START_GOLD_SYMBOL) or {}).get("price")) if isinstance(lp, dict) else None
+    return v if v and v > 0 else None
+
+
+def _owner_action(date: str, root: Path, day: dict) -> str:
+    """The single owner step, or 'none'. Order: account stop, stuck alert, an open HIGH alert."""
+    p = day.get("portfolio") or {}
+    portfolio = _read_json(Path(root) / "state" / "portfolio.json", {}) or {}
+    latched = ((portfolio.get("cooldowns") or {}).get("account_stop_latched")) if isinstance(portfolio, dict) else None
+    if latched or (p.get("v2") and p.get("close") is not None and p.get("floor") and p["close"] <= p["floor"]):
+        return (f"account stop hit (value {inr(p.get('close', 0))} at or under {inr(p.get('floor', 0))}): everything is sold and buying is halted "
+                f"until you clear it in config")
+    try:
+        from simgold import alerts as _alerts
+        opened = [e for e in _alerts.load_state(Path(root) / "state")["alerts"].values() if e.get("status") == "open"]
+    except Exception:  # noqa: BLE001 - the email must never fail over this line
+        opened = []
+    stuck = [e for e in opened if e.get("category") == "allocation_stuck"]
+    if stuck:
+        return "stuck alert: " + _short_note(str(stuck[0].get("detail") or "the holding is far from its target for 2 daily checks"), 200)
+    high = [e for e in opened if e.get("severity") == "high" and not e.get("acked") and e.get("category") != "system_unstable"]
+    if high:
+        return f"check the open alert ({high[0].get('step') or high[0].get('category')}) and acknowledge it"
+    return "none"
+
+
+def owner_top(date: str, root: Path, day: dict) -> dict:
+    """{"vs_hold": line 1, "action": line 2} for the top of the email."""
+    root = Path(root)
+    close = _num((day.get("portfolio") or {}).get("close"))
+    start = _start_day(root)
+    d0 = dt.date.fromisoformat(start)
+    since = f"{d0.day} {d0.strftime('%b')}"
+    acct = (close / START_CAPITAL - 1) * 100 if close else None
+    g0, g1 = _first_gold_price(root, start), _latest_gold_price(root, date)
+    if acct is None:
+        line1 = "You vs simply holding gold: not available yet."
+    elif g0 and g1:
+        gold = (g1 / g0 - 1) * 100
+        diff = round(acct - gold, 1)
+        verdict = "level" if diff == 0 else f"{abs(diff):.1f} pts {'ahead' if diff > 0 else 'behind'}"
+        line1 = (f"You vs simply holding gold: account {pc(acct)} vs GOLDBEES buy-and-hold {pc(gold)} since {since} start ({verdict})")
+    else:
+        line1 = f"You vs simply holding gold: account {pc(acct)} since {since} start (the GOLDBEES comparison is not available yet)"
+    return {"vs_hold": line1, "action": "Action for you: " + _owner_action(date, root, day)}
+
+
+def _owner_top_html(day: dict) -> str:
+    t = day.get("owner_top")
+    if not t:
+        return ""
+    none = t["action"].endswith(": none")
+    return (f'<tr><td style="padding:12px 20px 0 20px;font-family:{FONT};"><div style="font-size:14px;line-height:21px;color:#1f2937;'
+            f'background:#f7f6f1;border-radius:8px;padding:10px 12px;">{esc(t["vs_hold"])}'
+            f'<div style="padding-top:4px;font-weight:700;color:{"#1f2937" if none else RED};">{esc(t["action"])}</div></div></td></tr>\n')
+
+
+def _owner_top_text(day: dict) -> list[str]:
+    t = day.get("owner_top")
+    return [t["vs_hold"], t["action"], ""] if t else []
+
+
 def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     day = _build_day(date, root, holiday)
     if not day.get("closed"):
@@ -608,6 +722,10 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     try:
         day["holdings_view"] = _holdings_view(date, root, day)
     except Exception:          # the report must never fail over this extra section
+        pass
+    try:
+        day["owner_top"] = owner_top(date, root, day)
+    except Exception:          # the two top lines are extra; never fail the report over them
         pass
     try:
         day["money_summary"] = _money_summary(date, root, day)
@@ -1373,7 +1491,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _holdings_html(day) + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
-        return head + _summary_html(day.get("money_summary")) + body + _ops_html(day) + foot
+        return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + body + _ops_html(day) + foot
 
     pnl = p["day_pnl"]
     r = _round(pnl)
@@ -1482,7 +1600,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + _summary_html(day.get("money_summary")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1496,7 +1614,9 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     when = f"{day['weekday']} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")
-    L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, "", *_summary_text(day.get("money_summary"))]
+    L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
+    L += _owner_top_text(day)
+    L += _summary_text(day.get("money_summary"))
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
               *_holdings_text(day), "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),

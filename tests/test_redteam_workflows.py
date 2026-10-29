@@ -154,3 +154,20 @@ def test_push_workflows_ignore_the_live_branch_and_market_hours_enables_the_live
             assert ok, f"{name} would run on every push to the live branch"
     env = WF["market-hours.yml"][1]["jobs"]["trade"]["env"]
     assert str(env["SIMGOLD_LIVE_PUSH"]) == "1" and str(env["SIMGOLD_GIT_SYNC"]) == "1"
+
+
+def test_market_hours_dispatches_its_own_next_session_safely():
+    """29 Oct 2026: the engine starts the next session itself (the hourly routine moved to one 14:40 run)."""
+    doc = WF["market-hours.yml"][1]
+    assert doc["permissions"]["actions"] == "write"
+    assert doc["concurrency"]["cancel-in-progress"] is False and doc["concurrency"]["group"] == "paper-trader"
+    steps = doc["jobs"]["trade"]["steps"]
+    step = next(s for s in steps if "next session" in s.get("name", ""))
+    assert steps[-2] is step and steps[-1]["name"].startswith("Fail the run") and step["if"] == "always()"
+    assert doc["jobs"]["trade"]["env"]["GH_TOKEN"] == "${{ github.token }}"          # the job's GITHUB_TOKEN, no PAT
+    run = step["run"]
+    assert "is_trading_day" in run and '"$NOW" -ge 1525' in run                       # trading day + time guard
+    assert "$GITHUB_RUN_ID" in run and 'status != \\"completed\\"' in run and '"$OTHERS" != "0"' in run   # duplicate guard
+    assert "actions/workflows/market-hours.yml/dispatches" in run and "-f ref=main" in run
+    assert run.count("GITHUB_STEP_SUMMARY") >= 4                                      # every decision is logged
+    assert "secrets." not in run

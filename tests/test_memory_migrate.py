@@ -192,7 +192,7 @@ def test_playbooks_use_the_tools_and_never_write_memory_json_directly():
 
 
 def test_models_are_named_per_the_design():
-    assert "Opus" in (PLAY / "premarket.md").read_text() and "Sonnet" in (PLAY / "hourly.md").read_text()
+    assert "Sonnet" in (PLAY / "premarket.md").read_text() and "Sonnet" in (PLAY / "hourly.md").read_text()   # 29 Oct 2026: premarket and hourly both run on Sonnet
     assert "Haiku" in (PLAY / "daily_report.md").read_text() and "Opus" in (PLAY / "weekly.md").read_text()
 
 
