@@ -1,18 +1,18 @@
 {
- "updated": "2026-10-29T14:17:19+05:30",
+ "updated": "2026-10-29T15:18:13+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[RANGE]: neutral, Fed hold with hike dissents, month-end tomorrow. SILVER[DEFENSIVE]: ~-1% since last update, near yearly low, no new news. COPPER[DOWNTREND]: LTM down, no new facts, keep block. | 11:17 no material change | 13:17 no material change | 14:17 no material change",
+ "note": "GOLD[WEAKENING]: neutral, ceiling neutral, stm down, month-end tomorrow. SILVER[DEFENSIVE]: keep block, no new facts. COPPER[DOWNTREND]: keep block, no new facts.",
  "prices_at_update": {
-  "GOLDBEES": 116.51,
-  "SILVERBEES": 180.5,
-  "HINDCOPPER": 411.45
+  "GOLDBEES": 116.37,
+  "SILVERBEES": 179.95,
+  "HINDCOPPER": 412.0
  },
  "alignment": {
-  "GOLD": "RANGE",
+  "GOLD": "WEAKENING",
   "SILVER": "DEFENSIVE",
   "COPPER": "DOWNTREND"
  }
