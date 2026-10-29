@@ -13,7 +13,7 @@ from simgold.market import IST
 
 P = config.load_params()
 KEYS = {"v", "ts", "session_date", "market_open", "feed_ok", "start_capital", "prev_close_date", "prev_close_value",
-        "total_value", "today", "open", "total", "prices", "positions", "liquidbees", "cash", "series"}
+        "total_value", "today", "open", "total", "prices", "positions", "liquidbees", "cash", "series", "summary"}
 
 
 def at(day, hh=11, mm=30):
@@ -184,3 +184,15 @@ def test_tick_close_basis_reconciles_when_yahoo_prev_close_differs(tmp_path):
     assert abs(d["today"]["parts"]["other"]) < 20
     wrong = livepnl.build(pfd(pf), {"GOLDBEES": 117.06}, {"GOLDBEES": 119.83}, [("2026-10-21", prev)], P, at("2026-10-22"), [])
     assert abs(wrong["today"]["parts"]["other"]) > 500
+
+
+def test_live_payload_carries_the_money_summary():
+    pf = two_pos()
+    prices = {"GOLDBEES": 102.0, "SILVERBEES": 196.0}
+    d = livepnl.build(pfd(pf), prices, {}, [("2026-10-21", 41000.0)], P, at("2026-10-22"), [])
+    s = d["summary"]
+    assert d["v"] == 1 and s["total_now"] == d["total_value"]
+    assert s["live_profit"] == d["open"]["pnl"] and s["held"] and len(s["metals"]) == 2
+    assert s["today_profit"] == d["today"]["pnl"] and s["overall_profit"] == d["total"]["pnl"]
+    b = s["breakdown"]
+    assert round(b["booked"] + b["open"] + b["costs"] + b["interest"], 2) == s["overall_profit"]

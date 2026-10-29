@@ -257,5 +257,6 @@
   }
  },
  "tomorrow": "US inflation data comes out at 18:00 IST tomorrow, after NSE closes. The 15:20 overnight check will keep positions small before it.",
- "one_line_summary": "Small green day: +₹147. Gold trade worked, a quick silver trade lost ₹44, and the floor is ₹647 away."
+ "one_line_summary": "Small green day: +₹147. Gold trade worked, a quick silver trade lost ₹44, and the floor is ₹647 away.",
+  "money_summary": {"day": "2026-10-12", "idle_cash": true, "start_capital": 100000.0, "idle_label": "Cash", "total_now": 100244.44, "metals": [{"symbol": "GOLDBEES", "qty": 423, "price": 117.2, "value": 49575.6, "net_value": 49550.81, "invested": 49306.37, "open_gain": 244.44}], "metals_value": 49575.6, "exit_cost": 24.79, "cash": 50693.63, "today_buys": [{"symbol": "GOLDBEES", "time": "10:00", "qty": 423, "price": 116.5, "amount": 49279.5}], "today_sells": [], "today_buys_more": 0, "today_sells_more": 0, "today_bought": 49279.5, "today_sold": 0.0, "bought_total": 49279.5, "sold_total": 0.0, "prev_close": 100000.0, "prev_close_date": "2026-10-09", "today_profit": 244.44, "today_pct": 0.244, "overall_profit": 244.44, "overall_pct": 0.244, "live_profit": 244.44, "held": true, "breakdown": {"booked": 0.0, "open": 244.44, "costs": 0.0, "interest": 0.0, "booked_after_costs": 0.0, "sum": 244.44}}
 }

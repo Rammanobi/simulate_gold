@@ -51,6 +51,7 @@ def test_document_has_every_key_and_sorted_decisions(tmp_path):
     assert doc["alloc"]["GOLDBEES"] > 0 and set(doc["alloc"]) == {"GOLDBEES", "SILVERBEES", "HINDCOPPER", "LIQUIDBEES"}
     assert doc["ticks"][0] == ["09:15", 100000.0, 119.7, 202.8, 468.7]
     assert doc["updated"] == "2026-10-14T12:40:00+05:30"
+    assert isinstance(doc["summary"], str) and doc["money"]["total_now"] > 0      # `summary` stays the banner sentence
 
 
 def test_ticks_are_capped_and_keep_the_last_row(tmp_path):

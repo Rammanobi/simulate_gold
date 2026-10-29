@@ -277,6 +277,7 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "notes": _notes(root, date, prev.get("notes") or []), "thrift": bool(day.get("thrift")),
         "checks": _checks(root / "logs" / f"checks-{date}.jsonl"),
         "targets": [],
+        "money": day.get("money_summary"),           # "Your money at a glance" card (`summary` is the one-line banner text)
     }
     if strategy is not None:                         # v2 only; v1 documents keep their old shape
         doc["strategy"], doc["targets"] = strategy, targets

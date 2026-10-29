@@ -164,6 +164,20 @@ svg{display:block;width:100%;height:auto}
 .nowchartbox h3{font-size:13px;margin:0 0 4px;color:var(--muted);font-weight:600}
 #nowchart{width:100%;height:auto;touch-action:pan-y}
 @media (max-width:640px){.nowbig{font-size:32px}.nowbig small{font-size:17px}.nowt th,.nowt td{padding:7px 6px}}
+
+/* ---- Money at a glance ---- */
+#nowmoney{margin-bottom:16px}
+.mg{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.mg td{padding:2px 0;vertical-align:top}
+.mg td.v{text-align:right;white-space:nowrap}
+.mg tr.h td{padding-top:12px;border-top:1px solid var(--line);font-size:16px;font-weight:700}
+.mg tr.h:first-child td{border-top:none;padding-top:2px}
+.mg tr.h td.v{font-size:19px;font-weight:800}
+.mg .n{display:block;font-size:12.5px;font-weight:400;color:var(--muted)}
+.mg tr.s td{font-size:13px;color:var(--muted);padding-left:14px}
+.mg tr.s td.v{padding-left:0}
+.mg tr.b td{padding-top:12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);line-height:1.45}
+@media (max-width:640px){.mg tr.h td{font-size:15px}.mg tr.h td.v{font-size:17px}}
 </style>
 </head>
 <body>
@@ -176,10 +190,12 @@ svg{display:block;width:100%;height:auto}
 
 <div class="days" id="days"></div>
 <div id="banner"></div>
+<div class="card" id="moneycard" hidden><h2>Your money at a glance</h2><div id="moneybody"></div></div>
 <div class="card nowcard" id="nowcard">
   <div class="sg-head"><h2>Portfolio now</h2><div class="badges" id="nowbadges"></div></div>
   <div class="nowstat" id="nowstat">Loading live P&amp;L…</div>
   <div id="nowbody" hidden>
+    <div id="nowmoney"></div>
     <div class="nowhead"><div class="nowlbl" id="nowlbl"></div><div class="nowbig" id="nowbig"></div></div>
     <div class="nowsec">
       <div><div class="l">Open gain on holdings (after costs)</div><div class="v" id="nowopen"></div></div>
@@ -385,6 +401,8 @@ function render(){
   bn.innerHTML = d.example
     ? `<div class="banner ex"><b>EXAMPLE DAY (made-up data for design review).</b> Real days so far had no trades, so this shows what a day with a buy, a skip, a partial sell and a block looks like.${d.strategy?' It also shows the new trend strategy (v2) card with made-up numbers: gold trend ON at an 85% target, silver OFF.':''}</div>`
     : `<div class="banner">${esc(d.summary||"")}${d.thrift?" · routines ran in THRIFT mode":""}</div>`;
+  const mc=document.getElementById("moneycard"), mh=moneyHTML(d.money);
+  mc.hidden=!mh; document.getElementById("moneybody").innerHTML=mh;
   const cush=d.cushion;
   document.getElementById("kpis").innerHTML = [
     ["Today's profit",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}% · this day only`],
@@ -555,6 +573,31 @@ function renderNotes(d){
   const el=document.getElementById("notes");
   el.innerHTML = d.notes.length ? d.notes.map(n=>`<li class="st note"><div class="tm">${esc(n.time)}</div><div><span class="tag">${esc(n.who)}</span><span class="why">${esc(n.text)}</span></div></li>`).join("") : `<li class="empty">No routine notes.</li>`;
 }
+// ---------- Your money at a glance (the 7 plain numbers; day document `money`, live payload `summary`) ----------
+function moneyHTML(m){
+  if(!m || typeof m.total_now!=="number") return "";
+  const c=x=>x>0?"pos":x<0?"neg":"", h=(t,n,v,k)=>`<tr class="h"><td>${esc(t)}<span class="n">${esc(n)}</span></td><td class="v ${k===undefined?"":c(k)}">${esc(v)}</td></tr>`,
+        s=(t,v)=>`<tr class="s"><td>${esc(t)}</td><td class="v">${esc(v||"")}</td></tr>`,
+        pct=x=>x==null?"":" ("+(x>0?"+":x<0?"−":"")+Math.abs(x).toFixed(2)+"%)",
+        fill=r=>`${r.symbol}: ${Number(r.qty).toLocaleString("en-IN")} unit${r.qty===1?"":"s"} × ${inr(r.price,4).replace(/0{1,2}$/,"")} = ${inr(r.amount,2)}`;
+  let o=h("Total money now","What you'd have selling everything now",inr(m.total_now,2));
+  o+=h("Invested in metals now","Metals held, valued at today's prices",inr(m.metals_value,2));
+  (m.metals||[]).forEach(x=>{ o+=s(`${x.symbol}: ${Number(x.qty).toLocaleString("en-IN")} unit${x.qty===1?"":"s"} × ${inr(x.price,2)}`,inr(x.value,2)); });
+  if(!(m.metals||[]).length) o+=s("Metals: nothing held",inr(0,2));
+  if(Math.abs(m.exit_cost||0)>=0.005) o+=s("Less: estimated cost of selling","−"+inr(m.exit_cost,2));
+  o+=s((m.idle_label||"Cash")+" (idle money)",inr(m.cash,2));
+  o+=h("Today's investment","Money spent and received today","");
+  o+=s("Spent on buys today",inr(m.today_bought,2)); if(m.today_buys_more) o+=s(`+ ${m.today_buys_more} earlier fills not listed`,""); (m.today_buys||[]).forEach(r=>{ o+=s(fill(r),""); });
+  o+=s("Received from sells today",inr(m.today_sold,2)); if(m.today_sells_more) o+=s(`+ ${m.today_sells_more} earlier fills not listed`,""); (m.today_sells||[]).forEach(r=>{ o+=s(fill(r),""); });
+  o+=h("Overall investment so far","Total bought and sold since start","");
+  o+=s("Bought in total",inr(m.bought_total,2))+s("Sold in total",inr(m.sold_total,2));
+  o+=h("Today's profit","Gain or loss since yesterday's close",sgn(m.today_profit,2)+pct(m.today_pct),m.today_profit);
+  o+=h("Overall profit","Gain or loss since "+inr(m.start_capital)+" start",sgn(m.overall_profit,2)+pct(m.overall_pct),m.overall_profit);
+  o+=h("Live profit right now",m.held?"Gain on what you hold now":"Nothing held, so zero",sgn(m.live_profit,2),m.live_profit);
+  const b=m.breakdown||{};
+  o+=`<tr class="b"><td colspan="2">Overall profit ${sgn(m.overall_profit,2)} = booked profit ${sgn(b.booked,2)} + open gain ${sgn(b.open,2)} + costs paid ${sgn(b.costs,2)} + past ${m.idle_cash===false?"LIQUIDBEES interest":"interest on idle money"} ${sgn(b.interest,2)} (before the 22 Oct switch to cash; booked is ${sgn(b.booked_after_costs,2)} after costs).</td></tr>`;
+  return `<table class="mg">${o}</table>`;
+}
 // ---------- Portfolio now: live P&L (engine -> branch "live" -> here) ----------
 const LIVE_URL = "https://raw.githubusercontent.com/"+REPO+"/live/now.json";
 let LIVE = null, liveVia = "live", liveFail = false, liveTimer = null, liveBusy = false, liveExample = false;
@@ -605,6 +648,7 @@ function updateLiveStatus(){
 function renderLive(){
   const D=LIVE, body=document.getElementById("nowbody"), err=document.getElementById("nowerr");
   err.hidden = !!D; body.hidden = !D; if(!D){ updateLiveStatus(); return; }
+  document.getElementById("nowmoney").innerHTML = moneyHTML(D.summary);
   const closed = !marketHours() || D.market_open===false, t=D.today||{};
   document.getElementById("nowlbl").textContent = (closed ? "Last session ("+dmon(D.session_date)+") vs previous close" : "Today vs yesterday's close")
     + (num(D.prev_close_value)!=null ? " (" + inr(D.prev_close_value) + (D.prev_close_date ? " on "+dmon(D.prev_close_date) : "") + ")" : " (₹1,00,000 start)");
