@@ -358,7 +358,13 @@ class Engine:
         if pt and not (_dt(self.rt.get("portfolio_trigger_until"), now.tzinfo) or now) > now:
             events.append((pt, "Price shock"))
             self.rt["portfolio_trigger_until"] = (now + timedelta(minutes=30)).isoformat()
-        if self.env.match_headline:
+        if self.v2 and not self.news_blocks_buys():
+            # owner approval 2026-10-29: headlines are still recorded and shown, but they no longer pause buys or wake the fast lane
+            # under v2. Pauses written by an older engine run are dropped too.
+            for s_ in [s_ for s_, src_ in (self.cd.get("block_src") or {}).items() if src_ == "News trigger"]:
+                self.cd.get("block_until", {}).pop(s_, None)
+                self.cd["block_src"].pop(s_, None)
+        if self.env.match_headline and (not self.v2 or self.news_blocks_buys()):
             cool = self.rt.setdefault("news_cooldown", {})
             for k in [k for k, v in cool.items() if not (_dt(v, now.tzinfo) or now) > now]:
                 cool.pop(k, None)                      # expired
@@ -416,6 +422,8 @@ class Engine:
                 why = f"{t['detail']} New buys in {where} are paused for {mins} minutes while the AI reviews it."
             self._block(t["symbol"], mins, src, why)
         ok, note = fastlane.can_fire(runs, now, self.p, self.fast_cap)
+        if ok and self.v2 and self.st.get("fastlane_only_held", True) and not self.shock_on_held(events):
+            ok, note = False, "no fast-lane run: no price shock on a symbol that is held (owner approval 2026-10-29)"
         rec = {"ts": now.isoformat(timespec="seconds"),
                "triggers": [{"source": s, **{k: v for k, v in t.items() if k != "detail"}, "detail": t["detail"]}
                             for t, s in events],
@@ -438,6 +446,22 @@ class Engine:
                 rec["fired"] = True
         rec["fire_note"] = note
         fastlane.append_request(self.env.state_dir / "fastlane_requests.jsonl", rec)
+
+    def news_blocks_buys(self) -> bool:
+        """strategy.news_blocks_buys (v2): False = a news headline never pauses buys or wakes the fast lane. Default True (old behaviour)."""
+        return bool(self.st.get("news_blocks_buys", True))
+
+    def shock_on_held(self, events: list[tuple[dict, str]]) -> bool:
+        """True when one of the triggers is a price shock (not news) on a symbol that is held (a portfolio drop counts while anything is held)."""
+        held = {s for s, p in self.pf.positions.items() if p.qty > 0}
+        for t, src in events:
+            if src != "Price shock":
+                continue
+            if t.get("kind") == "portfolio" and held:
+                return True
+            if t.get("symbol") in held:
+                return True
+        return False
 
     def fastlane_advice(self) -> list[dict]:
         """Read state/fastlane.json and keep only what the rulebook allows (5.3, defence only)."""
@@ -1056,6 +1080,7 @@ class Engine:
                 self.v2_decide(infos, value, held, "exits", {"date": today, "syms": {}, "blk": [], "skip": []}, log_target=False)
             if not blind:
                 v2["last_full"] = prev_day
+        self.v2_retry_missed(infos, value, v2, today, t)
         if t0 <= t <= t1:
             ready = [s for s in self.syms if infos[s] and self.fresh(s) and s not in done["syms"]]
             if ready:
@@ -1064,6 +1089,11 @@ class Engine:
                 for s in self.syms:
                     if s not in done["syms"] and s not in done["skip"]:
                         done["skip"].append(s)
+                        if infos.get(s):                       # history is there, only the fresh price was missing: retry the buy tomorrow
+                            gap = targets.get(s, 0.0) - self.cur_weight(s, value)
+                            if gap > self.st["rebalance_threshold"] or (gap > 0 and self.cur_weight(s, value) <= 0
+                                                                        and targets.get(s, 0.0) >= self.st["min_entry_weight"]):
+                                self.v2_pend(s, today, targets[s], self.cur_weight(s, value), "Trend check")
                         self.record("SKIP", s, 0, self.mkt.prices.get(s),
                                     f"No fresh price and daily history for {s} by the end of the check window, so no trend check was made "
                                     f"today; exits are retried every minute until the close.", "Trend check")
@@ -1079,6 +1109,84 @@ class Engine:
                                 "Trend check")
         if len(done["syms"]) == len(self.syms):
             v2["last_full"] = today
+            self.v2_drift_check(v2, done, targets, today)
+
+    # ---- owner approval 2026-10-29: retry a missed daily-check buy the next morning, and the "stuck" alert ----
+    def v2_pend(self, sym: str, today: str, target: float, cur: float, blocker: str):
+        """The 15:10 check wanted to buy `sym` but a blocker stopped it: keep it for the next trading morning (strategy.retry_missed_buys)."""
+        if not self.st.get("retry_missed_buys", True):
+            return
+        self.v2_state().setdefault("pending_buys", {})[sym] = {"date": today, "target": round(target, 4), "actual": round(cur, 4),
+                                                               "blocker": blocker}
+
+    def v2_retry_missed(self, infos: dict, value: float, v2: dict, today: str, t):
+        """From strategy.retry_buy_from to retry_buy_until on the next trading day: try yesterday's blocked buys again with today's
+        live prices and today's blockers (a pause that has expired no longer blocks). Buys only; exits and trims are untouched."""
+        pend = v2.get("pending_buys")
+        if not pend:
+            return
+        st = self.st
+        prev = market.prev_trading_day(self.day).isoformat()
+        for sym in [s for s, rec in pend.items() if not isinstance(rec, dict) or str(rec.get("date")) < prev]:
+            pend.pop(sym, None)                                  # older than the last trading day, or malformed: the daily check decides afresh
+        t_from, t_to = guard.hhmm(st.get("retry_buy_from", "09:30")), guard.hhmm(st.get("retry_buy_until", "09:50"))
+        due = {s: r for s, r in pend.items() if r.get("date") == prev}      # from today's own check: kept for tomorrow
+        if not due or t < t_from:
+            return
+        if t > t_to:
+            for sym in list(due):
+                rec = pend.pop(sym)
+                self.record("SKIP", sym, 0, self.mkt.prices.get(sym),
+                            f"The buy of {sym} that the {rec.get('date')} check wanted (blocked by: {rec.get('blocker')}) could not be retried "
+                            f"before {t_to:%H:%M}; the next daily check at {st['check_time']} decides afresh.", "Trend check")
+            return
+        ready = [s for s in due if infos.get(s) and self.fresh(s)]
+        if not ready:
+            return
+        rd = v2.get("retry_done")
+        if not isinstance(rd, dict) or rd.get("date") != today:
+            rd = v2["retry_done"] = {"date": today, "syms": {}, "blk": [], "skip": []}
+        self.v2_decide(infos, value, ready, "retry", rd, log_target=False)
+
+    def v2_drift_check(self, v2: dict, done: dict, targets: dict, today: str):
+        """Once per full daily check: if metals sit more than strategy.stuck_alert_points away from their target at 2 consecutive
+        daily checks, raise a MEDIUM `allocation_stuck` alert (it never turns safe mode on); resolve it when the gap closes."""
+        lim = float(self.st.get("stuck_alert_points", 10)) / 100.0
+        if lim <= 0 or v2.get("drift_day") == today or any(m != "full" for m in done["syms"].values()):
+            return
+        v2["drift_day"] = today
+        value = self.value()
+        tgt = sum(max(0.0, targets.get(s, 0.0)) for s in self.syms)
+        act = sum(self.cur_weight(s, value) for s in self.syms)
+        why = sorted({str(x) for x in (done.get("why") or {}).values()})
+        hist = [h for h in (v2.get("drift") or []) if isinstance(h, dict) and h.get("date") != today]
+        hist.append({"date": today, "target": round(tgt, 4), "actual": round(act, 4), "gap": round(tgt - act, 4), "why": why})
+        v2["drift"] = hist = hist[-5:]
+        prev_day = market.prev_trading_day(self.day).isoformat()
+        last2 = [h for h in hist if h["date"] in (today, prev_day)]
+        stuck = len(last2) == 2 and all(abs(h["gap"]) > lim + 1e-9 for h in last2)
+        if not stuck:
+            if abs(tgt - act) <= lim:
+                self.v2_resolve_drift()
+            return
+        names = ", ".join(f"{s} {max(0.0, targets.get(s, 0.0)) * 100:.0f}%" for s in self.syms if targets.get(s, 0.0) > 0) or "nothing"
+        detail = (f"Target {tgt * 100:.0f}% in metals ({names}), holding {act * 100:.0f}% at 2 daily checks in a row"
+                  + (f". Blocked by: {', '.join(sorted({x for h in last2 for x in h.get('why') or []}))}." if any(h.get("why") for h in last2) else "."))
+        try:
+            from .incidents import IncidentMonitor
+            IncidentMonitor(self.env.logs_dir, self.env.state_dir, environ=self.env.environ).report(
+                "allocation_stuck", "allocation_stuck", "allocation-stuck", detail)
+        except Exception:       # noqa: BLE001 - an alert problem must never stop trading
+            log.exception("could not raise the allocation-stuck alert")
+
+    def v2_resolve_drift(self):
+        try:
+            fp = alerts.fingerprint("engine", "allocation-stuck")
+            e = alerts.load_state(self.env.state_dir)["alerts"].get(fp)
+            if e and e.get("status") == "open":
+                alerts.resolve(self.env.state_dir, fp)
+        except Exception:       # noqa: BLE001
+            log.exception("could not resolve the allocation-stuck alert")
 
     def v2_why(self, sym: str, i, w: float, scale: float, mult: float, dd: float) -> str:
         """'GOLDBEES trend ON (close 121.40 > SMA200 118.90); target 87% = min(1, 0.14/0.161)'"""
@@ -1151,8 +1259,13 @@ class Engine:
                 d = trend.Decision("SKIP", "wait", tgt, f"Claude's bias for this metal is block, so it is held at the floor weight {fw * 100:.0f}% "
                                                          f"and gets no adds above it")
             plan.append((sym, i, cur, d))
+        pend = self.v2_state().setdefault("pending_buys", {})
+        today = self.day.isoformat()
+        if mode == "full":
+            for sym in run_syms:
+                pend.pop(sym, None)                                      # today's check supersedes yesterday's pending buy
         for sym, i, cur, d in plan:                                     # sells first: they free the money for the buys
-            if d.action != "SELL":
+            if d.action != "SELL" or mode == "retry":
                 continue
             pos = pf.positions.get(sym)
             px = self.price(sym)
@@ -1172,15 +1285,24 @@ class Engine:
             if pos:
                 xl = float((self.v2_state().get("xlvl") or {}).get(sym) or 0.0) if sym in cfg["intraday"] else 0.0
                 pos.exit_level = xl or i.exit_level or 0.0              # informational: the frozen intraday level, else where the trend turns OFF
-            if mode != "full":
+            if mode not in ("full", "retry"):
                 continue
             px = self.mkt.prices.get(sym)
+            if mode == "retry":
+                prec = pend.get(sym) or {}
+                if d.action != "BUY" or not px:
+                    pend.pop(sym, None)
+                    self.record("SKIP", sym, 0, px, f"The buy of {sym} that the {prec.get('date')} check wanted is not retried: "
+                                f"{d.why if d.action != 'BUY' else 'no price'} (target {d.to_w * 100:.0f}%, now {cur * 100:.0f}%).", "Trend check")
+                    continue
             if d.action == "SKIP":
                 self.record("SKIP", sym, 0, px, f"{self.v2_why(sym, i, targets[sym], scale, mult, dd)}; no buy: {d.why}", "Trend check")
                 continue
             if d.action != "BUY" or not px:
                 continue
             base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
+            if mode == "retry":
+                base = f"Retry of the buy that the {(pend.get(sym) or {}).get('date')} check could not make: {base}"
             blk = self.v2_buy_blocker(sym, px)
             to_w = d.to_w
             if blk and cfg["protect"] and sym == fsym and cur < fw - 1e-9:
@@ -1191,8 +1313,13 @@ class Engine:
                 if sym not in done["blk"]:
                     done["blk"].append(sym)
                     self.record("BLOCK", sym, 0, px, f"{base}; no buy: {blk[0]}", blk[1])
+                done.setdefault("why", {})[sym] = blk[1]
+                if mode == "retry":
+                    continue                                             # stays pending until the retry window closes
                 if blk[2] and self.now.time() < guard.hhmm(st["check_until"]):
                     retry.add(sym)                                       # the pause ends before the window closes: try again
+                else:
+                    self.v2_pend(sym, today, to_w, cur, blk[1])          # lost for today: retry it the next trading morning
                 continue
             fill_px = px * (1 + self.p["valuation"]["paper_slippage"][sym])
             qty = int((to_w - cur) * value / fill_px)
@@ -1203,7 +1330,10 @@ class Engine:
             r = self._fill(sym, "BUY", qty, px, why, "Trend check")
             if not r:
                 self.record("SKIP", sym, 0, px, f"{base}; there was not enough free cash to place the buy.", "Trend check")
+                if mode == "retry":
+                    pend.pop(sym, None)
                 continue
+            pend.pop(sym, None)
             c = pf.counters
             c["buys_today"] = c.get("buys_today", 0) + 1
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
@@ -1214,7 +1344,7 @@ class Engine:
             self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
-            if sym in retry:
+            if sym in retry or mode == "retry":
                 continue
             done["syms"][sym] = "full" if mode == "full" else "exits"
             if not log_target:

@@ -6,9 +6,9 @@ rules; routines only advise (bias, events, defensive fast-lane actions, notes, m
 
 | Name | Schedule (IST) | Cron (UTC) | Model | Trigger | Stored prompt |
 |---|---|---|---|---|---|
-| premarket | 08:50 Mon–Fri | `20 3 * * 1-5` | Opus (+ Haiku subagent for fetching) | schedule | `You are the premarket routine for simulate_gold. Follow routines/premarket.md exactly.` |
-| hourly | 10:15–15:15 hourly, Mon–Fri | `45 4-9 * * 1-5` | Sonnet; ONE Opus subagent on THINK | schedule | `You are the hourly routine for simulate_gold. Follow routines/hourly.md exactly.` |
-| fastlane | on a price shock or news trigger | none | Opus, no subagents | API (engine POST) | `You are the fastlane routine for simulate_gold. Follow routines/fastlane.md exactly.` |
+| premarket | 08:50 Mon–Fri | `20 3 * * 1-5` | Sonnet (no subagent, 5 web calls) | schedule | `You are the premarket routine for simulate_gold. Follow routines/premarket.md exactly.` |
+| hourly | ONE run at 14:40 IST, Mon–Fri | `10 9 * * 1-5` | Sonnet alone | schedule | `You are the hourly routine for simulate_gold. Follow routines/hourly.md exactly.` |
+| fastlane | on a price shock on a HELD symbol (no news wakes) | none | Sonnet, no subagents | API (engine POST) | `You are the fastlane routine for simulate_gold. Follow routines/fastlane.md exactly.` |
 | daily_report | 15:45 Mon–Fri | `15 10 * * 1-5` | Sonnet (+ Haiku subagent for the memory note) | schedule | `You are the daily_report routine for simulate_gold. Follow routines/daily_report.md exactly.` |
 | weekly | Saturday 09:50 | `20 4 * * 6` | Opus (+ Sonnet subagent for stats) | schedule | `You are the weekly routine for simulate_gold. Follow routines/weekly.md exactly.` |
 | incident | on an incident | none | Sonnet triage, escalating to an Opus subagent | API (`incident.yml`, `watchdog.yml`, the engine) | `You are the incident routine for simulate_gold. Follow routines/incident.md exactly.` |
