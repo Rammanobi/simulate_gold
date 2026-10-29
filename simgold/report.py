@@ -16,6 +16,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from simgold import budget, config, holdings as holdings_mod, trend
+from simgold.summary import money_summary, read_archive
 from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
 
 START_CAPITAL = 100_000.0
@@ -726,6 +727,10 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         day["owner_top"] = owner_top(date, root, day)
     except Exception:          # the two top lines are extra; never fail the report over them
         pass
+    try:
+        day["money_summary"] = _money_summary(date, root, day)
+    except Exception:          # the report must never fail over this extra block
+        pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -793,6 +798,17 @@ def _ops_text(day: dict) -> list[str]:
     if day.get("system_health"):
         L += [day["system_health"], ""]
     return L
+
+
+def _money_summary(date: str, root: Path, day: dict) -> dict:
+    """The 'money at a glance' numbers for that day: holdings and trades from state/portfolio.json (+ the trade archive),
+    prices and total from the day's close, yesterday's close from state/equity.csv."""
+    root = Path(root)
+    pf = _read_json(root / "state" / "portfolio.json", {}) or {}
+    prices = {h["symbol"]: h["close"] for h in day.get("holdings_close", []) if h.get("close")}
+    return money_summary(pf, prices, load_equity(root / "state" / "equity.csv"), day["date"], config.load_params(),
+                         archive=read_archive(root / "logs" / "trades-archive.jsonl"),
+                         total=day["portfolio"]["close"], idle_cash=config.idle_is_cash())
 
 
 def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
@@ -1361,6 +1377,93 @@ def _holdings_text(day: dict) -> list[str]:
     return L + [""]
 
 
+# ---------------------------------------------------------------- "Your money at a glance" (simgold/summary.py)
+SUMMARY_TITLE = "Your money at a glance"
+
+
+def _fills_lines(rows: list[dict]) -> list[str]:
+    return [f"{r['symbol']}: " + fill_text(r["qty"], r["price"], r["amount"]) for r in rows]
+
+
+def summary_rows(ms: dict) -> list[dict]:
+    """The seven numbers as display rows: {n, label, note, value, tone (amount or None), sub [(label, value, tone)], lines [str]}.
+    Shared by the HTML and the text email so both say exactly the same."""
+    cash_label = ms.get("idle_label") or "Cash"
+    held = ms.get("metals") or []
+    sub1 = [(f"{m['symbol']}: {m['qty']:,} {_plural(m['qty'], 'unit')} × {inr(m['price'], 2)}", inr(m["value"], 2), None) for m in held]
+    if not held:
+        sub1.append(("Metals: nothing held", inr(0, 2), None))
+    if _round(ms.get("exit_cost", 0), 2) != 0:
+        sub1.append(("Less: estimated cost of selling", "−" + inr(ms["exit_cost"], 2), None))
+    sub1.append((f"{cash_label} (idle money)", inr(ms["cash"], 2), None))
+    buys, sells = ms.get("today_buys") or [], ms.get("today_sells") or []
+    more = lambda n: [(f"+ {n} earlier fills not listed", "", None)] if n else []
+    sub3 = [("Spent on buys today", inr(ms["today_bought"], 2), None)] + more(ms.get("today_buys_more", 0)) \
+        + [(x, "", None) for x in _fills_lines(buys)] \
+        + [("Received from sells today", inr(ms["today_sold"], 2), None)] + more(ms.get("today_sells_more", 0)) \
+        + [(x, "", None) for x in _fills_lines(sells)]
+    live_note = "Gain on what you hold now" if ms.get("held") else "Nothing held, so zero"
+    return [
+        {"n": 1, "label": "Total money now", "note": "What you'd have selling everything now",
+         "value": inr(ms["total_now"], 2), "tone": None, "sub": [], "lines": []},
+        {"n": 2, "label": "Invested in metals now", "note": "Metals held, valued at today's prices",
+         "value": inr(ms["metals_value"], 2), "tone": None, "sub": sub1, "lines": []},
+        {"n": 3, "label": "Today's investment", "note": "Money spent and received today",
+         "value": "", "tone": None, "sub": sub3, "lines": []},
+        {"n": 4, "label": "Overall investment so far", "note": "Total bought and sold since start",
+         "value": "", "tone": None,
+         "sub": [("Bought in total", inr(ms["bought_total"], 2), None), ("Sold in total", inr(ms["sold_total"], 2), None)], "lines": []},
+        {"n": 5, "label": "Today's profit", "note": "Gain or loss since yesterday's close",
+         "value": sg(ms["today_profit"], 2) + ("" if ms.get("today_pct") is None else f" ({pc(ms['today_pct'], 2)})"),
+         "tone": ms["today_profit"], "sub": [], "lines": []},
+        {"n": 6, "label": "Overall profit", "note": f"Gain or loss since {inr(ms['start_capital'])} start",
+         "value": sg(ms["overall_profit"], 2) + ("" if ms.get("overall_pct") is None else f" ({pc(ms['overall_pct'], 2)})"),
+         "tone": ms["overall_profit"], "sub": [], "lines": []},
+        {"n": 7, "label": "Live profit right now", "note": live_note,
+         "value": sg(ms["live_profit"], 2), "tone": ms["live_profit"], "sub": [], "lines": []},
+    ]
+
+
+def summary_breakdown(ms: dict) -> str:
+    b = ms["breakdown"]
+    return (f"Overall profit {sg(ms['overall_profit'], 2)} = booked profit {sg(b['booked'], 2)} + open gain {sg(b['open'], 2)} "
+            f"+ costs paid {sg(b['costs'], 2)} + past {'interest on idle money' if ms.get('idle_cash', True) else 'LIQUIDBEES interest'} "
+            f"{sg(b['interest'], 2)} (before the 22 Oct switch to cash; booked is {sg(b['booked_after_costs'], 2)} after costs).")
+
+
+def _summary_html(ms: dict | None) -> str:
+    if not ms:
+        return ""
+    td = f"font-family:{FONT};"
+    out = ""
+    for r in summary_rows(ms):
+        color = _tone_color(r["tone"]) if r["tone"] is not None else INK
+        out += (f'<tr><td valign="top" style="padding:12px 8px 4px 0;{td}border-top:1px solid #e5e7eb;font-size:16px;font-weight:700;color:{INK};">'
+                f'{esc(r["label"])}<div style="font-size:13px;font-weight:400;color:#6b7280;padding-top:2px;">{esc(r["note"])}</div></td>'
+                f'<td align="right" valign="top" style="padding:12px 0 4px 0;{td}border-top:1px solid #e5e7eb;font-size:18px;font-weight:800;color:{color};white-space:nowrap;">{esc(r["value"])}</td></tr>\n')
+        for lab, val, _ in r["sub"]:
+            out += (f'<tr><td style="padding:2px 8px 2px 14px;{td}font-size:13px;line-height:18px;color:#4b5563;">{esc(lab)}</td>'
+                    f'<td align="right" valign="top" style="padding:2px 0;{td}font-size:13px;color:#4b5563;white-space:nowrap;">{esc(val)}</td></tr>\n')
+    out += (f'<tr><td colspan="2" style="padding:14px 0 4px 0;{td}font-size:13px;line-height:19px;color:#4b5563;border-top:1px solid #e5e7eb;">'
+            f'{esc(summary_breakdown(ms))}</td></tr>\n')
+    return (f'<tr><td style="padding:18px 20px 0 20px;{td}font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:#6b7280;">{esc(SUMMARY_TITLE)}</td></tr>'
+            f'<tr><td style="padding:4px 20px 8px 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">\n{out}</table></td></tr>\n'
+            + _section("Details"))
+
+
+def _summary_text(ms: dict | None) -> list[str]:
+    if not ms:
+        return []
+    L = [SUMMARY_TITLE.upper(), ""]
+    for r in summary_rows(ms):
+        L.append(f"{r['n']}. {r['label']}" + (f": {r['value']}" if r["value"] else ""))
+        L.append(f"   ({r['note']})")
+        for lab, val, _ in r["sub"]:
+            L.append(f"   - {lab}" + (f": {val}" if val else ""))
+    L += ["", summary_breakdown(ms), "", "DETAILS", ""]
+    return L
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     p = day["portfolio"]
@@ -1388,7 +1491,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _holdings_html(day) + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
-        return head + _owner_top_html(day) + body + _ops_html(day) + foot
+        return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + body + _ops_html(day) + foot
 
     pnl = p["day_pnl"]
     r = _round(pnl)
@@ -1497,7 +1600,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + _owner_top_html(day) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1513,6 +1616,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     when = f"{day['weekday']} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     L += _owner_top_text(day)
+    L += _summary_text(day.get("money_summary"))
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
               *_holdings_text(day), "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),

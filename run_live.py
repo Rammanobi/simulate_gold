@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 
-from simgold import alerts, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, trend
+from simgold import alerts, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -159,8 +159,12 @@ class Live:
                 self.tick_prev = livepnl.prev_tick_closes(LOGS, day, self.p["instruments"])
                 self.tick_prev_day = day
             basis = {**self.live_prev, **self.tick_prev}
+            if getattr(self, "arch_day", None) != day:      # older trades for the 'since start' totals, read once a day
+                self.arch_trades = summary.read_archive(TRADES_ARCHIVE)
+                self.arch_day = day
             d = livepnl.build(pf, prices, basis, livepnl.read_equity(EQUITY_PATH), self.p, ts, self.series,
-                              feed_ok=feed_ok, market_open=market_open, price_ts=self.live_ts)
+                              feed_ok=feed_ok, market_open=market_open, price_ts=self.live_ts,
+                              archive_trades=getattr(self, "arch_trades", None))
             payload = livepnl.dumps(d)
             livepnl.write_local(STATE / "live_now.json", payload)       # engine-owned; also pushed to the `live` branch
             if t0 is not None and time.time() - t0 > LIVE_BUDGET_S:
