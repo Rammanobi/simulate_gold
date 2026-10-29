@@ -21,7 +21,7 @@ on:
 
 permissions:
   contents: write
-  actions: read       # simgold/runguard.py: is an older engine run already in progress? then this one exits
+  actions: write      # simgold/runguard.py reads this workflow's runs; the last step dispatches the next session (workflow_dispatch made with GITHUB_TOKEN does start a run)
 
 concurrency:
   group: paper-trader
@@ -85,6 +85,29 @@ jobs:
         # simgold-append union driver instead) -> push, 3 tries, and a merge fallback when a rebase cannot finish
         run: |
           python -c "import pathlib, sys; from simgold import gitsync; sys.exit(0 if gitsync.sync(pathlib.Path('.')) else 1)"
+      - name: Start the next session (engine starts its own afternoon session)
+        if: always()
+        # Owner-required 2026-10-29: the hourly Claude routine no longer dispatches the engine. On a trading day, before 15:25 IST,
+        # dispatch the next run of this workflow unless another run (not this one) is already queued or in progress. It waits in the
+        # paper-trader concurrency group (cancel-in-progress stays false) and starts when this run ends.
+        run: |
+          NOW=$(date +%H%M)
+          TRADING=$(python -c "from simgold.market import now_ist, is_trading_day; print(is_trading_day(now_ist().date()))" 2>/dev/null || echo unknown)
+          if [ "$TRADING" != "True" ]; then
+            echo "next session: not dispatched (trading day: $TRADING)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          if [ "$NOW" -ge 1525 ]; then
+            echo "next session: not dispatched (IST $NOW is at or after 15:25)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          OTHERS=$(gh api "repos/${{ github.repository }}/actions/workflows/market-hours.yml/runs?per_page=20" --jq "[.workflow_runs[] | select(.status != \"completed\" and (.id | tostring) != \"$GITHUB_RUN_ID\")] | length" 2>/dev/null || echo unknown)
+          if [ "$OTHERS" != "0" ]; then
+            echo "next session: not dispatched (other market-hours runs queued or in progress: $OTHERS)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          if gh api -X POST "repos/${{ github.repository }}/actions/workflows/market-hours.yml/dispatches" -f ref=main -f 'inputs[session]=auto'; then
+            echo "next session: dispatched at IST $NOW (no other run queued)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "next session: dispatch FAILED at IST $NOW (the hourly routine's fallback dispatch still applies)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Fail the run so the incident pipeline alerts (pytest failed on main)
         if: always() && steps.tests.outcome == 'failure'
         run: |

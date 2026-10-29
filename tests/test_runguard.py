@@ -47,4 +47,4 @@ def test_run_live_checks_the_guard_before_the_lock_and_pulls_main():
     assert src.index("runguard.older_engine_run") < src.index("acquire_lock(STATE") < src.index("gitsync.pull_latest")
     assert src.index("gitsync.pull_latest") < src.index("live = Live(")
     wf = (Path(__file__).resolve().parent.parent / ".github" / "workflows" / "market-hours.yml").read_text()
-    assert "ref: main" in wf and "actions: read" in wf and "GH_TOKEN" in wf
+    assert "ref: main" in wf and "actions: write" in wf     # write includes the read the guard needs; 29 Oct 2026 and "GH_TOKEN" in wf
