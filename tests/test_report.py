@@ -187,7 +187,7 @@ def test_market_holiday_short_email(tmp_path):
     assert day["closed"] and "Gandhi Jayanti" in day["one_line_summary"]
     paths = report.write_reports(day, tmp_path / "out", "2026-10-02", TEMPLATE)
     email = paths["email"].read_text(encoding="utf-8")
-    assert "Market closed" in email and "What I did" not in email and len(email) < 24000   # incl. the money-at-a-glance block and the 'Where your money is' section
+    assert "Market closed" in email and "What I did" not in email and len(email) < 30000   # incl. the money-at-a-glance block and the 'Where your money is' section
     assert report.subject_line(day).endswith("Market closed")
     # weekends are closed too, and --holiday forces it
     assert report.build_day("2026-10-10", root)["closed"]

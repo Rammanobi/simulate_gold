@@ -13,7 +13,7 @@ import portfolio_fixtures as pfx  # noqa: E402
 from simgold import config, report, summary  # noqa: E402
 
 NAMES = ("all_cash", "one_holding", "three_holdings", "loss", "bought_today", "many_trades")
-STYLES = ("A", "B")
+STYLES = ("AB", "A", "B")
 
 
 @pytest.fixture(scope="module")
@@ -34,12 +34,15 @@ def test_split_cells_adds_up():
 
 
 def test_style_comes_from_config_and_defaults_to_a():
-    assert summary.portfolio_style({}) == "A" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
-    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "A"
+    assert summary.portfolio_style({}) == "AB" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
+    assert summary.portfolio_style({"report": {"portfolio_style": "a"}}) == "A"
+    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "AB"
+    assert config.load_params()["report"]["portfolio_style"] == "AB"
     assert summary.portfolio_style(config.load_params()) in STYLES
 
 
 def test_style_is_carried_in_the_summary(days):
+    assert days["AB"]["bought_today"]["money_summary"]["funds"]["style"] == "AB"
     assert days["A"]["bought_today"]["money_summary"]["funds"]["style"] == "A"
     assert days["B"]["bought_today"]["money_summary"]["funds"]["style"] == "B"
     d = days["B"]["bought_today"]
@@ -62,8 +65,10 @@ def test_renders_every_fund_and_reconciles(days, style, name):
     html = blocks(day, style)
     assert report.FUNDS_TITLE in html and "<svg" not in html.lower() and "<script" not in html.lower()
     for r in f["rows"]:
-        label = report.FUND_NAMES[r["metal"]] if style == "B" else (r["symbol"] if r["kind"] == "fund" else "Cash")
-        assert label in html, (style, name, label)
+        labels = ([report.FUND_NAMES[r["metal"]]] if style in ("B", "AB") else []) + ([r["symbol"]] if style in ("A", "AB") and r["kind"] == "fund" else [])
+        assert labels or style == "A" and r["kind"] == "cash"
+        for label in labels:
+            assert label in html, (style, name, label)
         if r["kind"] == "fund" and r["held"]:
             assert report.inr(r["value"]) in html and report.inr(r["invested"]) in html and f'{r["units"]:,}' in html
             assert report.sg(r["profit"]) in html and report.pc(r["profit_pct"], 2) in html
@@ -75,10 +80,13 @@ def test_renders_every_fund_and_reconciles(days, style, name):
     assert abs(sum(_p(r["value"]) for r in f["rows"]) - _p(ms["cash"]) - _p(ms["metals_value"] if "metals_value" in ms else
               sum(m["value"] for m in ms["metals"]))) < 2
     assert t["value"] == ms["total_now"]
-    if style == "A":
+    if style in ("A", "AB"):
         assert report.inr(ms["total_now"], 2) in html and f["sentence"] in html.replace("&amp;", "&")
-        assert html.count("bgcolor=") >= 1
-    else:
+        assert 1 <= html.count("bgcolor=") < 100                      # the stacked bar (and card strips), never the waffle
+    if style in ("B", "AB"):
+        assert "Shares</td>" in html and "Buy price" in html and "Price now" in html
+        assert f"on {report.inr(t['invested'])} invested" in html and "Profit on the money invested" in html
+    if style == "B":
         assert html.count('bgcolor="#') >= 100 or name == "all_cash"           # the 10 x 10 waffle
 
 
@@ -101,7 +109,7 @@ def test_width_and_email_safety(days, style, name):
     assert all(int(x) <= 720 for x in re.findall(r"(?<![-\w])width:(\d+)px", html))
     for bad in ("conic-gradient", "<style", "position:absolute", "display:flex", "display:grid", "<img", "<canvas"):
         assert bad not in html
-    assert len(html) < 45_000                                         # the whole email must stay under Gmail's ~102 KB clip
+    assert len(html) < 50_000                                         # the whole email must stay under Gmail's ~102 KB clip
 
 
 @pytest.mark.parametrize("style", STYLES)
@@ -145,3 +153,28 @@ def test_bought_today_numbers(days):
 def test_dashboard_template_has_both_styles():
     t = (pfx.REPO / "docs" / "dashboard" / "template.html").read_text(encoding="utf-8")
     assert "f.style===\"B\"" in t and "pfDonut" in t and 'class="bar"' in t
+
+
+def test_ab_order_sentence_bar_cards_table_tiles_trades(days):
+    html = report._funds_html(days["AB"]["bought_today"]) + report._trades_html(days["AB"]["bought_today"])
+    marks = ["is in gold", "Total money now", "Gold</b>", "GOLDBEES", "Buy price", "Today's profit", report.TRADES_TITLE]
+    pos = [html.index(m) for m in marks]
+    assert pos == sorted(pos), dict(zip(marks, pos))
+    assert "bgcolor=\"#c9a227\"" in html and html.count("bgcolor=") < 100
+
+
+def test_total_row_percent_is_labelled_as_on_money_invested(days):
+    html = report._funds_html(days["AB"]["three_holdings"], "AB")
+    f = days["AB"]["three_holdings"]["money_summary"]["funds"]["total"]
+    assert f"{report.pc(f['profit_pct'], 2)} </b>" not in html
+    assert f"{report.sg(f['profit'])} · {report.pc(f['profit_pct'], 2)}</b> on {report.inr(f['invested'])} invested" in html
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_full_email_has_no_duplicate_sections_and_tiles_stack(days, style):
+    page = report.render_email(days[style]["bought_today"])
+    assert "Every purchase so far" not in page and "Your holdings" not in page
+    assert report.FUNDS_TITLE in page and report.TRADES_TITLE in page
+    assert 'width="33%"' not in page and "display:inline-block;vertical-align:top;width:100%;max-width:186px" in page
+    closed = dict(days[style]["bought_today"], closed=True)
+    assert "Every purchase so far" not in report.render_email(closed)

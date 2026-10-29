@@ -20,7 +20,7 @@ START_CAPITAL = 100_000.0
 BOOK_KEYS = ("ts", "asset", "side", "qty", "price")
 FUNDS = (("GOLDBEES", "Gold ETF"), ("SILVERBEES", "Silver ETF"), ("HINDCOPPER", "Copper share"))
 METAL = {"GOLDBEES": "gold", "SILVERBEES": "silver", "HINDCOPPER": "copper", "CASH": "cash"}
-STYLES = ("A", "B")
+STYLES = ("A", "B", "AB")
 MAX_FILLS = 12          # fills listed per side; the totals always cover all of them (keeps the dashboard document small)
 
 
@@ -109,9 +109,10 @@ def _pct0(part: int, whole: int) -> str:
 
 
 def portfolio_style(params: dict | None) -> str:
-    """report.portfolio_style: 'A' (cards + bar, default) or 'B' (donut + table); anything else falls back to A."""
-    v = str(((params or {}).get("report") or {}).get("portfolio_style", "A")).strip().upper()
-    return v if v in STYLES else "A"
+    """report.portfolio_style: 'AB' (cards + bar, then the table; default), 'A' (cards + bar) or 'B' (donut/waffle + table);
+    anything else falls back to AB."""
+    v = str(((params or {}).get("report") or {}).get("portfolio_style", "AB")).strip().upper()
+    return v if v in STYLES else "AB"
 
 
 def _inr0(p: int) -> str:
@@ -132,7 +133,7 @@ def _sentence(rows: list[dict], base_p: int, idle_p: int, overall_p: int | None)
 
 
 def funds_table(metals: list[dict], prices: dict, positions: dict, gross_p: int, exit_p: int, idle_p: int, total_p: int,
-                idle_cash: bool = True, overall_p: int | None = None, style: str = "A") -> dict:
+                idle_cash: bool = True, overall_p: int | None = None, style: str = "AB") -> dict:
     """'Where your money is': one row per fund (always all three, held or not), cash, and a total, from the same paise
     that money_summary() uses, so it matches the glance block to the paisa.
 
@@ -165,7 +166,7 @@ def funds_table(metals: list[dict], prices: dict, positions: dict, gross_p: int,
              "exit_cost": _r(exit_p)}
     sentence = _sentence(rows, base_p, idle_p, overall_p)
     total["overall_profit"] = _r(overall_p) if overall_p is not None else None
-    return {"rows": rows, "total": total, "sentence": sentence, "style": style if style in STYLES else "A"}
+    return {"rows": rows, "total": total, "sentence": sentence, "style": style if style in STYLES else "AB"}
 
 
 def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: dict | None = None,

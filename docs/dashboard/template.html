@@ -434,7 +434,8 @@ function render(){
   const mc=document.getElementById("moneycard"), mh=moneyHTML(d.money);
   mc.hidden=!mh; document.getElementById("moneybody").innerHTML=mh;
   const fh=fundsHTML(d.money), fc=document.getElementById("fundscard");
-  fc.hidden=!fh; document.getElementById("fundsbody").innerHTML=fh; document.getElementById("tradesbody").innerHTML=fh?tradesHTML(d):"";
+  fc.hidden=!fh; document.getElementById("fundsbody").innerHTML=fh;
+  for(const id of ["holdcard","ledcard"]){const el=document.getElementById(id); if(el) el.hidden=!!fh;} document.getElementById("tradesbody").innerHTML=fh?tradesHTML(d):"";   // holdings + ledger: same data, shown once above
   const cush=d.cushion;
   document.getElementById("kpis").innerHTML = [
     ["Today's profit",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}% · this day only`],
@@ -619,33 +620,37 @@ function pfDonut(rows){
   const arcs=tot>0?rows.filter(r=>r.value>0).map(r=>{const l=C*r.value/tot, a=`<circle r="${R}" cx="85" cy="85" fill="none" stroke="${PFC[r.metal]}" stroke-width="26" stroke-dasharray="${l.toFixed(2)} ${(C-l).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 85 85)"><title>${PFN[r.metal]} ${pfPct(r)}</title></circle>`; off+=l; return a}).join(""):`<circle r="${R}" cx="85" cy="85" fill="none" stroke="var(--line)" stroke-width="26"/>`;
   return arcs;
 }
+function pfTable(m,rows,f,c,pr){
+  const trs=rows.map(r=>{
+    const nm=`<td><span class="sw" style="--c:${PFC[r.metal]}"></span><b>${r.kind==="cash"?"Cash":esc(r.symbol)}</b><small>${esc(r.label)}</small></td>`;
+    if(r.kind==="cash") return `<tr>${nm}<td class="nh" colspan="3">idle money</td><td>–</td><td><b>${inr(r.value,0)}</b></td><td>–</td><td>${pfPct(r)}</td></tr>`;
+    if(!r.held) return `<tr>${nm}<td class="nh" colspan="3">not held</td><td>${r.price?inr(r.price,2):"–"}</td><td><b>${inr(0,0)}</b></td><td>${inr(0,0)}</td><td>0%</td></tr>`;
+    return `<tr>${nm}<td>${Number(r.units).toLocaleString("en-IN")}</td><td>${inr(r.avg_price,2)}</td><td>${inr(r.invested,0)}</td><td>${inr(r.price,2)}</td><td><b>${inr(r.value,0)}</b></td><td class="${c(r.profit)}">${pr(r)}</td><td>${pfPct(r)}</td></tr>`;}).join("");
+  const t=f.total||{}, tot=`<tr class="tot"><td>Total</td><td></td><td></td><td>${inr(t.invested,0)}</td><td></td><td>${inr(t.value,0)}</td><td class="${c(t.profit)}">${sgn(t.profit,0)}</td><td>100%</td></tr>`;
+  const inv=`<p class="fsent" style="color:var(--muted);font-size:12.5px;margin-top:6px">Profit on the money invested: <b class="${c(t.profit)}">${sgn(t.profit,0)} · ${(t.profit_pct>=0?"+":"−")+Math.abs(t.profit_pct||0).toFixed(2)}%</b> on ${inr(t.invested,0)} invested</p>`;
+  return `<div class="fscroll"><table class="fd"><thead><tr><th>Fund</th><th>Shares</th><th>Buy price</th><th>Cost<small>incl. buy costs</small></th><th>Price now</th><th>Value</th><th>Profit</th><th>Share</th></tr></thead><tbody>${trs}${tot}</tbody></table></div>${inv}`;
+}
 function fundsHTML(m){
   const f=m&&m.funds; if(!f||!Array.isArray(f.rows)) return "";
   const rows=f.rows.map(r=>({...r,metal:r.metal||(r.kind==="cash"?"cash":"gold")}));
   const c=x=>x>0?"pos":x<0?"neg":"", pr=r=>`${sgn(r.profit,0)}<small>${r.profit_pct==null?"":(r.profit_pct>=0?"+":"−")+Math.abs(r.profit_pct).toFixed(2)+"%"}</small>`;
   const legend=`<div class="leg">${rows.map(r=>`<span style="--x:${PFC[r.metal]}"><b>${PFN[r.metal]}</b> ${inr(r.value,0)} · ${pfPct(r)}</span>`).join("")}</div>`;
-  const note=`<p class="fsent" style="color:var(--muted);font-size:12.5px">Money paid includes buying costs; total value and profit are after the estimated cost of selling.</p>`;
-  if(f.style==="B"){
-    const trs=rows.map(r=>{
-      const nm=`<td><span class="sw" style="--c:${PFC[r.metal]}"></span><b>${r.kind==="cash"?"Cash":esc(r.symbol)}</b><small>${esc(r.label)}</small></td>`;
-      if(r.kind==="cash") return `<tr>${nm}<td class="nh" colspan="3">idle money</td><td>–</td><td><b>${inr(r.value,0)}</b></td><td>–</td><td>${pfPct(r)}</td></tr>`;
-      if(!r.held) return `<tr>${nm}<td class="nh" colspan="3">not held</td><td>${r.price?inr(r.price,2):"–"}</td><td><b>${inr(0,0)}</b></td><td>${inr(0,0)}</td><td>0%</td></tr>`;
-      return `<tr>${nm}<td>${Number(r.units).toLocaleString("en-IN")}</td><td>${inr(r.avg_price,2)}</td><td>${inr(r.invested,0)}</td><td>${inr(r.price,2)}</td><td><b>${inr(r.value,0)}</b></td><td class="${c(r.profit)}">${pr(r)}</td><td>${pfPct(r)}</td></tr>`;}).join("");
-    const t=f.total||{}, tot=`<tr class="tot"><td>Total</td><td></td><td></td><td>${inr(t.invested,0)}</td><td></td><td>${inr(t.value,0)}</td><td class="${c(t.profit)}">${pr(t)}</td><td>100%</td></tr>`;
-    return `<div class="pf"><div class="donut"><svg viewBox="0 0 170 170" role="img" aria-label="Where the money is">${pfDonut(rows)}<text x="85" y="80" text-anchor="middle" font-size="11" fill="var(--muted)">Total money now</text><text x="85" y="100" text-anchor="middle" font-size="17" font-weight="800" fill="var(--ink)">${inr(m.total_now,0)}</text></svg><div>${legend}</div></div>
-<div class="fscroll"><table class="fd"><thead><tr><th>Fund</th><th>Shares</th><th>Buy price</th><th>Cost<small>incl. buy costs</small></th><th>Price now</th><th>Value</th><th>Profit</th><th>Share</th></tr></thead><tbody>${trs}${tot}</tbody></table></div>${pfTiles(m)}${note}</div>`;
+  const note=`<p class="fsent" style="color:var(--muted);font-size:12.5px">Cost includes buying costs; total value and profit are after the estimated cost of selling.</p>`;
+  const style=f.style==="A"||f.style==="B"?f.style:"AB";
+  if(style==="B"){
+    return `<div class="pf"><div class="donut"><svg viewBox="0 0 170 170" role="img" aria-label="Where the money is">${pfDonut(rows)}<text x="85" y="80" text-anchor="middle" font-size="11" fill="var(--muted)">Total money now</text><text x="85" y="100" text-anchor="middle" font-size="17" font-weight="800" fill="var(--ink)">${inr(m.total_now,0)}</text></svg><div>${legend}</div></div>${pfTable(m,rows,f,c,pr)}${pfTiles(m)}${note}</div>`;
   }
   const bar=rows.filter(r=>r.share_pct>0).map(r=>`<i style="width:${Math.max(r.share_pct,1)}%;background:${PFC[r.metal]}">${r.share_pct>=9?pfPct(r):""}</i>`).join("")||`<i style="width:100%;background:${PFC.cash}"></i>`;
   const cards=rows.filter(r=>r.kind==="fund").map(r=>r.held
     ? `<div class="fc" style="--x:${PFC[r.metal]}"><div class="nm">${esc(r.symbol)}<small>${esc(r.label)}</small></div><div class="pl ${c(r.profit)}">${sgn(r.profit,0)}<small>${(r.profit_pct>=0?"+":"−")+Math.abs(r.profit_pct).toFixed(2)}%</small></div><div class="ln">${Number(r.units).toLocaleString("en-IN")} shares × ${inr(r.price,2)} = ${inr(r.value,0)}</div><div class="ln2">You paid ${inr(r.invested,0)} incl. costs (${inr(r.invested/r.units,2)} each; ${inr(r.avg_price,2)} before costs)</div></div>`
     : `<div class="fc off" style="--x:${PFC[r.metal]}"><b style="color:var(--ink)">${esc(r.symbol)}</b> · ${esc(r.label)} · Not held${r.price?" · price now "+inr(r.price,2):""}</div>`).join("");
-  return `<div class="pf"><p class="sent">${esc(f.sentence||"")}</p>${pfTotal(m)}<div class="bar">${bar}</div>${legend}<div class="cards">${cards}</div>${pfTiles(m)}${note}</div>`;
+  return `<div class="pf"><p class="sent">${esc(f.sentence||"")}</p>${pfTotal(m)}<div class="bar">${bar}</div>${legend}<div class="cards">${cards}</div>${style==="AB"?`<div style="margin-top:14px">${pfTable(m,rows,f,c,pr)}</div>`:""}${pfTiles(m)}${note}</div>`;
 }
 function tradesHTML(d){
   const led=Array.isArray(d.ledger)?d.ledger:[]; if(!led.length) return `<p class="fsent">No buys or sells yet.</p>`;
-  const total=d.ledger_total!=null?d.ledger_total:led.length, shown=led.slice(0,30);
-  const style=d.money&&d.money.funds&&d.money.funds.style;
-  const more=total>shown.length?`<p class="fsent" style="color:var(--muted);font-size:12.5px">and ${total-shown.length} older (see “Every purchase” below for all of them)</p>`:"";
+  const total=d.ledger_total!=null?d.ledger_total:led.length, shown=led;
+  const style=d.money&&d.money.funds&&d.money.funds.style;   // AB and A: a list; B: a table
+  const more=total>shown.length?`<p class="fsent" style="color:var(--muted);font-size:12.5px">and ${total-shown.length} older not shown here</p>`:"";
   const chip=e=>`<span class="sd" style="--c:var(${e.side==="BUY"?"--buy":"--sell"})">${e.side==="BUY"?"Buy":"Sell"}</span>`;
   const prof=e=>e.side==="SELL"&&e.pnl!=null?sgn(e.pnl,2):"";
   if(style!=="B") return `<div class="pf">${shown.map(e=>`<div class="tl"><div>${esc(e.date)} · <b>${esc(e.symbol)}</b> ${chip(e)}<small>${Number(e.units).toLocaleString("en-IN")} × ${px4(e.price)} = ${inr(e.amount,2)}${e.costs==null?"":" · costs "+inr(e.costs,2)}</small></div><div class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}"><b>${prof(e)}</b></div></div>`).join("")}</div>${more}`;

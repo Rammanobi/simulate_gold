@@ -16,9 +16,10 @@ capital:
   min_cash_pct: 0.30
 
 # How the daily email and the dashboard draw "Where your money is" (owner picks after the previews).
-#   A = cards + stacked bar (one card per fund), B = donut + table.
+#   AB = A then B (default, owner choice): sentence + total + stacked bar + one card per fund, then the fund table.
+#   A = cards + stacked bar only, B = donut (email: waffle) + table only.
 report:
-  portfolio_style: A                # A | B
+  portfolio_style: AB               # AB | A | B
 
 valuation:
   mark: ltp_minus_exit_cost          # value is net of round-trip/2 exit cost
