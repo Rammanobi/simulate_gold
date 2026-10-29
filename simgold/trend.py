@@ -201,6 +201,7 @@ class TrendInfo:
     rsi: float | None
     exit_level: float | None   # where the trend would turn OFF (informational; shown as the position's "stop")
     row: dict                  # the raw last row of frame(), for the reason texts
+    held_off: str | None = None   # set by the engine: stopped out intraday and not yet re-armed, so the state is forced OFF (reason text)
 
 
 def _f(x):
@@ -240,6 +241,8 @@ def describe(i: TrendInfo, st: dict) -> tuple[str, str]:
     'GOLDBEES trend ON (close 121.40 > SMA200 118.90)' or 'Trend ON: close 121.40 > SMA200 118.90'."""
     r, c = i.row, i.close
     state = "ON" if i.on else "OFF"
+    if i.held_off:
+        return state, i.held_off
     if i.kind == "sma_trend":
         n, b = st["sma_days"], st["sma_hysteresis"]
         sma = r.get("sma")
@@ -265,6 +268,52 @@ def describe(i: TrendInfo, st: dict) -> tuple[str, str]:
         return state, (f"close {_px(c)} < exit level {_px(stop)} = max(peak close {_px(peak)} - {k:g} x "
                        f"ATR{st['atr_days']} {_px(a)}, {nx}-day low {_px(ll)})")
     return state, f"close {_px(c)} is not above the {ne}-day high {_px(hh)}"
+
+
+# ---------------------------------------------------------------- stop-loss package D5-S (strategy.stops)
+def next_exit_parts(close, high, low, st: dict) -> dict | None:
+    """The trend exit level for the NEXT session, from completed bars only (pure; used for the intraday stop of
+    strategy.stops.intraday_exit). level = max(peak close since entry - atr_mult x ATR, lowest low of the last
+    donchian_exit_days completed bars), only while the Donchian state is ON at the last completed bar.
+    Returns {"level", "peak", "atr", "low"} or None (state OFF, or not enough history)."""
+    n = len(close)
+    if n < st["donchian_entry_days"] + 1:
+        return None
+    df = frame(close, high, low, "donchian", st)
+    last = df.iloc[-1]
+    if not bool(last["on"]):
+        return None
+    peak, at = _f(last["peak"]), _f(last["atr"])
+    lo = _f(min(float(x) for x in list(low)[-int(st["donchian_exit_days"]):]))
+    if peak is None or at is None or lo is None:
+        return None
+    return {"level": max(peak - st["atr_mult"] * at, lo), "peak": peak, "atr": at, "low": lo}
+
+
+def next_exit_level(close, high, low, st: dict) -> float | None:
+    """Pure: the level for the next session (see next_exit_parts), or None while the trend is OFF."""
+    parts = next_exit_parts(close, high, low, st)
+    return parts["level"] if parts else None
+
+
+def next_exit_levels(df: pd.DataFrame, low, st: dict) -> pd.Series:
+    """Vector form for the backtest: for every row of a Donchian frame() the level for the session AFTER that row
+    (NaN while the state is OFF at that row)."""
+    lows = pd.Series(np.asarray(low, dtype=float), index=df.index)
+    ll = lows.rolling(int(st["donchian_exit_days"])).min()
+    lvl = np.maximum(df["peak"] - st["atr_mult"] * df["atr"], ll)
+    return lvl.where(df["on"] > 0)
+
+
+def floor_weight(w_detail, weights: dict, st: dict, brake_level: int = 0) -> float:
+    """Weight of the gold floor: max(0, min_invested - sum of the other (satellite) weights); 0 at brake level 2 or when the
+    floor is off. weights: {sym: weight} (targets or current). w_detail is the target_weights_ex detail (kept for the call
+    signature; the floor is a pure function of the satellite weights)."""
+    mi = float(st.get("min_invested") or 0.0)
+    if mi <= 0 or int(brake_level) >= 2:
+        return 0.0
+    g = st.get("floor_symbol", "GOLDBEES")
+    return max(0.0, mi - sum(float(v) for s, v in weights.items() if s != g))
 
 
 # ---------------------------------------------------------------- target weights

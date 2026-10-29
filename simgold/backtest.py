@@ -91,6 +91,8 @@ def load_csv_frames(data_dir, symbols: list[str]) -> dict[str, pd.DataFrame]:
         out[f] = out[f].where(out[f] > 0).fillna(out["close"])
     out["high"] = np.maximum(out["high"], out["close"])
     out["low"] = np.minimum(out["low"], out["close"])
+    op = long.pivot(index="date", columns="symbol", values="open").reindex(cal)[symbols]
+    out["open"] = op.where(op > 0)                      # real opens only (0 = none); used by strategy.stops.intraday_exit
     return out
 
 
@@ -138,6 +140,15 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
     y = p["capital"]["liquid_yield_annual"]
     cap0 = float(p["capital"]["start"])
     hold = {s: 0.0 for s in syms}
+    # stop-loss package D5-S: the trend exit level of the intraday-exit symbols is enforced on the day's open / low
+    # (the level is known before the open; it fills at min(open, level) less the extra stop slippage; no re-entry before
+    # a close above the prior 55-day high). Absent or [] = the older daily-close behaviour, byte for byte.
+    scfg = st.get("stops") or {}
+    xsyms = [s for s in (scfg.get("intraday_exit") or []) if s in syms]
+    extra_slip = float(scfg.get("backtest_slippage", 0.001))
+    xlvl = {s: _trend.next_exit_levels(tbl[s], frames["low"][s], st).shift(1) for s in xsyms}
+    xopen = frames.get("open")
+    xstop = {s: False for s in xsyms}
     cash, brake, pending = cap0, None, []
     eq, gross, wlog, blog, tlog = [], [], [], [], []
     prev = None
@@ -161,6 +172,27 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
     for d in idx:
         if prev is not None:
             cash *= (1 + y / 365.0) ** (d - prev).days
+            stopped = set()
+            for s in xsyms:
+                lv = xlvl[s].at[d] if d in xlvl[s].index else np.nan
+                if hold[s] <= 1e-6 or np.isnan(lv) or np.isnan(c.at[prev, s]):
+                    continue
+                op = float(xopen.at[d, s]) if xopen is not None and not np.isnan(xopen.at[d, s]) else np.nan
+                lo = frames["low"].at[d, s]
+                if not np.isnan(op) and op <= lv:
+                    fill = op                                           # a gap under the level: sold at the open
+                elif not np.isnan(lo) and lo <= lv:
+                    fill = lv                                           # touched during the day: sold at the level
+                else:
+                    continue
+                proceeds = hold[s] * fill * (1 - extra_slip) / c.at[prev, s]
+                cash += proceeds * (1 - cost[s])
+                tlog.append((d, s, -hold[s], "stop"))
+                hold[s] = 0.0
+                stopped.add(s)
+                xstop[s] = True
+            if stopped:
+                pending = [o for o in pending if o[0] not in stopped]
             for s in syms:
                 hold[s] *= 1 + rets.at[d, s]
         V = cash + sum(hold.values())
@@ -171,6 +203,15 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
         rows = {s: tbl[s].loc[d] for s in syms}
         valid = {s: not np.isnan(c.at[d, s]) and not np.isnan(rows[s]["sigma"]) for s in syms}
         on = {s: bool(rows[s]["on"]) and valid[s] for s in syms}
+        for s in xsyms:
+            if xstop[s]:
+                hh = rows[s]["hh"]
+                if not on[s]:
+                    xstop[s] = False                                    # the daily rule confirms the exit
+                elif not np.isnan(hh) and c.at[d, s] > hh:
+                    xstop[s] = False                                    # a new 55-day high: re-armed
+                else:
+                    on[s] = False                                       # stopped out: no re-entry yet
         brake = _trend.brake_update(brake, V, on, st, cap0)
         mult = _trend.brake_mult(brake["level"], st)
         w, _scale = _trend.target_weights({s: (on[s], rows[s]["sigma"]) for s in syms}, st, mult, brake["reconfirm"])

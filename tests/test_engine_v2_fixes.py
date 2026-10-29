@@ -175,9 +175,12 @@ def test_tighten_stop_is_logged_kept_apart_and_enforced_every_tick(tmp_path):
     low = {s: float(UP[s][301]) for s in SYMS}
     low["SILVERBEES"] = stop - 0.01
     run_tick(pf, mk(UP, 301, 11, 5, prices=low), env)
+    assert "SILVERBEES" in pf.positions                                 # D5-S: one price under the stop is not enough
+    run_tick(pf, mk(UP, 301, 11, 6, prices=low), env)
     assert "SILVERBEES" not in pf.positions
     sells = [d for d in decs(env, 301) if d["action"] == "SELL" and d["symbol"] == "SILVERBEES"]
-    assert sells and sells[0]["trigger"] == "Opus guidance" and sells[0]["time"] == "11:05"
+    assert sells and sells[0]["trigger"] == "Opus guidance" and sells[0]["time"] == "11:06"
+    assert "two fresh prices" in sells[0]["reason"] and " × " in sells[0]["reason"] and " = ₹" in sells[0]["reason"]
     run_tick(pf, mk(UP, 301, 15, 10), env)
     assert "SILVERBEES" not in pf.positions                             # and not bought back that day
 
@@ -296,6 +299,8 @@ def test_v1_to_v2_first_tick_keeps_v1_stops_and_the_floor_becomes_the_account_st
     low = {s: float(UP[s][300]) for s in SYMS}
     low["GOLDBEES"] = 98.0
     run_tick(pf, mk(UP, 300, 10, 1, prices=low), env)
+    assert "GOLDBEES" in pf.positions                                                      # D5-S: the second fresh price confirms
+    run_tick(pf, mk(UP, 300, 10, 2, prices=low), env)
     assert "GOLDBEES" not in pf.positions
 
 

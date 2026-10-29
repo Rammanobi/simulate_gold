@@ -761,6 +761,22 @@ class Engine:
             except Exception:
                 log.exception("trend state failed for %s", sym)
                 out[sym] = None
+        xs = self.v2_state().get("xstop")
+        if isinstance(xs, dict):
+            for sym in list(xs):
+                i = out.get(sym)
+                if i is None:
+                    continue
+                hh = i.row.get("hh")
+                if not i.on:
+                    if self.now.time() >= guard.hhmm(self.st["check_time"]):
+                        xs.pop(sym, None)                       # the daily check confirms the exit: the ordinary rules take over
+                elif hh is not None and i.close > hh:
+                    xs.pop(sym, None)                           # a new breakout: re-armed
+                else:
+                    i.on, i.exit_level = False, None
+                    i.held_off = (f"stopped out intraday on {xs[sym]}; no re-entry until the price is above the "
+                                  f"{self.st['donchian_entry_days']}-day high {hh:,.2f}" if hh is not None else f"stopped out intraday on {xs[sym]}")
         return out
 
     def price_age(self, sym: str) -> float:
@@ -786,6 +802,60 @@ class Engine:
         """After a fast-lane, AI-stop or event sell the engine must not undo it: no buys of that symbol until the next trading day."""
         self.cd.setdefault("v2_no_rebuy", {})[sym] = market.next_trading_day(self.day).isoformat()
 
+    # ---- stop-loss package D5-S (strategy.stops; absent keys keep the older behaviour)
+    def v2_stops_cfg(self) -> dict:
+        s = self.st.get("stops") or {}
+        return {"intraday": [x for x in (s.get("intraday_exit") or []) if x in self.syms],
+                "confirm": max(1, int(s.get("confirm_ticks") or 1)),
+                "protect": bool(s.get("protect_floor", False))}
+
+    def v2_floor_weight(self, targets: dict, level: int | None = None) -> float:
+        if level is None:
+            level = int((self.v2_state().get("brake") or {}).get("level") or 0)
+        return trend.floor_weight(self.v2_detail, targets, self.st, level)
+
+    def v2_floor_qty(self, sym: str) -> int:
+        """Units of the floor symbol that are floor (not for sale by the AI): int(floor weight x value / price). 0 when
+        protect_floor is off or sym is not the floor symbol."""
+        if not (self.v2_stops_cfg()["protect"] and sym == self.st.get("floor_symbol", "GOLDBEES")):
+            return 0
+        px, value = self.price(sym), self.value()
+        if not px or value <= 0:
+            return 0
+        fw = self.v2_floor_weight({s: self.cur_weight(s, value) for s in self.syms if s != sym})
+        return int(fw * value / px)
+
+    def v2_xlevels(self, cfg: dict) -> dict:
+        """The trend exit level of each intraday-exit symbol, frozen at the first v2 tick of the day (computed from completed
+        bars only): rt["v2"]["xlvl"] = {"date": D, sym: level}; 0.0 = no level today (trend OFF). Parts go to "xparts" for the reason text."""
+        v2, today = self.v2_state(), self.day.isoformat()
+        x = v2.get("xlvl")
+        if not isinstance(x, dict) or x.get("date") != today:
+            x = v2["xlvl"] = {"date": today}
+            v2["xparts"] = {}
+        parts = v2.setdefault("xparts", {})
+        for sym in cfg["intraday"]:
+            bars = self.mkt.hist.get(sym)
+            if sym in x or not bars:
+                continue
+            try:
+                pr = trend.next_exit_parts(bars.close, bars.high, bars.low, self.st)
+            except Exception:       # noqa: BLE001 - a level problem must never stop the tick
+                log.exception("exit level failed for %s", sym)
+                continue
+            x[sym] = round(pr["level"], 4) if pr else 0.0
+            if pr:
+                parts[sym] = {k: round(v, 4) for k, v in pr.items()}
+        return x
+
+    def v2_stop_text(self, sym: str, qty: int, level: float, prices: list, kind: str, px: float) -> str:
+        """The plain reason of a stop sale: level, the fresh prices, and fill units x price = amount."""
+        fill = px * (1 - self.p["valuation"]["paper_slippage"][sym])
+        pp = " then ".join(f"₹{x:,.2f}" for x in prices)
+        words = f"the two fresh prices {pp} were" if len(prices) == 2 else (f"the fresh price {pp} was" if len(prices) == 1 else f"the {len(prices)} fresh prices {pp} were")
+        return (f"{sym} {kind}: {words} at or under the level ₹{level:,.2f}, so {qty} units are sold at ₹{fill:,.2f} each: "
+                f"{qty} × ₹{fill:,.2f} = ₹{qty * fill:,.2f}")
+
     def v2_account_suspended(self) -> bool:
         clear = self.st.get("account_stop_clear_after")
         return bool(clear) and str(clear) >= self.day.isoformat()
@@ -799,29 +869,96 @@ class Engine:
 
     def v2_exits(self, advice: list[dict]):
         """Every tick: defence that does not wait for the daily check. The fast lane's sell advice, the AI stops
-        (tighten_stop, enforced every minute), the HINDCOPPER results exit and the hard account stop. The trend exits
+        (tighten_stop), the intraday trend exit of SILVERBEES / HINDCOPPER (strategy.stops.intraday_exit), the HINDCOPPER
+        results exit and the hard account stop. Stops need `confirm_ticks` consecutive FRESH prices at or under the level.
+        With strategy.stops.protect_floor the AI never touches the GOLDBEES floor units. The other trend exits (gold's SMA200)
         happen at the daily check (v2_tick). No tripwire, no overnight or month-end rules in v2."""
-        pf = self.pf
+        pf, today = self.pf, self.day.isoformat()
+        cfg = self.v2_stops_cfg()
+        fsym = self.st.get("floor_symbol", "GOLDBEES")
         for a in advice:
             pos = pf.positions.get(a["sym"])
             if not pos:
                 continue
+            fq = self.v2_floor_qty(a["sym"]) if cfg["protect"] else 0
             if a["type"] == "sell_fraction":
                 q = pos.qty if a["fraction"] >= 0.99 else max(1, int(pos.qty * a["fraction"]))
+                if fq:
+                    if pos.qty - fq <= 0:
+                        self.record("HOLD", a["sym"], pos.qty, pos.last_price,
+                                    f"The AI fast lane advised selling {a['fraction'] * 100:.0f}% of {a['sym']}, but all {pos.qty} units are the "
+                                    f"{fsym} floor ({fq} units); only the drawdown brake and the account stop sell the floor, so the advice was refused.",
+                                    "Opus guidance")
+                        continue
+                    q = min(q, pos.qty - fq)
                 if self.v2_sell(a["sym"], q, f"The AI fast lane advised selling {a['fraction'] * 100:.0f}% of {a['sym']} "
-                                             f"as a precaution, and the rules allow selling.", "Opus guidance"):
+                                             f"as a precaution, and the rules allow selling" + (f" ({q} units above the {fq}-unit floor)." if fq else "."),
+                                "Opus guidance"):
                     self.v2_no_rebuy(a["sym"])
             elif a["type"] == "tighten_stop" and a["stop"] > pos.ai_stop:
+                if fq and pos.qty - fq <= 0:
+                    self.record("HOLD", a["sym"], pos.qty, pos.last_price,
+                                f"The AI fast lane asked to tighten the {a['sym']} stop to ₹{a['stop']:,.2f}, but all {pos.qty} units are the "
+                                f"{fsym} floor ({fq} units); only the drawdown brake and the account stop sell the floor, so the stop was refused.",
+                                "Opus guidance")
+                    continue
                 pos.ai_stop = a["stop"]
                 self.record("HOLD", a["sym"], pos.qty, pos.last_price,
-                            f"The AI fast lane tightened the {a['sym']} stop to ₹{a['stop']:,.2f}; it is checked every minute and the "
-                            f"whole position is sold at or under it.", "Opus guidance")
+                            f"The AI fast lane tightened the {a['sym']} stop to ₹{a['stop']:,.2f}; it is checked every minute and "
+                            + (f"the {pos.qty - fq} units above the {fq}-unit floor are sold at or under it ({cfg['confirm']} fresh prices)."
+                               if fq else f"the whole position is sold at or under it ({cfg['confirm']} fresh prices)."), "Opus guidance")
+        x = self.v2_xlevels(cfg) if cfg["intraday"] else {}
+        v2 = self.v2_state()
+        below = v2.setdefault("below", {})
         for sym, pos in list(pf.positions.items()):
-            px = self.mkt.prices.get(sym)
-            if pos.ai_stop > 0 and px and px <= pos.ai_stop:
-                if self.v2_sell(sym, pos.qty, f"{sym} price ₹{px:,.2f} is at or under the stop ₹{pos.ai_stop:,.2f} "
-                                              f"(set by the AI fast lane or inherited from v1), so it was sold.", "Opus guidance", stop_out=True):
+            xl = float(x.get(sym) or 0.0) if sym in cfg["intraday"] else 0.0
+            if xl > 0:
+                pos.exit_level = xl                                  # informational: the frozen intraday level
+            lvl, px = max(pos.ai_stop, xl), self.mkt.prices.get(sym)
+            if lvl <= 0 or not px or px > lvl:
+                below.pop(sym, None)                                 # a price above the level resets the count
+                continue
+            if cfg["confirm"] > 1 and not self.fresh(sym):
+                continue                                             # a stale price neither counts nor resets
+            ts = self.mkt.price_ts.get(sym)
+            key = ts.isoformat() if ts else self.now.isoformat()
+            rec = below.get(sym)
+            if not isinstance(rec, dict) or rec.get("date") != today:
+                rec = {"n": 0, "px": [], "date": today, "ts": None}
+            if rec["ts"] != key:                                     # one count per distinct price
+                rec["n"] += 1
+                rec["px"] = (rec["px"] + [round(px, 2)])[-cfg["confirm"]:]
+                rec["ts"] = key
+            below[sym] = rec
+            if rec["n"] < cfg["confirm"]:
+                continue
+            ai_hit = pos.ai_stop > 0 and px <= pos.ai_stop
+            qty = pos.qty
+            if ai_hit:
+                fq = self.v2_floor_qty(sym)
+                qty = pos.qty - fq
+                if qty <= 0:                                          # all floor: the stop is dropped, nothing is sold
+                    self.record("HOLD", sym, pos.qty, px, f"{sym} price ₹{px:,.2f} is at or under the AI stop ₹{pos.ai_stop:,.2f}, but all "
+                                f"{pos.qty} units are the {fsym} floor ({fq} units): floor protected, nothing sold.", "Opus guidance")
+                    pos.ai_stop = 0.0
+                    below.pop(sym, None)
+                    continue
+                why = self.v2_stop_text(sym, qty, pos.ai_stop, rec["px"], "AI stop (set by the AI fast lane or inherited from v1)", px)
+                if qty < pos.qty:
+                    why += f"; the other {fq} units are the floor and are kept"
+                if self.v2_sell(sym, qty, why + ".", "Opus guidance", stop_out=True):
                     self.v2_no_rebuy(sym)
+                    if sym in pf.positions:
+                        pf.positions[sym].ai_stop = 0.0
+            else:
+                pr = (v2.get("xparts") or {}).get(sym) or {}
+                how = (f" = max(peak close ₹{pr['peak']:,.2f} − {self.st['atr_mult']:g} × ATR{self.st['atr_days']} ₹{pr['atr']:,.2f}, "
+                       f"{self.st['donchian_exit_days']}-day low ₹{pr['low']:,.2f})") if pr else ""
+                why = self.v2_stop_text(sym, qty, xl, rec["px"], "trend exit stop, enforced every minute", px)
+                if self.v2_sell(sym, qty, why + how + ".", "Trend exit", stop_out=True):
+                    self.v2_no_rebuy(sym)
+                    v2.setdefault("xstop", {})[sym] = today
+            below.pop(sym, None)
         for sym, (at, why) in self.er.forced_exits.items():
             if sym in pf.positions and self.now.time() >= at:
                 if self.v2_sell(sym, pf.positions[sym].qty, why, "Event rule"):
@@ -848,10 +985,14 @@ class Engine:
             for sym in list(self.pf.positions):
                 self.v2_sell(sym, self.pf.positions[sym].qty, f"The hard account stop ₹{stop:,.0f} is in force, so {sym} was sold.", "Account stop")
 
-    def v2_buy_blocker(self, sym: str, px: float) -> tuple[str, str, bool] | None:
+    def v2_buy_blocker(self, sym: str, px: float, floor_only: bool = False) -> tuple[str, str, bool] | None:
         """Why a NEW buy or add must wait: (plain reason, trigger, retry_today) or None. Exits are never blocked.
-        retry_today is True for a pause that ends before the check window closes: the symbol stays pending."""
+        retry_today is True for a pause that ends before the check window closes: the symbol stays pending.
+        floor_only: the buy only restores the gold floor weight. News / price-shock pauses and the same-day no-rebuy then delay
+        it only until check_until (it stays pending), and at or after check_until they no longer block it. Safe mode, the
+        account stop, the AI's halt for the day, tripwires and event-day rules still do."""
         now = self.now
+        at_end = floor_only and now.time() >= guard.hhmm(self.st["check_until"])
         if not self.fresh(sym):
             return (f"The latest {sym} price is {self.price_age(sym):.0f} minutes old, older than the "
                     f"{self.p['entry']['max_price_age_min']} minute limit.", "Trend check", True)
@@ -863,19 +1004,19 @@ class Engine:
         if nb and self.day.isoformat() < nb:
             return f"A v1 tripwire sold everything recently, so no buys until {nb}.", "Tripwire", False
         nr = self.cd.get("v2_no_rebuy", {}).get(sym)
-        if nr and self.day.isoformat() < nr:
+        if nr and self.day.isoformat() < nr and not at_end:
             return (f"{sym} was sold today by the fast lane, a stop or an event rule, so it is not bought back before {nr}.",
-                    "Opus guidance", False)
+                    "Opus guidance", floor_only)
         if self.cd.get("halt_date") == self.day.isoformat():
             return "The AI fast lane stopped all new buys for today.", "Opus guidance", False
         end = datetime.combine(self.day, guard.hhmm(self.st["check_until"]), tzinfo=now.tzinfo)
         for key in (sym, "ALL"):
             until = _dt(self.cd.get("block_until", {}).get(key), now.tzinfo)
-            if until and until > now:
+            if until and until > now and not at_end:
                 src = self.cd.get("block_src", {}).get(key, "Price shock")
                 what = {"News trigger": "a market-moving news headline was flagged",
                         "Opus guidance": "the AI fast lane asked for a pause"}.get(src, "a fast price move was flagged")
-                return f"Buying {sym} is paused until {until:%H:%M} because {what}.", src, until < end
+                return f"Buying {sym} is paused until {until:%H:%M} because {what}.", src, until < end or floor_only
         why = self.er.buy_block(sym, now.time())
         if why:
             return why, "Event rule", False
@@ -992,13 +1133,23 @@ class Engine:
         targets, scale, mult = self.v2_weights(infos, br["level"], br.get("reconfirm") or [])
         bias, fresh, upd = self.guidance()
         plan = []
+        cfg = self.v2_stops_cfg()
+        fsym = st.get("floor_symbol", "GOLDBEES")
+        fw = self.v2_floor_weight(targets, br["level"]) if cfg["protect"] else 0.0
         for sym in run_syms:
             i = infos[sym]
             pos = pf.positions.get(sym)
             cur = self.cur_weight(sym, value)
-            d = trend.decide(on=i.on, target=targets[sym], cur=cur, flat=not pos or pos.qty <= 0, rsi_val=i.rsi,
-                             bias=self.effective_bias(sym, bias, fresh, upd), st=st, brake_level=br["level"],
+            b, tgt = self.effective_bias(sym, bias, fresh, upd), targets[sym]
+            capped = cfg["protect"] and sym == fsym and b == "block"
+            if capped:                                   # an AI block caps gold at its floor weight; it never skips the floor buy
+                tgt, b = min(tgt, max(fw, cur)), "neutral"
+            d = trend.decide(on=i.on, target=tgt, cur=cur, flat=not pos or pos.qty <= 0, rsi_val=i.rsi,
+                             bias=b, st=st, brake_level=br["level"],
                              eligible=sym not in (br.get("reconfirm") or []), sigma_ok=bool(i.sigma and i.sigma > 0))
+            if capped and tgt < targets[sym] - 1e-9 and d.action == "HOLD":
+                d = trend.Decision("SKIP", "wait", tgt, f"Claude's bias for this metal is block, so it is held at the floor weight {fw * 100:.0f}% "
+                                                         f"and gets no adds above it")
             plan.append((sym, i, cur, d))
         for sym, i, cur, d in plan:                                     # sells first: they free the money for the buys
             if d.action != "SELL":
@@ -1019,7 +1170,8 @@ class Engine:
         for sym, i, cur, d in plan:
             pos = pf.positions.get(sym)
             if pos:
-                pos.exit_level = i.exit_level or 0.0                    # informational: where the trend turns OFF
+                xl = float((self.v2_state().get("xlvl") or {}).get(sym) or 0.0) if sym in cfg["intraday"] else 0.0
+                pos.exit_level = xl or i.exit_level or 0.0              # informational: the frozen intraday level, else where the trend turns OFF
             if mode != "full":
                 continue
             px = self.mkt.prices.get(sym)
@@ -1030,6 +1182,11 @@ class Engine:
                 continue
             base = self.v2_why(sym, i, targets[sym], scale, mult, dd)
             blk = self.v2_buy_blocker(sym, px)
+            to_w = d.to_w
+            if blk and cfg["protect"] and sym == fsym and cur < fw - 1e-9:
+                blk = self.v2_buy_blocker(sym, px, floor_only=True)      # the floor part is only delayed until check_until
+                if blk is None:
+                    to_w = min(to_w, fw)
             if blk:
                 if sym not in done["blk"]:
                     done["blk"].append(sym)
@@ -1038,10 +1195,11 @@ class Engine:
                     retry.add(sym)                                       # the pause ends before the window closes: try again
                 continue
             fill_px = px * (1 + self.p["valuation"]["paper_slippage"][sym])
-            qty = int((d.to_w - cur) * value / fill_px)
+            qty = int((to_w - cur) * value / fill_px)
             if qty < 1:
                 continue
-            why = f"{base}; buying {qty} units to reach target ({d.why})"
+            why = f"{base}; buying {qty} units to reach target ({d.why})" if to_w >= d.to_w else \
+                f"{base}; buying {qty} units to restore the gold floor {to_w * 100:.0f}% (a pause was ignored at the end of the check window; {d.why})"
             r = self._fill(sym, "BUY", qty, px, why, "Trend check")
             if not r:
                 self.record("SKIP", sym, 0, px, f"{base}; there was not enough free cash to place the buy.", "Trend check")
@@ -1051,7 +1209,8 @@ class Engine:
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
             self.cd["last_buy_ts"] = self.now.isoformat()
             if sym in pf.positions:
-                pf.positions[sym].exit_level = i.exit_level or 0.0
+                xl = float((self.v2_state().get("xlvl") or {}).get(sym) or 0.0) if sym in cfg["intraday"] else 0.0
+                pf.positions[sym].exit_level = xl or i.exit_level or 0.0
             self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
