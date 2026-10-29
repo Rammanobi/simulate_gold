@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import idle_is_cash
 from .market import IST, is_market_open
+from .summary import money_summary
 
 SCHEMA = 1
 MAX_SERIES = 400
@@ -175,7 +176,7 @@ def _today_buys(pf: dict, sym: str, session_date: str) -> tuple[int, float]:
 # ---------------------------------------------------------------- the payload
 def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, now: datetime, series: list,
           feed_ok: bool = True, market_open: bool | None = None, price_ts: dict | None = None,
-          start_capital: float = 100000.0, symbols=None) -> dict:
+          start_capital: float = 100000.0, symbols=None, archive_trades: list | None = None) -> dict:
     """The now.json payload (see the module docstring). `pf` is Portfolio.to-dict (asdict) shape; `prices` {sym: price};
     `prev_close` {sym: Yahoo previous session close}; `equity_rows` [(date, value)]; `series` [[HH:MM, value]] (raw, so far);
     `price_ts` {sym: datetime of the newest bar}. No I/O."""
@@ -274,6 +275,8 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
         "liquidbees": {"value": _num(lb_v), "accrued_today": _num(lb_income)},
         "cash": _num(cash_v),
         "series": decimate(rows),
+        "summary": money_summary(pf, prices, equity_rows, sd, params, start_capital=start_capital,
+                                 archive=archive_trades, idle_cash=idle_is_cash(params)),   # additive: schema stays v:1
     }
     return _clean(d)
 

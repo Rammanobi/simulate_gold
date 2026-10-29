@@ -1,6 +1,35 @@
 GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
 Monday 12 Oct 2026 (sample data, not a real trading day)
 
+YOUR MONEY AT A GLANCE
+
+1. Total money now: ₹1,00,244.44
+   (What you'd have selling everything now)
+2. Invested in metals now: ₹49,575.60
+   (Metals held, valued at today's prices)
+   - GOLDBEES: 423 units × ₹117.20: ₹49,575.60
+   - Less: estimated cost of selling: −₹24.79
+   - Cash (idle money): ₹50,693.63
+3. Today's investment
+   (Money spent and received today)
+   - Spent on buys today: ₹49,279.50
+   - GOLDBEES: 423 units × ₹116.50 = ₹49,279.50
+   - Received from sells today: ₹0.00
+4. Overall investment so far
+   (Total bought and sold since start)
+   - Bought in total: ₹49,279.50
+   - Sold in total: ₹0.00
+5. Today's profit: +₹244.44 (+0.24%)
+   (Gain or loss since yesterday's close)
+6. Overall profit: +₹244.44 (+0.24%)
+   (Gain or loss since ₹1,00,000 start)
+7. Live profit right now: +₹244.44
+   (Gain on what you hold now)
+
+Overall profit +₹244.44 = booked profit ₹0.00 + open gain +₹244.44 + costs paid ₹0.00 + past interest on idle money ₹0.00 (before the 22 Oct switch to cash; booked is ₹0.00 after costs).
+
+DETAILS
+
 HEADLINE
 Today's profit: +₹147.00
 Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest.
