@@ -62,6 +62,26 @@
    "status": "open",
    "step": "safe-mode"
   },
+  "tests|run python m pytest q|assertionerror": {
+   "acked": false,
+   "category": "workflow_failed",
+   "component": "tests",
+   "count": 1,
+   "deferred": false,
+   "detail": "failure in pytest / Run python -m pytest -q",
+   "emails": [],
+   "first_seen": 1793277259.743451,
+   "fp": "tests|run python m pytest q|assertionerror",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1793277259.743451,
+   "resolved_emailed": false,
+   "severity": "medium",
+   "status": "open",
+   "step": "Run python -m pytest -q"
+  },
   "watchdog|engine_run_missing|": {
    "acked": false,
    "category": "engine_not_running",
@@ -191,9 +211,10 @@
  },
  "fires": {
   "date": "2026-10-29",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1793249183.015147
+   1793249183.015147,
+   1793277259.743451
   ]
  },
  "last_high_fire": 1793249183.015147,
