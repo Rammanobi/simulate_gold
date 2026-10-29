@@ -39,3 +39,8 @@ def cash_params(base: dict | None = None) -> dict:
     p = copy.deepcopy(base or config.load_params())
     p["capital"]["idle"] = "cash"
     return p
+
+
+def pytest_configure(config):
+    # tests/evals_ai: Layer 1 of the AI evals (deterministic guardrail evals of the routines' outputs; docs/AI_EVALS.md)
+    config.addinivalue_line("markers", "ai_guardrail: deterministic guardrail evals of the AI routines' outputs (Layer 1)")
