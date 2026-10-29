@@ -1,15 +1,15 @@
 {
- "updated": "2026-10-28T14:17:51+05:30",
+ "updated": "2026-10-29T08:52:40+05:30",
  "bias": {
-  "GOLD": "block",
+  "GOLD": "neutral",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: FOMC 23:30 IST, ceiling block, no new news. SILVER[DEFENSIVE]: FOMC, LTM and STM down. COPPER[DEFENSIVE]: LTM and STM down, cautious thesis, month-end window; no upgrade.",
+ "note": "GOLD[WEAKENING]: Fed hold, 2 hike dissents, gold ~4035, US10Y ~5.02% (kitco.com); month-end. SILVER[DEFENSIVE]: silver ~53.9 -0.9%, near yearly low (usagold.com). COPPER[DEFENSIVE]: LTM+STM down, no verified overnight copper data.",
  "prices_at_update": {
-  "GOLDBEES": 117.13,
-  "SILVERBEES": 183.95,
-  "HINDCOPPER": 410.05
+  "GOLDBEES": 117.16,
+  "SILVERBEES": 183.31,
+  "HINDCOPPER": 408.8
  },
  "alignment": {
   "GOLD": "WEAKENING",
