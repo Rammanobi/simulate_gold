@@ -40,7 +40,6 @@ SEVERITY = {
     "state_corrupt": HIGH,            # state corrupted or unrecoverable
     "test_failure_main": HIGH,        # a test failure on main
     "git_push_failing": HIGH,         # git push failing for more than 15 min
-    "watchdog_stale": HIGH,           # the watchdog itself stopped running (dead-man's switch)
     "system_unstable": HIGH,          # safe mode switched on
     "routines_silent": HIGH,          # the Claude routines have stopped (usage limit or credits?)
     # MEDIUM
@@ -48,12 +47,16 @@ SEVERITY = {
     "workflow_failed": MEDIUM,        # a failed workflow run
     "stale_guidance": MEDIUM,         # guidance older than 3 h in market hours
     "memory_cap": MEDIUM,             # a memory / log size cap exceeded
+    "watchdog_stale": MEDIUM,         # the watchdog ran late (GitHub schedule lateness): reported, but never safe mode
     "invariant_warning": MEDIUM,      # e.g. LIQUIDBEES share below 30% without a tripwire
     # LOW
     "transient_fetch": LOW,           # a single transient fetch error
     "slow_run": LOW,
     "warning": LOW,
 }
+# Categories that only reflect GitHub scheduling lateness of a monitor, not a trading risk. They stay reported and
+# emailed but never count towards safe mode (neither as a HIGH left open nor in the distinct-incident count).
+SAFE_MODE_EXEMPT = frozenset({"watchdog_stale"})
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
     "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,
@@ -568,7 +571,7 @@ def evaluate_safe_mode(state_dir, now: float | None = None, cfg: dict | None = N
     st = load_state(state_dir)
     today = day_of(now)
     todays = [e for e in st["alerts"].values() if day_of(e["first_seen"]) == today and e["fp"] != "system|safe mode|"
-              and e.get("category") != "system_unstable"]
+              and e.get("category") != "system_unstable" and e.get("category") not in SAFE_MODE_EXEMPT]
     if len(todays) > cfg["safe_mode_incidents"]:
         return set_safe_mode(state_dir, f"{len(todays)} distinct incidents today (limit {cfg['safe_mode_incidents']})", now, cfg=cfg)
     for e in todays:
