@@ -2,8 +2,18 @@
 
 Paper trading only; no real money. The daily report email is normally sent at 15:45 IST by the Claude
 `daily_report` routine through the Gmail connector. When Claude is unavailable (usage limit), `report-retry.yml`
-retries it up to 8 times (30 min, 60 min, then every 2 h). If the 8th attempt was fired more than 90 minutes ago and
-the report is still not pushed, the same workflow sends a **backup email** once:
+retries it (30 min after the close, then 60 min, then every 2 h).
+
+**Guarantee (owner approval 2026-10-29):** if by `report.backup_after` (`config/params.yaml`, `"16:30"` IST) on a
+trading day the report is not SENT (routine commit plus `reports/daily/D.sent.json`), `report-retry.yml` sends a
+**backup email** at once, once. Extra crons at 16:30, 16:45, 17:00 and 17:30 IST make a run land right after 16:30;
+GitHub may be late, and any run after 16:30 qualifies because the tool uses real time. Rules:
+
+- After the backup, `state/report_retry.json` gets the status `backup_sent`: no second backup, and no more Claude
+  retries for that day (saves usage). If Claude sends its report later anyway, nothing else happens.
+- Before 16:30 the Claude retries run as before. Weekends and holidays: nothing is sent.
+- If the send fails the run fails and the next scheduled run tries again.
+- The old "after 8 failed retries" path (`GIVE_UP`) remains only as a legacy fallback and is normally unreachable.
 
 - `tools/backup_email.py` builds the normal report with Python (numbers from the logs, no AI) and sends it with
   Gmail SMTP (`smtp.gmail.com:465`, SSL) to the single address in `REPORT_EMAIL`.

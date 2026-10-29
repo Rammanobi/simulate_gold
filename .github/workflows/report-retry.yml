@@ -4,7 +4,10 @@ name: report-retry
 # Every 30 min after the close this checks whether the day's report was pushed ("routine(daily_report): D"); if not,
 # it wakes the incident routine with {"kind": "daily_report_retry"}, using exponential backoff
 # (30 min, then 60, then every 120 min; at most 8 attempts). tools/report_retry.py decides; no AI runs here.
-# BACKUP EMAIL: when the 8th attempt was fired more than 90 min ago and the report is still not pushed (verdict GIVE_UP),
+# BACKUP AT 16:30 (owner approval 2026-10-29, report.backup_after): on a trading day, if by 16:30 IST the report is not SENT
+# (routine commit + reports/daily/D.sent.json), verdict BACKUP sends the code backup at once, status becomes backup_sent and
+# the Claude retries stop for that day. Extra crons below make sure a run lands right after 16:30 (GitHub may be late).
+# LEGACY BACKUP EMAIL: when the 8th attempt was fired more than 90 min ago and the report is still not pushed (verdict GIVE_UP),
 # tools/backup_email.py sends the deterministic report once by Gmail SMTP to REPORT_EMAIL (subject "... · backup (Claude
 # unavailable)"; a DeepSeek summary paragraph is added when DEEPSEEK_API_KEY is set and Claude wrote no market notes),
 # then `report_retry.py mark-backup` sets the status "backup_sent" so it is never sent twice. Secrets: SMTP_USER,
@@ -14,6 +17,8 @@ on:
   schedule:
     - cron: "15,45 10-23 * * *"     # 15:45-05:15 IST every 30 min (GitHub may run it late; the tool uses real times)
     - cron: "15,45 0-2 * * *"       # 05:45-08:15 IST: the 8th attempt (~05:45) and the backup ~90 min later
+    - cron: "0,15,30 11 * * *"      # 16:30, 16:45, 17:00 IST: the 16:30 backup check (a late run still qualifies)
+    - cron: "0 12 * * *"            # 17:30 IST: last chance for the same-day backup
   workflow_dispatch:
     inputs:
       date:
@@ -88,8 +93,8 @@ jobs:
           print("fired" if ok else "POST failed (the next attempt follows the backoff)")
           PY
 
-      - name: Backup email (after 8 failed retries, or force_backup)
-        if: steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'
+      - name: Backup email (16:30 backup, or force_backup)
+        if: steps.decide.outputs.verdict == 'BACKUP' || steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'
         env:
           DAY: ${{ steps.decide.outputs.day }}
           VERDICT: ${{ steps.decide.outputs.verdict }}
@@ -98,7 +103,7 @@ jobs:
           REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          if [ "$VERDICT" = "GIVE_UP" ] && [ "$(python tools/report_retry.py status --date "$DAY")" = "backup_sent" ]; then
+          if [ "$VERDICT" != "FORCE_BACKUP" ] && [ "$(python tools/report_retry.py status --date "$DAY")" = "backup_sent" ]; then
             echo "Backup email for $DAY was already sent" >> "$GITHUB_STEP_SUMMARY"; exit 0
           fi
           if [ -z "$SMTP_USER" ] || [ -z "$SMTP_APP_PASSWORD" ] || [ -z "$REPORT_EMAIL" ]; then
