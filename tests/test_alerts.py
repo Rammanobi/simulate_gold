@@ -208,6 +208,33 @@ def test_watchdog_stale_not_counted_in_distinct_incidents(tmp_path):
     assert not A.evaluate_safe_mode(tmp_path, T0 + 100 * MIN, CFG)     # 5 real incidents + the exempt one
 
 
+def test_23_oct_cluster_no_longer_sets_safe_mode(tmp_path):
+    """The 7 incidents of 23 Oct 2026 (a 148 min GitHub schedule gap): 3 are monitoring noise, so only 4 count."""
+    raise_(tmp_path, "engine", "tick", "transient_fetch", now=T0)
+    raise_(tmp_path, "engine", "price feed", "data_source_down", now=T0)
+    for i, (step, cat) in enumerate([("engine_run_missing", "engine_not_running"), ("guidance_stale", "stale_guidance"),
+                                     ("routines_silent", "routines_silent"), ("ticks_stale", "engine_not_running"),
+                                     ("watchdog_stale", "watchdog_stale")]):
+        raise_(tmp_path, "watchdog", step, cat, now=T0 + 10 * MIN)
+    assert len(A.load_state(tmp_path)["alerts"]) == 7
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 11 * MIN, CFG)
+    assert not A.safe_mode_on(tmp_path)
+
+
+def test_exempt_noise_categories_are_not_counted_or_escalated(tmp_path):
+    for cat in ("transient_fetch", "stale_guidance"):
+        assert cat in A.SAFE_MODE_EXEMPT
+    for i in range(8):                       # eight distinct noise incidents never switch safe mode on
+        raise_(tmp_path, "w", f"n{chr(97 + i)}", "stale_guidance" if i % 2 else "transient_fetch", now=T0 + i * 20 * MIN)
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 300 * MIN, CFG)
+    assert len(A.load_state(tmp_path)["alerts"]) == 8       # still reported
+
+
+def test_real_categories_still_counted_after_the_exemption(tmp_path):
+    for cat in ("engine_not_running", "data_source_down", "workflow_failed", "routines_silent", "state_corrupt"):
+        assert cat not in A.SAFE_MODE_EXEMPT
+
+
 def test_genuine_high_still_sets_safe_mode_next_to_watchdog_stale(tmp_path):
     raise_(tmp_path, "watchdog", "watchdog_stale", "watchdog_stale")
     raise_(tmp_path, "engine", "tick", "engine_not_running")

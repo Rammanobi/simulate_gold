@@ -56,9 +56,14 @@ SEVERITY = {
     "warning": LOW,
 }
 NO_SAFE_MODE = ("system_unstable", "allocation_stuck")      # alerts that never count toward switching safe mode on
-# Categories that only reflect GitHub scheduling lateness of a monitor, not a trading risk. They stay reported and
-# emailed but never count towards safe mode (neither as a HIGH left open nor in the distinct-incident count).
-SAFE_MODE_EXEMPT = frozenset({"watchdog_stale"})
+# Categories that only reflect monitoring / scheduling noise, not a trading risk. They stay reported and emailed but
+# never count towards safe mode (neither as a HIGH left open nor in the distinct-incident count).
+#   watchdog_stale   the watchdog itself ran late (GitHub schedule lateness)
+#   transient_fetch  one failed price fetch that the next tick retries (LOW, already "recorded only")
+#   stale_guidance   a MEDIUM echo of routines_silent: the engine treats stale guidance as neutral, which is its safe default
+# 23 Oct 2026: one 148 min GitHub schedule gap made the watchdog raise 5 incidents at once; with a morning price-feed blip
+# and a transient fetch error that was "7 distinct incidents" and safe mode went on. Real engine and data checks still count.
+SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance"})
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
     "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,
