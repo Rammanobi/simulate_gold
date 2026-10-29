@@ -28,8 +28,8 @@ def test_fingerprint_ignores_timestamps_numbers_paths():
 # ---- severity table ----------------------------------------------------------------
 @pytest.mark.parametrize("cat,sev", [
     ("engine_not_running", "high"), ("floor_broken", "high"), ("near_floor", "high"), ("state_corrupt", "high"),
-    ("test_failure_main", "high"), ("git_push_failing", "high"), ("watchdog_stale", "high"),
-    ("data_source_down", "medium"), ("workflow_failed", "medium"), ("stale_guidance", "medium"), ("memory_cap", "medium"),
+    ("test_failure_main", "high"), ("git_push_failing", "high"),
+    ("watchdog_stale", "medium"), ("data_source_down", "medium"), ("workflow_failed", "medium"), ("stale_guidance", "medium"), ("memory_cap", "medium"),
     ("transient_fetch", "low"), ("slow_run", "low"), ("warning", "low")])
 def test_severity_table(cat, sev):
     assert A.severity_of(cat) == sev
@@ -192,6 +192,27 @@ def test_safe_mode_when_high_not_fixed_in_30_min(tmp_path):
     raise_(tmp_path, "engine", "tick", "state_corrupt")
     assert not A.evaluate_safe_mode(tmp_path, T0 + 29 * MIN, CFG)
     assert A.evaluate_safe_mode(tmp_path, T0 + 31 * MIN, CFG)
+
+
+def test_watchdog_stale_open_60_min_never_sets_safe_mode(tmp_path):
+    raise_(tmp_path, "watchdog", "watchdog_stale", "watchdog_stale")
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 60 * MIN, CFG)
+    assert not A.safe_mode_on(tmp_path)
+    assert A.load_state(tmp_path)["alerts"]  # still reported
+
+
+def test_watchdog_stale_not_counted_in_distinct_incidents(tmp_path):
+    raise_(tmp_path, "watchdog", "watchdog_stale", "watchdog_stale")
+    for i in range(5):
+        raise_(tmp_path, "w", f"s{chr(97 + i)}", "workflow_failed", now=T0 + i * 20 * MIN)
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 100 * MIN, CFG)     # 5 real incidents + the exempt one
+
+
+def test_genuine_high_still_sets_safe_mode_next_to_watchdog_stale(tmp_path):
+    raise_(tmp_path, "watchdog", "watchdog_stale", "watchdog_stale")
+    raise_(tmp_path, "engine", "tick", "engine_not_running")
+    assert A.evaluate_safe_mode(tmp_path, T0 + 31 * MIN, CFG)
+    assert "engine" in A.safe_mode_info(tmp_path)["reason"] or "tick" in A.safe_mode_info(tmp_path)["reason"]
 
 
 def test_safe_mode_not_triggered_if_fixed(tmp_path):

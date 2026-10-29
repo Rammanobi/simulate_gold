@@ -136,10 +136,10 @@ def test_stale_guidance_is_medium(tmp_path):
     assert run(root) == []
 
 
-def test_watchdog_stale_is_high_after_75_min(tmp_path):
+def test_watchdog_stale_is_medium_after_75_min(tmp_path):
     assert run(setup(tmp_path, health_age_min=74)) == []
     p = run(setup(tmp_path / "x", health_age_min=76))
-    assert [(x["check"], x["severity"]) for x in p] == [("watchdog_stale", "high")]
+    assert [(x["check"], x["severity"]) for x in p] == [("watchdog_stale", "medium")]
     root = setup(tmp_path / "y")
     (root / "state" / "health.json").write_text("{broken")
     assert "watchdog_stale" in checks(run(root))                 # an unreadable file counts
