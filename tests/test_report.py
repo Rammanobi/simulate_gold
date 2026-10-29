@@ -187,7 +187,7 @@ def test_market_holiday_short_email(tmp_path):
     assert day["closed"] and "Gandhi Jayanti" in day["one_line_summary"]
     paths = report.write_reports(day, tmp_path / "out", "2026-10-02", TEMPLATE)
     email = paths["email"].read_text(encoding="utf-8")
-    assert "Market closed" in email and "What I did" not in email and len(email) < 14000   # incl. the money-at-a-glance block
+    assert "Market closed" in email and "What I did" not in email and len(email) < 24000   # incl. the money-at-a-glance block and the 'Where your money is' section
     assert report.subject_line(day).endswith("Market closed")
     # weekends are closed too, and --holiday forces it
     assert report.build_day("2026-10-10", root)["closed"]
@@ -438,8 +438,8 @@ def test_email_and_text_show_only_the_days_profit(tmp_path):
     text = report.render_text(day)
     assert "Today's profit: +₹17.26" in email and "only LIQUIDBEES interest on idle cash" in email
     assert "Portfolio value" in email and "Today's profit</div>" in email
-    for out in (email, text):
+    for out in (email, text):            # the overall profit (+₹35 since start) is now shown on purpose, so only the headline is checked for it
         for bad in ("since the start", "Total profit", "Total loss", "Total this month", "Month so far", "since the previous",
-                    "since the 1st", "₹35", "You're in the green"):
+                    "since the 1st", "Today's profit: +₹35", "You're in the green"):
             assert bad not in out, bad
     assert "Today's profit: +₹17.26" in text and "Month P&L" not in text

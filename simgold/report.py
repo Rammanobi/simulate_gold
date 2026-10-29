@@ -806,6 +806,9 @@ def _money_summary(date: str, root: Path, day: dict) -> dict:
     root = Path(root)
     pf = _read_json(root / "state" / "portfolio.json", {}) or {}
     prices = {h["symbol"]: h["close"] for h in day.get("holdings_close", []) if h.get("close")}
+    for r in (day.get("holdings_view") or {}).get("rows", []):       # price of funds not held (for "Where your money is")
+        if r.get("symbol") in holdings_mod.SYMS and r.get("price") and not prices.get(r["symbol"]):
+            prices[r["symbol"]] = r["price"]
     return money_summary(pf, prices, load_equity(root / "state" / "equity.csv"), day["date"], config.load_params(),
                          archive=read_archive(root / "logs" / "trades-archive.jsonl"),
                          total=day["portfolio"]["close"], idle_cash=config.idle_is_cash())
@@ -1362,7 +1365,7 @@ def _holdings_text(day: dict) -> list[str]:
         elif not r["units"]:
             L.append(f"{r['symbol']}: none held, 0.0%")
         else:
-            L.append(f"{r['symbol']}: {r['units']:,} {_plural(r['units'], 'unit')}, avg {inr(r['avg_price'], 2)}, invested {inr(r['invested'])}, "
+            L.append(f"{r['symbol']}: {r['units']:,} {_plural(r['units'], 'share')}, avg {inr(r['avg_price'], 2)}, invested {inr(r['invested'])}, "
                      f"value {inr(r['value'])}, open gain {sg(r['gain'])} ({pc(r['gain_pct'], 1)}), {r['share_pct']:.1f}%")
     L += ["", "EVERY PURCHASE SO FAR"]
     led = v.get("ledger") or []
@@ -1431,7 +1434,7 @@ def summary_breakdown(ms: dict) -> str:
             f"{sg(b['interest'], 2)} (before the 22 Oct switch to cash; booked is {sg(b['booked_after_costs'], 2)} after costs).")
 
 
-def _summary_html(ms: dict | None) -> str:
+def _summary_html(ms: dict | None, extra: str = "") -> str:
     if not ms:
         return ""
     td = f"font-family:{FONT};"
@@ -1448,10 +1451,10 @@ def _summary_html(ms: dict | None) -> str:
             f'{esc(summary_breakdown(ms))}</td></tr>\n')
     return (f'<tr><td style="padding:18px 20px 0 20px;{td}font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:#6b7280;">{esc(SUMMARY_TITLE)}</td></tr>'
             f'<tr><td style="padding:4px 20px 8px 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">\n{out}</table></td></tr>\n'
-            + _section("Details"))
+            + extra + _section("Details"))
 
 
-def _summary_text(ms: dict | None) -> list[str]:
+def _summary_text(ms: dict | None, extra: list[str] | None = None) -> list[str]:
     if not ms:
         return []
     L = [SUMMARY_TITLE.upper(), ""]
@@ -1460,8 +1463,309 @@ def _summary_text(ms: dict | None) -> list[str]:
         L.append(f"   ({r['note']})")
         for lab, val, _ in r["sub"]:
             L.append(f"   - {lab}" + (f": {val}" if val else ""))
-    L += ["", summary_breakdown(ms), "", "DETAILS", ""]
+    L += ["", summary_breakdown(ms), ""] + (extra or []) + ["DETAILS", ""]
     return L
+
+
+# ---------------------------------------------------------------- "Where your money is" + "Every trade so far"
+# Separate block (own functions) so it merges cleanly with the other report sections. Numbers come from
+# money_summary()["funds"] (simgold/summary.py) and holdings_view["ledger"] (simgold/holdings.py); nothing is recomputed here.
+FUNDS_TITLE = "Where your money is"
+TRADES_TITLE = "Every trade so far"
+TRADES_SHOWN = 10            # Gmail clips a message above ~102 KB; the dashboard lists every trade
+
+
+# Palette: one colour per fund, the same in the bar, the waffle, the dots and the dashboard.
+FUND_COLORS = {"gold": "#c9a227", "silver": "#8a94a3", "copper": "#c2693b", "cash": "#4f7cc4"}
+FUND_NAMES = {"gold": "Gold", "silver": "Silver", "copper": "Copper", "cash": "Cash"}
+PORTFOLIO_STYLES = ("A", "B")
+
+
+def portfolio_style_of(day: dict, style: str | None = None) -> str:
+    """The style to draw: explicit argument, else the style carried inside money_summary.funds (from report.portfolio_style)."""
+    s = str(style or ((day.get("money_summary") or {}).get("funds") or {}).get("style") or "A").upper()
+    return s if s in PORTFOLIO_STYLES else "A"
+
+
+def _shares(n) -> str:
+    return f"{int(n):,}"
+
+
+def _px2(x) -> str:
+    return inr(x, 2) if x else "–"
+
+
+def split_cells(rows: list[dict], n: int = 100) -> list[int]:
+    """Cells per row (gold, silver, copper, cash) out of n, largest-remainder so they add up to n (waffle chart)."""
+    vals = [max(float(r["value"] or 0), 0.0) for r in rows]
+    tot = sum(vals)
+    if tot <= 0:
+        return [0] * len(rows)
+    raw = [v * n / tot for v in vals]
+    out = [int(x) for x in raw]
+    for i in sorted(range(len(raw)), key=lambda i: raw[i] - out[i], reverse=True)[: n - sum(out)]:
+        out[i] += 1
+    return out
+
+
+def _fund_dot(metal: str, size: int = 10) -> str:
+    return (f'<span style="display:inline-block;width:{size}px;height:{size}px;line-height:{size}px;border-radius:{size}px;'
+            f'background:{FUND_COLORS[metal]};font-size:1px;vertical-align:middle;">&nbsp;</span>')
+
+
+def _pct_label(r: dict) -> str:
+    v = r["share_pct"]
+    return "0%" if v <= 0 else "<1%" if v < 0.5 else f"{v:.0f}%"
+
+
+def _p_title(title: str) -> str:
+    return (f'<tr><td style="padding:18px 20px 0 20px;font-family:{FONT};font-size:13px;letter-spacing:1px;text-transform:uppercase;'
+            f'font-weight:700;color:#6b7280;">{esc(title)}</td></tr>')
+
+
+def _wrap(inner: str, pad: str = "6px 20px 8px 20px") -> str:
+    return f'<tr><td style="padding:{pad};font-family:{FONT};">{inner}</td></tr>\n'
+
+
+def _total_block(ms: dict) -> str:
+    return (f'<div style="font-size:12px;color:#6b7280;line-height:16px;">Total money now</div>'
+            f'<div style="font-size:28px;line-height:34px;font-weight:800;color:{INK};">{inr(ms["total_now"], 2)}</div>'
+            f'<div style="font-size:11.5px;color:#6b7280;line-height:15px;">what you would have selling everything now</div>')
+
+
+def _stacked_bar(rows: list[dict]) -> str:
+    """Pure table bar: one coloured cell per non-zero share, % inside when it fits. Legend below (dot, name, amount)."""
+    segs = [r for r in rows if r["share_pct"] > 0]
+    if not segs:
+        segs = [rows[-1]]
+    cells = ""
+    for r in segs:
+        w = max(r["share_pct"], 1.0)
+        lab = _pct_label(r) if r["share_pct"] >= 9 else "&nbsp;"
+        cells += (f'<td width="{w:.1f}%" bgcolor="{FUND_COLORS[r["metal"]]}" align="center" '
+                  f'style="background:{FUND_COLORS[r["metal"]]};height:26px;font-family:{FONT};font-size:12px;font-weight:700;color:#ffffff;">{lab}</td>')
+    bar = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;'
+           f'border-radius:6px;"><tr>{cells}</tr></table>')
+    items = ""
+    for i, r in enumerate(rows):
+        items += (f'<td width="50%" valign="top" style="padding:6px 0 0 0;font-family:{FONT};font-size:12px;line-height:16px;color:{INK};">'
+                  f'{_fund_dot(r["metal"])}&nbsp; <b>{FUND_NAMES[r["metal"]]}</b> {inr(r["value"])} '
+                  f'<span style="color:#6b7280;">· {_pct_label(r)}</span></td>')
+        if i % 2 == 1 and i < len(rows) - 1:
+            items += "</tr><tr>"
+    legend = f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{items}</tr></table>'
+    return bar + legend
+
+
+def _waffle(rows: list[dict]) -> str:
+    """Email-safe stand-in for a donut (Gmail strips SVG and conic gradients): 10 x 10 squares, one per 1% of the money."""
+    cells = split_cells(rows)
+    seq = [r["metal"] for r, n in zip(rows, cells) for _ in range(n)] or ["cash"] * 100
+    out = '<table role="presentation" cellpadding="0" cellspacing="2" style="border-collapse:separate;font-size:1px;line-height:1px;">'
+    for y in range(10):
+        out += "<tr>" + "".join(f'<td width="11" height="11" bgcolor="{FUND_COLORS[m]}">&nbsp;</td>' for m in seq[y * 10:(y + 1) * 10]) + "</tr>"
+    return out + "</table>"
+
+
+def _profit_html(profit: float, pct: float | None, big: bool = True) -> str:
+    col = _tone_color(profit)
+    size = "22px;line-height:26px" if big else "11px;line-height:14px"
+    p = f'<div style="font-size:{size};font-weight:800;color:{col};">{sg(profit)}</div>'
+    if pct is not None:
+        p += f'<div style="font-size:{"12px" if big else "10.5px"};line-height:{"16px" if big else "13px"};font-weight:700;color:{col};">({pc(pct, 2)})</div>'
+    return p
+
+
+def _tiles2(ms: dict) -> str:
+    def t(label, val, pct, sub):
+        col = _tone_color(val)
+        return (f'<td width="50%" valign="top" style="padding:0 4px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                f'style="background:#f8f7f3;border-radius:10px;"><tr><td style="padding:12px 12px;font-family:{FONT};">'
+                f'<div style="font-size:11.5px;color:#6b7280;line-height:15px;">{label}</div>'
+                f'<div style="font-size:21px;font-weight:800;color:{col};padding-top:4px;line-height:26px;">{sg(val)}</div>'
+                f'<div style="font-size:12px;font-weight:700;color:{col};line-height:16px;">{"" if pct is None else pc(pct, 2)}</div>'
+                f'<div style="font-size:11px;color:#6b7280;padding-top:2px;line-height:14px;">{sub}</div></td></tr></table></td>')
+    return (f'<tr><td style="padding:10px 16px 4px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            + t("Today's profit", ms["today_profit"], ms.get("today_pct"), "since yesterday's close")
+            + t("Overall profit", ms["overall_profit"], ms.get("overall_pct"), f'since {inr(ms["start_capital"])} start')
+            + '</tr></table></td></tr>\n')
+
+
+def _card(r: dict) -> str:
+    m, c = r["metal"], FUND_COLORS[r["metal"]]
+    if not r["held"]:
+        return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;background:#f3f4f6;border-radius:8px;">'
+                f'<tr><td width="5" bgcolor="{c}" style="background:{c};width:5px;border-radius:8px 0 0 8px;font-size:1px;">&nbsp;</td>'
+                f'<td style="padding:9px 12px;font-family:{FONT};font-size:12.5px;line-height:17px;color:#6b7280;">'
+                f'<b style="color:{INK};">{esc(r["symbol"])}</b> · {esc(r["label"])} · Not held{" · price now " + inr(r["price"], 2) if r["price"] else ""}</td></tr></table>')
+    each = f'{inr(r["invested"] / r["units"], 2)}' if r["units"] else "–"
+    return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border:1px solid #e5e7eb;border-radius:10px;">'
+            f'<tr><td width="6" bgcolor="{c}" style="background:{c};width:6px;border-radius:10px 0 0 10px;font-size:1px;">&nbsp;</td>'
+            f'<td style="padding:12px 12px 12px 12px;font-family:{FONT};">'
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            f'<td valign="top" style="font-family:{FONT};"><div style="font-size:15px;line-height:20px;font-weight:800;color:{INK};">{_fund_dot(m, 11)}&nbsp; {esc(r["symbol"])}</div>'
+            f'<div style="font-size:12px;line-height:16px;color:#6b7280;">{esc(r["label"])}</div></td>'
+            f'<td valign="top" align="right" style="font-family:{FONT};">{_profit_html(r["profit"], r["profit_pct"])}</td></tr></table>'
+            f'<div style="font-size:14px;line-height:20px;color:{INK};padding-top:8px;"><b>{_shares(r["units"])} shares × {inr(r["price"], 2)} = {inr(r["value"])}</b></div>'
+            f'<div style="font-size:12px;line-height:17px;color:#6b7280;padding-top:2px;">You paid {inr(r["invested"])} incl. costs '
+            f'({each} each; {inr(r["avg_price"], 2)} before costs)</div></td></tr></table>')
+
+
+def _trade_chip(side: str) -> str:
+    bg, fg = ACTION_STYLE.get(side, ACTION_STYLE["HOLD"])
+    return (f'<span style="display:inline-block;background:{bg};color:{fg};font-size:10.5px;line-height:14px;font-weight:700;'
+            f'border-radius:4px;padding:0 5px;">{esc(side.upper())}</span>')
+
+
+def _px_trade(p) -> str:
+    return inr(p, 2)
+
+
+def _dshort(d: str) -> str:
+    try:
+        x = dt.date.fromisoformat(d)
+        return f"{x.day} {x.strftime('%b')}"
+    except ValueError:
+        return d
+
+
+def _trades_block(day: dict, style: str) -> str:
+    v = day.get("holdings_view") or {}
+    led = (v.get("ledger") or [])[:TRADES_SHOWN]
+    if not v.get("rows") and not led:
+        return ""
+    head = _p_title(TRADES_TITLE)
+    if not led:
+        return head + _wrap('<div style="font-size:14px;line-height:20px;color:#1f2937;">No buys or sells yet.</div>')
+    body = ""
+    for e in led:
+        sell = e["side"] == "SELL"
+        prof = ""
+        if sell:
+            prof = ("–" if e.get("pnl") is None else f'<span style="color:{_tone_color(e["pnl"])};font-weight:700;">{sg(e["pnl"])}</span>')
+        fill = f'{_shares(e["units"])} × {_px_trade(e["price"])}'
+        if style == "A":
+            body += (f'<tr><td valign="top" style="border-top:1px solid #e5e7eb;padding:7px 0;font-size:12.5px;line-height:17px;color:{INK};">'
+                     f'{esc(_dshort(e["date"]))} · <b>{esc(e["symbol"])}</b> {_trade_chip(e["side"])}'
+                     f'<div style="font-size:12px;color:#6b7280;">{fill} = {inr(e["amount"])}</div></td>'
+                     f'<td valign="top" align="right" style="border-top:1px solid #e5e7eb;padding:7px 0;font-size:12.5px;line-height:17px;">'
+                     f'{prof or "&nbsp;"}</td></tr>')
+        else:
+            tdp = f'border-top:1px solid #e5e7eb;padding:6px 3px 6px 0;font-size:11.5px;line-height:15px;color:{INK};'
+            body += (f'<tr><td valign="top" style="{tdp}">{esc(_dshort(e["date"]))}<div style="font-size:10.5px;color:#6b7280;">{esc(e["time"])}</div></td>'
+                     f'<td valign="top" style="{tdp}"><b>{esc(e["symbol"])}</b><div>{_trade_chip(e["side"])}</div></td>'
+                     f'<td valign="top" style="{tdp}">{fill}</td><td valign="top" align="right" style="{tdp}">{inr(e["amount"])}</td>'
+                     f'<td valign="top" align="right" style="{tdp}padding-right:0;">{prof or "&nbsp;"}</td></tr>')
+    if style == "B":
+        th = f'padding:0 3px 4px 0;font-size:10.5px;color:#6b7280;font-weight:600;text-align:'
+        body = (f'<tr><td style="{th}left;">Date</td><td style="{th}left;">Fund</td><td style="{th}left;">Shares × price</td>'
+                f'<td style="{th}right;">Amount</td><td style="{th}right;padding-right:0;">Profit</td></tr>') + body
+    total = v.get("ledger_total", len(led))
+    more = (f'<div style="font-size:12px;color:#6b7280;padding-top:8px;">and {total - len(led)} older (the dashboard has all of them)</div>'
+            if total > len(led) else "")
+    return head + _wrap(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">{body}</table>{more}', "4px 20px 8px 20px")
+
+
+def _funds_block_a(day: dict, ms: dict, f: dict) -> str:
+    rows = f["rows"]
+    out = _p_title(FUNDS_TITLE)
+    out += _wrap(f'<div style="font-size:14.5px;line-height:21px;color:{INK};">{esc(f["sentence"])}</div>', "6px 20px 4px 20px")
+    out += _wrap(_total_block(ms), "8px 20px 10px 20px")
+    out += _wrap(_stacked_bar(rows), "0 20px 6px 20px")
+    out += _wrap("".join(_card(r) for r in rows if r["kind"] == "fund"), "4px 20px 4px 20px")
+    out += _tiles2(ms)
+    note = "Money paid includes buying costs; profit is after the estimated cost of selling."
+    return out + _wrap(f'<div style="font-size:11.5px;line-height:16px;color:#6b7280;">{esc(note)}</div>', "4px 20px 6px 20px")
+
+
+def _funds_block_b(day: dict, ms: dict, f: dict) -> str:
+    rows = f["rows"]
+    out = _p_title(FUNDS_TITLE)
+    legend = "".join(f'<div style="font-size:12px;line-height:18px;color:{INK};">{_fund_dot(r["metal"], 9)}&nbsp; {FUND_NAMES[r["metal"]]} '
+                     f'<b>{_pct_label(r)}</b></div>' for r in rows)
+    out += _wrap(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td valign="middle" width="136">{_waffle(rows)}</td>'
+                 f'<td valign="middle" style="padding-left:12px;font-family:{FONT};">{_total_block(ms)}<div style="padding-top:8px;">{legend}</div></td></tr></table>',
+                 "8px 20px 10px 20px")
+    W = {"fund": 16, "sh": 9, "buy": 15, "cost": 15, "now": 15, "val": 15, "pr": 15}
+    th = f"padding:0 2px 5px 0;font-size:10px;line-height:12px;color:#6b7280;font-weight:600;text-align:right;"
+    td = f"border-top:1px solid #e5e7eb;padding:7px 2px 7px 0;font-size:10.5px;line-height:14px;color:{INK};text-align:right;"
+    body = (f'<tr><td width="{W["fund"]}%" style="{th}text-align:left;">Fund</td><td width="{W["sh"]}%" style="{th}">Shares</td>'
+            f'<td width="{W["buy"]}%" style="{th}">Buy price</td><td width="{W["cost"]}%" style="{th}">Cost</td>'
+            f'<td width="{W["now"]}%" style="{th}">Price now</td><td width="{W["val"]}%" style="{th}">Value</td>'
+            f'<td width="{W["pr"]}%" style="{th}padding-right:0;">Profit</td></tr>')
+    for r in rows:
+        nm = FUND_NAMES[r["metal"]]
+        name = (f'<td valign="top" style="{td}text-align:left;font-size:11px;">{_fund_dot(r["metal"], 8)}&nbsp;<b>{nm}</b>'
+                f'<div style="font-size:10px;color:#6b7280;">{_pct_label(r)}</div></td>')
+        if r["kind"] == "cash":
+            body += (f'<tr>{name}<td colspan="3" valign="top" style="{td}color:#6b7280;text-align:left;">idle money</td><td valign="top" style="{td}">–</td>'
+                     f'<td valign="top" style="{td}"><b>{inr(r["value"])}</b></td><td valign="top" style="{td}padding-right:0;">–</td></tr>')
+        elif not r["held"]:
+            body += (f'<tr>{name}<td colspan="3" valign="top" style="{td}color:#6b7280;text-align:left;">not held</td><td valign="top" style="{td}">{_px2(r["price"])}</td>'
+                     f'<td valign="top" style="{td}"><b>₹0</b></td><td valign="top" style="{td}padding-right:0;">₹0</td></tr>')
+        else:
+            body += (f'<tr>{name}<td valign="top" style="{td}">{_shares(r["units"])}</td><td valign="top" style="{td}">{inr(r["avg_price"], 2)}</td>'
+                     f'<td valign="top" style="{td}">{inr(r["invested"])}</td><td valign="top" style="{td}">{inr(r["price"], 2)}</td>'
+                     f'<td valign="top" style="{td}"><b>{inr(r["value"])}</b></td><td valign="top" style="{td}padding-right:0;">{_profit_html(r["profit"], r["profit_pct"], False)}</td></tr>')
+    t = f["total"]
+    tt = td.replace("border-top:1px solid #e5e7eb", "border-top:2px solid #1f2937") + "font-weight:700;"
+    body += (f'<tr><td style="{tt}text-align:left;">Total</td><td style="{tt}">&nbsp;</td><td style="{tt}">&nbsp;</td><td style="{tt}">{inr(t["invested"])}</td>'
+             f'<td style="{tt}">&nbsp;</td><td style="{tt}">{inr(t["value"])}</td><td style="{tt}padding-right:0;">{_profit_html(t["profit"], t["profit_pct"], False)}</td></tr>')
+    out += _wrap(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;">{body}</table>', "2px 14px 4px 20px")
+    out += _tiles2(ms)
+    note = "Cost includes buying costs; total value and profit are after the estimated cost of selling."
+    return out + _wrap(f'<div style="font-size:11.5px;line-height:16px;color:#6b7280;">{esc(note)}</div>', "4px 20px 6px 20px")
+
+
+def _funds_html(day: dict, style: str | None = None) -> str:
+    ms = day.get("money_summary") or {}
+    f = ms.get("funds")
+    if not f or not f.get("rows"):
+        return ""
+    return (_funds_block_b if portfolio_style_of(day, style) == "B" else _funds_block_a)(day, ms, f)
+
+
+def _trades_html(day: dict, style: str | None = None) -> str:
+    return _trades_block(day, portfolio_style_of(day, style))
+
+
+def _funds_text(day: dict) -> list[str]:
+    f = (day.get("money_summary") or {}).get("funds")
+    if not f or not f.get("rows"):
+        return []
+    L = [FUNDS_TITLE.upper(), ""]
+    for r in f["rows"]:
+        if r["kind"] == "cash":
+            L.append(f"Cash (idle money): {inr(r['value'], 2)}, {r['share_pct']:.1f}% of the total")
+        elif not r["held"]:
+            L.append(f"{r['symbol']} ({r['label']}): not held; price now {inr(r['price'], 2) if r.get('price') else '-'}; "
+                     f"value {inr(0, 2)}; profit {inr(0, 2)}; 0.0%")
+        else:
+            L.append(f"{r['symbol']} ({r['label']}): {r['units']:,} {_plural(r['units'], 'share')}, avg buy price {inr(r['avg_price'], 2)}, "
+                     f"money put in {inr(r['invested'], 2)}, price now {inr(r['price'], 2)}, value now {inr(r['value'], 2)}, "
+                     f"profit {sg(r['profit'], 2)} ({pc(r['profit_pct'], 2)}), {r['share_pct']:.1f}% of the total")
+    t = f["total"]
+    L.append(f"Total: money put in {inr(t['invested'], 2)}, value now {inr(t['value'], 2)}, profit {sg(t['profit'], 2)} ({pc(t['profit_pct'], 2)})")
+    L += ["", f["sentence"], ""]
+    return L
+
+
+def _trades_text(day: dict) -> list[str]:
+    v = day.get("holdings_view") or {}
+    led = (v.get("ledger") or [])[:TRADES_SHOWN]
+    if not v.get("rows") and not led:
+        return []
+    L = [TRADES_TITLE.upper(), ""]
+    if not led:
+        L.append("No buys or sells yet.")
+    for e in led:
+        pl = f", profit on that sale {sg(e['pnl'], 2)}" if e["side"] == "SELL" and e.get("pnl") is not None else ""
+        co = f", costs {inr(e['costs'], 2)}" if e.get("costs") is not None else ""
+        L.append(f"{e['date']} {e['symbol']} {e['side'].title()}: {fill_text(e['units'], e['price'], e['amount'])}{co}{pl}")
+    total = v.get("ledger_total", len(led))
+    if total > len(led):
+        L.append(f"and {total - len(led)} older")
+    return L + [""]
 
 
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
@@ -1491,7 +1795,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _holdings_html(day) + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
-        return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + body + _ops_html(day) + foot
+        return head + _owner_top_html(day) + _summary_html(day.get("money_summary"), _funds_html(day) + _trades_html(day)) + body + _ops_html(day) + foot
 
     pnl = p["day_pnl"]
     r = _round(pnl)
@@ -1600,7 +1904,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + _owner_top_html(day) + _summary_html(day.get("money_summary"), _funds_html(day) + _trades_html(day)) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1616,7 +1920,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     when = f"{day['weekday']} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     L += _owner_top_text(day)
-    L += _summary_text(day.get("money_summary"))
+    L += _summary_text(day.get("money_summary"), _funds_text(day) + _trades_text(day))
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
               *_holdings_text(day), "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),

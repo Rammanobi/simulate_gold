@@ -15,6 +15,11 @@ capital:
   liquid_carry_haircut: 0.8          # green_budget uses 80% of expected carry
   min_cash_pct: 0.30
 
+# How the daily email and the dashboard draw "Where your money is" (owner picks after the previews).
+#   A = cards + stacked bar (one card per fund), B = donut + table.
+report:
+  portfolio_style: A                # A | B
+
 valuation:
   mark: ltp_minus_exit_cost          # value is net of round-trip/2 exit cost
   month_end_mark: close_last_nse_trading_day

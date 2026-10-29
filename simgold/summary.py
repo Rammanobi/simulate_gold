@@ -18,6 +18,9 @@ from pathlib import Path
 
 START_CAPITAL = 100_000.0
 BOOK_KEYS = ("ts", "asset", "side", "qty", "price")
+FUNDS = (("GOLDBEES", "Gold ETF"), ("SILVERBEES", "Silver ETF"), ("HINDCOPPER", "Copper share"))
+METAL = {"GOLDBEES": "gold", "SILVERBEES": "silver", "HINDCOPPER": "copper", "CASH": "cash"}
+STYLES = ("A", "B")
 MAX_FILLS = 12          # fills listed per side; the totals always cover all of them (keeps the dashboard document small)
 
 
@@ -85,6 +88,86 @@ def _fills(trades: list[dict], side: str, day: str | None) -> list[dict]:
     return rows
 
 
+def _inr(p: int) -> str:
+    """Whole paise -> '₹1,00,147.50' (Indian grouping, always 2 decimals)."""
+    whole, frac = divmod(abs(p), 100)
+    s = str(whole)
+    if len(s) > 3:
+        head, tail, parts = s[:-3], s[-3:], []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        s = ",".join(([head] if head else []) + parts + [tail])
+    return "₹" + s + f".{frac:02d}"
+
+
+def _pct0(part: int, whole: int) -> str:
+    if not whole or part <= 0:
+        return "0%"
+    x = part * 100 / whole
+    return "<1%" if x < 0.5 else f"{x:.0f}%"
+
+
+def portfolio_style(params: dict | None) -> str:
+    """report.portfolio_style: 'A' (cards + bar, default) or 'B' (donut + table); anything else falls back to A."""
+    v = str(((params or {}).get("report") or {}).get("portfolio_style", "A")).strip().upper()
+    return v if v in STYLES else "A"
+
+
+def _inr0(p: int) -> str:
+    """Whole paise -> whole rupees, Indian grouping: '₹1,00,148'."""
+    return _inr(int(round(abs(p) / 100)) * 100)[:-3]
+
+
+def _sentence(rows: list[dict], base_p: int, idle_p: int, overall_p: int | None) -> str:
+    """'₹49,575 (50%) is in gold, ₹22,020 (22%) in silver, ₹0 in copper, ₹27,630 (28%) is cash. Overall −₹775 since start.'"""
+    bits = []
+    for i, r in enumerate(rows[:3]):
+        v = _p(r["value"])
+        bits.append((f"{_inr0(v)} ({_pct0(v, base_p)})" if v > 0 else "₹0") + (" is in " if i == 0 else " in ") + r["metal"])
+    out = f"{bits[0]}, {bits[1]}, {bits[2]}, {_inr0(idle_p)} ({_pct0(idle_p, base_p)}) is cash."
+    if overall_p is not None:
+        out += f" Overall {'−' if overall_p < 0 else '+' if overall_p > 0 else ''}{_inr0(overall_p)} since start."
+    return out
+
+
+def funds_table(metals: list[dict], prices: dict, positions: dict, gross_p: int, exit_p: int, idle_p: int, total_p: int,
+                idle_cash: bool = True, overall_p: int | None = None, style: str = "A") -> dict:
+    """'Where your money is': one row per fund (always all three, held or not), cash, and a total, from the same paise
+    that money_summary() uses, so it matches the glance block to the paisa.
+
+    row: {symbol, label, kind (fund|cash), held, units, avg_price, invested (units x avg + buy costs), price, value (units x price),
+    profit (value after selling costs - invested, = the 'open gain' of the glance block), profit_pct, share_pct}.
+    share_pct is of (metals value + cash). total.value is the total money now (after the estimated cost of selling)."""
+    held = {m["symbol"]: m for m in metals}
+    base_p = gross_p + idle_p
+    rows, inv_p = [], 0
+    for sym, kind in FUNDS:
+        m = held.get(sym)
+        pos = positions.get(sym) if isinstance(positions.get(sym), dict) else {}
+        px = _price(sym, pos, prices or {})
+        if m:
+            invested_p, value_p, profit_p = _p(m["invested"]), _p(m["value"]), _p(m["open_gain"])
+            inv_p += invested_p
+            rows.append({"symbol": sym, "metal": METAL[sym], "label": kind, "kind": "fund", "held": True, "units": m["qty"], "avg_price": m["avg_price"],
+                         "invested": m["invested"], "price": m["price"], "value": m["value"], "profit": m["open_gain"],
+                         "profit_pct": round(profit_p / invested_p * 100, 2) if invested_p else 0.0,
+                         "share_pct": round(value_p * 100 / base_p, 1) if base_p else 0.0})
+        else:
+            rows.append({"symbol": sym, "metal": METAL[sym], "label": kind, "kind": "fund", "held": False, "units": 0, "avg_price": None, "invested": 0.0,
+                         "price": round(px, 4) if px else None, "value": 0.0, "profit": 0.0, "profit_pct": 0.0, "share_pct": 0.0})
+    rows.append({"symbol": "CASH", "metal": "cash", "label": "Idle money, earns nothing" if idle_cash else "Idle money", "kind": "cash", "held": idle_p > 0,
+                 "units": None, "avg_price": None, "invested": None, "price": None, "value": _r(idle_p), "profit": None,
+                 "profit_pct": None, "share_pct": round(idle_p * 100 / base_p, 1) if base_p else 0.0})
+    open_p = sum(_p(r["profit"]) for r in rows if r["kind"] == "fund")
+    total = {"invested": _r(inv_p), "value": _r(total_p), "profit": _r(open_p),
+             "profit_pct": round(open_p / inv_p * 100, 2) if inv_p else 0.0, "share_pct": 100.0 if base_p else 0.0,
+             "exit_cost": _r(exit_p)}
+    sentence = _sentence(rows, base_p, idle_p, overall_p)
+    total["overall_profit"] = _r(overall_p) if overall_p is not None else None
+    return {"rows": rows, "total": total, "sentence": sentence, "style": style if style in STYLES else "A"}
+
+
 def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: dict | None = None,
                   start_capital: float = START_CAPITAL, archive: list | None = None, total: float | None = None,
                   idle_cash: bool = True) -> dict:
@@ -115,7 +198,8 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
         invested = _p(qty * _n(pos.get("avg_cost")) + _n(pos.get("buy_costs")))
         gross_p, net_p, open_p = gross_p + g, net_p + v, open_p + (v - invested)
         held_buy_costs_p += _p(pos.get("buy_costs"))
-        metals.append({"symbol": sym, "qty": qty, "price": round(px, 4), "value": _r(g), "net_value": _r(v),
+        metals.append({"symbol": sym, "qty": qty, "price": round(px, 4), "avg_price": round(_n(pos.get("avg_cost")), 4),
+                       "value": _r(g), "net_value": _r(v),
                        "invested": _r(invested), "open_gain": _r(v - invested)})
     exit_p = gross_p - net_p
 
@@ -144,6 +228,9 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     def tot(rows):
         return _r(sum(_p(r["amount"]) for r in rows))
 
+    funds = funds_table(metals, prices, pf.get("positions") or {}, gross_p, exit_p, idle_p, total_p, idle_cash,
+                        overall_p, portfolio_style(params))
+
     return {
         "day": day, "idle_cash": bool(idle_cash), "start_capital": _r(start_p), "idle_label": "Cash" if idle_cash else "Idle money",
         "total_now": _r(total_p),
@@ -154,7 +241,7 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
         "prev_close": _r(prev_p), "prev_close_date": prev_date,
         "today_profit": _r(today_p), "today_pct": round(today_p / prev_p * 100, 3) if prev_p else None,
         "overall_profit": _r(overall_p), "overall_pct": round(overall_p / start_p * 100, 3) if start_p else None,
-        "live_profit": _r(open_p), "held": bool(metals),
+        "live_profit": _r(open_p), "held": bool(metals), "funds": funds,
         "breakdown": {"booked": _r(booked_p), "open": _r(open_p), "costs": _r(-closed_costs_p), "interest": _r(interest_p),
                       "booked_after_costs": _r(booked_net_p), "sum": _r(booked_p + open_p - closed_costs_p + interest_p)},
     }
