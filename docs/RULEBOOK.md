@@ -44,6 +44,12 @@ From **15:10 IST** the engine checks each symbol as soon as it has a FRESH price
 - **Exit**: when the target is 0 (trend OFF and no floor), the **whole position is sold at once** at the check.
 - **Exits are never missed**: after 15:25 the check still runs for every symbol not yet checked, exits and trims only (no buys), until the close; if a whole day was missed, the first tick of the next day does it.
 - A buy paused by a news or shock block that ends before 15:25 stays pending and is retried.
+- **Intraday trend-exit stop (D5-S, `strategy.stops`, owner approval 2026-10-29)**: for the symbols in `stops.intraday_exit` (**SILVERBEES, HINDCOPPER**) the exit level
+  `max(peak close since entry − 3 × ATR20, lowest low of the prior 20 days)` is no longer only a daily-check rule. The level for the day is computed from completed bars and
+  frozen at the first v2 tick (`exit_level` of the position shows it). **Two consecutive fresh prices (`confirm_ticks` 2) at or under it sell the whole position** at once
+  (trigger "Trend exit"); a price above the level resets the count and a stale price neither counts nor resets. A gap-down open under the level sells as soon as the two ticks are in (`gap: sell`, no waiting for the close).
+  The symbol is not bought back that day, and re-entry needs a close above the prior 55-day high (the existing entry rule). The freed weight goes to gold at the next 15:10 check (stop moves to gold); there is no intraday buy.
+  The reason of every stop sale states the level, the two prices and `units × fill price = amount`. **GOLDBEES has no new stop**: its SMA200 exit stays at the 15:10 check only.
 - Prices are closes or the live price. Yahoo opens are never used. Daily bars are filtered: a one-day spike that reverts is dropped, highs/lows are clipped to close ± 4 × the median range, forward-filled duplicate bars are dropped (logged).
 
 ### V2.4 Portfolio risk (replaces the Green Guard floor, gap sizing and the 30% cash rule)
@@ -56,9 +62,13 @@ From **15:10 IST** the engine checks each symbol as soon as it has a FRESH price
 - **Hard account stop ₹75,000**: value at or under it **sells everything at once**, halts buys, raises a HIGH alert (`account_stop`) and **latches**.
   To resume, the owner commits `strategy.account_stop_clear_after: "YYYY-MM-DD"` (a date on or after the day it fired) in `config/params.yaml`; routines cannot clear it.
   `floor` in `state/portfolio.json` is this fixed number under v2.
-- **AI stops**: a fast-lane `tighten_stop` is stored as a separate stop (only ever raised) and enforced every minute: price at or under it sells the whole position. A v1 stop on an open position is inherited the same way at the first v2 tick.
-  The trend exit level is shown as `exit_level`, never as a stop.
-- **No re-buy**: after a fast-lane sale, an AI-stop sale or the HINDCOPPER results exit, that symbol is not bought again until the next trading day.
+- **AI stops**: a fast-lane `tighten_stop` is stored as a separate stop (only ever raised) and enforced every minute: **two consecutive fresh prices** (`confirm_ticks`) at or under it sell the whole position (on GOLDBEES only the units above the floor, see the next point). A v1 stop on an open position is inherited the same way at the first v2 tick.
+  The trend exit level is shown as `exit_level`; for SILVERBEES / HINDCOPPER it is enforced every minute as the D5-S stop above (V2.3), for GOLDBEES it is never a stop.
+- **Gold floor protection (D5-S, `stops.protect_floor: true`)**: the GOLDBEES floor units are `int(max(0, min_invested − satellite weights) × value / price)` (0 at brake level 2).
+  An AI `tighten_stop` or `sell_fraction` acts only on the units **above** the floor; if the whole holding is floor the advice is refused and logged ("floor protected", no sale). An AI `block` bias caps gold at its floor weight
+  (no adds above it) but never skips the floor buy. News and price-shock pauses, and the same-day no-re-buy, only delay a floor top-up until `check_until` (15:25); at that time it is made. Safe mode, the account stop,
+  brake level 2, the AI's halt for the day and the event-day buy blocks still block it. Only the −25% brake and the ₹75,000 account stop sell the floor (the −15% halving keeps it).
+- **No re-buy**: after a fast-lane sale, an AI-stop sale, an intraday trend-exit stop or the HINDCOPPER results exit, that symbol is not bought again until the next trading day.
 - No score, no take-half, no trailing stop, no time stop, no daily buy limits, no maximum of 3 positions, no month-end blackout.
 - The portfolio fast-lane trigger under v2 is a drop of ≥1.5% of the value within 15 minutes (payload carries `drawdown_from_peak`).
 - If the daily-history download fails, the last good copy is used; with none, nothing is bought but every exit still runs.
@@ -67,6 +77,7 @@ From **15:10 IST** the engine checks each symbol as soon as it has a FRESH price
 ### V2.5 What stays
 
 - **Claude's bias** (via `guidance.json`, stale counts as neutral): `block` = no new buys or adds for that metal (an existing core is held unless its target falls to 0); `neutral` = default; `favour` changes nothing under D5 (entries already go to target) and only loosens the dip when `rsi_timing` is on. Routines still never buy and never set a size. Every safety invariant in `CLAUDE.md` is unchanged.
+- **Block bias on GOLDBEES** (D5-S): `block` no longer means "no gold at all": gold is held at its floor weight (never above it for new buys); other symbols are unchanged.
 - **Pauses delay NEW buys only** (never exits): fast-lane price shocks, news pauses, `halt_buys_today`, safe mode, a v1 tripwire's `no_buys_until`, and the event-day buy blocks of section 6.
 - **HINDCOPPER** keeps its results-day block and the sell-before-close-on-results exit (section 6).
 - Paper costs: slippage and trade costs as before (`valuation`, `broker.trade_costs`).
@@ -81,6 +92,7 @@ The per-minute check (`logs/checks-DATE.jsonl`) says, for example, `Price ₹119
 ### V2.7 Backtest (daily data, signal at the close of t, fill at the close of t+1, costs 0.15% ETF / 0.30% HINDCOPPER per side)
 
 `python run_backtest.py --strategy v2 [--data-dir DIR] [--start D] [--set key=value]` replays exactly these rules (same code as the engine).
+With `strategy.stops.intraday_exit` the backtest also enforces the silver/copper exit level on the day's open and low (fill at min(open, level), +0.10% extra slippage, no re-entry before a close above the 55-day high); `--set stops.intraday_exit=[]` gives the older daily-close numbers exactly. Real opens come from `--data-dir`; without an open the level itself is the fill.
 D5 on the research data: last 2 years about 46.6% CAGR, max drawdown about −22.6%; 2010-06 to 2024-10 about 10.6%, −19.0% (research doc: 46.5% / −23.1% and 10.8% / −17.9%).
 Plain v2 (the earlier profile) is `--set min_invested=0 --set stop_to_gold=false --set entry.rsi_timing=true`.
 

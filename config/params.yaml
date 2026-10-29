@@ -182,6 +182,11 @@ strategy:
     rebase_release_gain: 0.03         # ... AND value more than 3% above the re-based value
   account_stop: 75000                 # hard account stop: value at or under it SELLS EVERYTHING at once, halts buys, raises a HIGH alert (also the engine's "floor")
   account_stop_clear_after: null      # OWNER ONLY: the stop latches. To resume trading set this to an ISO date on or after the day it fired (e.g. "2026-12-01") in a commit
+  stops:                              # owner approval 2026-10-29: stop-loss package D5-S (docs/RULEBOOK.md V2.3 / V2.4; absent = the older behaviour)
+    intraday_exit: [SILVERBEES, HINDCOPPER]   # the trend exit level max(peak - 3 x ATR20, 20-day low) is enforced every minute ([] = daily check only)
+    confirm_ticks: 2                  # consecutive FRESH prices at or under a level before a stop sells (trend exit and AI stops)
+    gap: sell                         # an open already under the level sells as soon as the confirm ticks are in (no waiting for the close)
+    protect_floor: true               # AI tighten_stop / sell_fraction / block never touch the GOLDBEES floor units; only the -25% brake and the account stop sell them
   fast_lane_portfolio_drop: 0.015     # portfolio fast-lane trigger under v2: value fell this share of itself within portfolio_drop_window_min
   data:                               # daily-bar sanity filter (Yahoo glitches) and history download failures
     spike_move: 0.25                  # a close more than 25% from the previous close that reverts over half the next day is dropped (ETFs) ...
