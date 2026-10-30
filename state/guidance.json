@@ -1,18 +1,18 @@
 {
- "updated": "2026-10-30T08:53:59+05:30",
+ "updated": "2026-10-30T12:18:10+05:30",
  "bias": {
-  "GOLD": "neutral",
+  "GOLD": "block",
   "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "GOLD[WEAKENING]: no overnight data found, ceiling neutral, month-end today. SILVER[DEFENSIVE]: keep block, ltm DOWN stm DOWN, no data. COPPER[DOWNTREND]: no overnight data, neutral default.",
+ "note": "[fallback: DeepSeek] Gold and silver remain blocked after price drops of 1.5% and 5.2%; copper lacks a clear trigger.",
  "prices_at_update": {
-  "GOLDBEES": 116.42,
-  "SILVERBEES": 180.0,
-  "HINDCOPPER": 413.45
+  "GOLDBEES": 115.35,
+  "SILVERBEES": 174.14,
+  "HINDCOPPER": 401.65
  },
  "alignment": {
-  "GOLD": "WEAKENING",
+  "GOLD": "RANGE",
   "SILVER": "DEFENSIVE",
   "COPPER": "DOWNTREND"
  }
