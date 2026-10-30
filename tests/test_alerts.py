@@ -231,8 +231,18 @@ def test_exempt_noise_categories_are_not_counted_or_escalated(tmp_path):
 
 
 def test_real_categories_still_counted_after_the_exemption(tmp_path):
-    for cat in ("engine_not_running", "data_source_down", "workflow_failed", "routines_silent", "state_corrupt"):
+    for cat in ("engine_not_running", "data_source_down", "workflow_failed", "state_corrupt"):
         assert cat not in A.SAFE_MODE_EXEMPT
+
+
+def test_30_oct_routines_silent_no_longer_sets_safe_mode(tmp_path):
+    """30 Oct 2026: the Claude routines were silent (usage limit, fewer hourly runs); the engine was healthy and stale
+    guidance already counts as neutral, so a routines_silent HIGH left open must not block the 15:10 floor buy."""
+    assert "routines_silent" in A.SAFE_MODE_EXEMPT
+    raise_(tmp_path, "watchdog", "routines_silent", "routines_silent", now=T0)
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 180 * MIN, CFG)
+    assert not A.safe_mode_on(tmp_path)
+    assert len(A.load_state(tmp_path)["alerts"]) == 1        # still reported
 
 
 def test_genuine_high_still_sets_safe_mode_next_to_watchdog_stale(tmp_path):
