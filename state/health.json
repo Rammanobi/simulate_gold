@@ -1,11 +1,17 @@
 {
- "last_run": "2026-10-30T11:09:17+05:30",
+ "last_run": "2026-10-30T12:17:15+05:30",
  "results": [
   {
-   "check": "watchdog_stale",
+   "check": "routines_silent",
+   "severity": "high",
+   "category": "routines_silent",
+   "detail": "guidance.json was last written 3.4 h ago (limit 3 h): the Claude routines are not running (usage limit or credits?)"
+  },
+  {
+   "check": "guidance_stale",
    "severity": "medium",
-   "category": "watchdog_stale",
-   "detail": "the last healthcheck ran 135 min ago (limit 75)"
+   "category": "stale_guidance",
+   "detail": "guidance is 3.4 h old (limit 3 h)"
   }
  ],
  "all_green": false
