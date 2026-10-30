@@ -139,9 +139,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1793353043.273292,
+   "resolved_at": 1793376806.9866383,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "routines_silent"
   },
   "watchdog|ticks_missing|": {
