@@ -42,6 +42,13 @@ def problem(check: str, category: str, detail: str) -> dict:
     return {"check": check, "severity": alerts.severity_of(category), "category": category, "detail": detail}
 
 
+def clean_for_safe_mode(probs: list[dict]) -> bool:
+    """True when only monitoring noise is left (alerts.SAFE_MODE_EXEMPT, e.g. the routines have not refreshed the guidance
+    yet before the 08:50 premarket run). That noise never switches safe mode on, so it must not keep it on either:
+    31 Oct 2026, safe mode from Friday would otherwise have stayed on all Monday and blocked the 15:10 floor buy again."""
+    return not [p for p in probs if p.get("category") not in alerts.SAFE_MODE_EXEMPT]
+
+
 def real_gh(args: list[str]) -> str:
     return subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60, check=True).stdout
 
@@ -365,7 +372,7 @@ def main(argv=None) -> int:
     probs = run_checks(ROOT, now, repo=repo)
     if "--no-write" not in args:
         write_health(ROOT, now, probs)
-        if not probs:       # a clean pre-market run is what lets safe mode clear itself the next day
+        if clean_for_safe_mode(probs):   # a clean pre-market run is what lets safe mode clear itself the next day
             try:
                 alerts.auto_clear_safe_mode(ROOT / "state", now.timestamp(), True)
             except Exception:  # noqa: BLE001 - fail closed: safe mode simply stays on
