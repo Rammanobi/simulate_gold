@@ -311,6 +311,11 @@ def cmd_market_today(a, root: Path, now: datetime, p: dict) -> str:
         note = " ".join(parts[2].split()) if len(parts) > 2 else ""
         if len(note) > 200:
             raise Refused(f"note for {parts[0].strip()} is over 200 characters")
+        if note:
+            try:                            # shown in the owner's email: facts only, no links, no instructions
+                memsafe.check_text(note, "why")
+            except memsafe.Refused as e:
+                raise Refused(f"note for {parts[0].strip()} rejected: {e}")
         rows.append({"name": parts[0].strip(), "move_pct": mv, "note": note})
     if not rows:
         raise Refused("give at least one --item")
@@ -326,6 +331,10 @@ def cmd_tomorrow(a, root: Path, now: datetime, p: dict) -> str:
         raise Refused(f"--text is {len(text)} characters; keep it under 600 (plain sentences, no markup)")
     if "<" in text:
         raise Refused("--text must be plain text (no HTML)")
+    try:                                    # it goes into the owner's email: facts only, no links, no instructions
+        memsafe.check_text(text, "report_text", one_line=False)
+    except memsafe.Refused as e:
+        raise Refused(f"--text rejected: {e}")
     write_atomic(root / "state" / "tomorrow.txt", text + "\n")
     return "tomorrow.txt written"
 

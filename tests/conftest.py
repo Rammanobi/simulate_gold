@@ -43,6 +43,11 @@ def cash_params(base: dict | None = None) -> dict:
     return p
 
 
+def pytest_configure(config):
+    # tests/evals_ai: Layer 1 of the AI evals (deterministic guardrail evals of the routines' outputs; docs/AI_EVALS.md)
+    config.addinivalue_line("markers", "ai_guardrail: deterministic guardrail evals of the AI routines' outputs (Layer 1)")
+
+
 @pytest.fixture(autouse=True)
 def _no_network_for_weekly_line(monkeypatch):
     """The weekly 'rules vs live' line downloads daily bars; tests never touch the network (it is simply left out)."""
