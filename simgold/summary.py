@@ -105,6 +105,7 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     trades = [t for t in trades if str(t.get("ts", ""))[:10] <= day]
 
     metals, gross_p, net_p, open_p, held_buy_costs_p = [], 0, 0, 0, 0
+    net_x, open_x = 0.0, 0.0                                   # exact rupees, for the interest part (no rounding dust)
     for sym, pos in (pf.get("positions") or {}).items():
         qty = int(_n(pos.get("qty")))
         if qty <= 0:
@@ -115,6 +116,8 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
         invested = _p(qty * _n(pos.get("avg_cost")) + _n(pos.get("buy_costs")))
         gross_p, net_p, open_p = gross_p + g, net_p + v, open_p + (v - invested)
         held_buy_costs_p += _p(pos.get("buy_costs"))
+        v_x = qty * px * (1 - cost / 2)
+        net_x, open_x = net_x + v_x, open_x + v_x - (qty * _n(pos.get("avg_cost")) + _n(pos.get("buy_costs")))
         metals.append({"symbol": sym, "qty": qty, "price": round(px, 4), "value": _r(g), "net_value": _r(v),
                        "invested": _r(invested), "open_gain": _r(v - invested)})
     exit_p = gross_p - net_p
@@ -135,11 +138,22 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     buys_t, sells_t = _fills(trades, "BUY", day), _fills(trades, "SELL", day)
     buys_all, sells_all = _fills(trades, "BUY", None), _fills(trades, "SELL", None)
 
-    booked_net_p = sum(_p(t.get("pnl")) for t in trades if t.get("side") == "SELL")
-    all_costs_p = sum(_p(t.get("costs")) for t in trades)
+    booked_net_x = sum(_n(t.get("pnl")) for t in trades if t.get("side") == "SELL")
+    all_costs_x = sum(_n(t.get("costs")) for t in trades)
+    booked_net_p, all_costs_p = _p(booked_net_x), _p(all_costs_x)          # sum exact, round once
     closed_costs_p = max(0, all_costs_p - held_buy_costs_p)
     booked_p = booked_net_p + closed_costs_p                     # before costs
-    interest_p = overall_p - booked_p - open_p + closed_costs_p  # the rest; see module docstring
+    # interest = what is left after the measured parts, computed on exact rupees so rounding dust never shows up as
+    # "interest" (the property eval found -₹0.02 after many trades); the few paise of dust go to the largest part so
+    # the printed parts still add up to overall profit exactly.
+    total_x = _n(total) if total is not None else _n(pf.get("cash")) + _n(pf.get("liquidbees")) + net_x
+    interest_p = _p((total_x - _n(start_capital)) - booked_net_x - open_x)
+    dust = overall_p - (booked_p + open_p - closed_costs_p + interest_p)
+    if dust:
+        if abs(open_p) >= abs(booked_p):
+            open_p += dust
+        else:
+            booked_p += dust
 
     def tot(rows):
         return _r(sum(_p(r["amount"]) for r in rows))
