@@ -18,8 +18,7 @@ capital:
 # How the daily email and the dashboard draw "Where your money is" (owner picks after the previews).
 #   AB = A then B (default, owner choice): sentence + total + stacked bar + one card per fund, then the fund table.
 #   A = cards + stacked bar only, B = donut (email: waffle) + table only.
-report:
-  portfolio_style: AB               # AB | A | B
+# (the `report:` key itself is further down, next to backup_after)
 
 valuation:
   mark: ltp_minus_exit_cost          # value is net of round-trip/2 exit cost
@@ -262,6 +261,12 @@ alerts:
   safe_mode_fix_window_min: 30       # a HIGH still open this long -> safe mode
   watchdog_stale_min: 75             # state/health.json older than this in market hours -> HIGH (GitHub cron is late; the hourly routine dispatches the watchdog)
   near_floor_inr: 100                # value this close to (or under) the floor is HIGH
+
+# ---- daily report email guarantee (tools/report_retry.py, .github/workflows/report-retry.yml) ----
+# On a trading day, if the report is not SENT by this IST time, the code backup email goes out at once (owner approval 2026-10-29).
+report:
+  backup_after: "16:30"
+  portfolio_style: AB               # AB | A | B (see "Where your money is" above)
 
 # ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----
 # Used ONLY when the watchdog reports routines_silent. DeepSeek is OpenAI-compatible; the key lives in the GitHub secret

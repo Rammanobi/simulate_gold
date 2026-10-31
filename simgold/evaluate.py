@@ -258,8 +258,9 @@ def _verdict(ret_pct, dd_pct, gold: dict, cash: dict, green: bool) -> str:
 
 
 # ----------------------------------------------------------------------------------------------- main
-def evaluate(root, month: str | None = None, benchmark_csv=None) -> dict:
-    """month=None -> since inception."""
+def evaluate(root, month: str | None = None, benchmark_csv=None, weekly: bool = False) -> dict:
+    """month=None -> since inception. weekly=True adds the "rules vs live" line for the latest week in the period (needs price data
+    from the network; left out when anything is missing)."""
     root = Path(root)
     eq = load_equity(root)
     ticks = load_ticks(root)
@@ -368,6 +369,11 @@ def evaluate(root, month: str | None = None, benchmark_csv=None) -> dict:
         "benchmarks": benches, "flags": flags,
         "verdict": _verdict(ret, dd["pct"], gold, cash, green),
     })
+    if weekly:
+        from . import weekly as _wk
+        wl = _wk.week_line(root, end_d)
+        if wl:
+            res["weekly_line"] = wl
     return res
 
 
@@ -411,6 +417,8 @@ def rows(r: dict) -> list[tuple[str, str]]:
     for b in r["benchmarks"]:
         out.append((b["name"], f"{_pc(b['return_pct'])}, drawdown {b['max_drawdown_pct']:.2f}%, excess {_pc(b['excess_pct'])}"
                     if b["available"] else "unavailable"))
+    if r.get("weekly_line"):
+        out.append(("Latest week", r["weekly_line"].removeprefix("This week: ")))
     out.append(("Verdict", r["verdict"]))
     return out
 

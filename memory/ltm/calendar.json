@@ -1,48 +1,6 @@
 {
- "updated": "2026-10-19T15:51:40+05:30",
+ "updated": "2026-10-31T09:52:43+05:30",
  "events": [
-  {
-   "date": "2026-10-14",
-   "type": "CPI",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 3,
-   "confirmed": true,
-   "added": "2026-10-19",
-   "by": "migration",
-   "time": "18:00"
-  },
-  {
-   "date": "2026-10-20",
-   "type": "NSE_HOLIDAY",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 1,
-   "expect": "NSE closed",
-   "source": "nse",
-   "confirmed": true,
-   "by": "code",
-   "added": "2026-10-19"
-  },
-  {
-   "date": "2026-10-23",
-   "type": "HINDCOPPER_RESULTS",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 3,
-   "confirmed": true,
-   "added": "2026-10-19",
-   "by": "migration"
-  },
   {
    "date": "2026-10-28",
    "type": "FOMC",
@@ -85,6 +43,21 @@
    "added": "2026-10-19",
    "by": "migration",
    "time": "19:00"
+  },
+  {
+   "date": "2026-11-09",
+   "type": "CPI",
+   "metals": [
+    "GOLD",
+    "SILVER"
+   ],
+   "impact": 3,
+   "confirmed": false,
+   "added": "2026-10-31",
+   "by": "weekly",
+   "time": "19:00",
+   "expect": "US Oct CPI out Tue 10 Nov 08:30 ET (NSE shut 10 Nov); third-party calendars, bls.gov not checked",
+   "source": "thriveinmarkets.com"
   },
   {
    "date": "2026-11-10",
@@ -130,6 +103,52 @@
    "confirmed": true,
    "by": "code",
    "added": "2026-10-19"
+  },
+  {
+   "date": "2026-12-04",
+   "type": "RBI",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 2,
+   "confirmed": true,
+   "added": "2026-10-31",
+   "by": "weekly",
+   "time": "10:00",
+   "expect": "MPC meets 2-4 Dec; decision on the last day",
+   "source": "rbi.org.in"
+  },
+  {
+   "date": "2026-12-09",
+   "type": "FOMC",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 3,
+   "confirmed": false,
+   "added": "2026-10-31",
+   "by": "weekly",
+   "expect": "FOMC 8-9 Dec with projections; decision 9 Dec 14:00 ET = 00:30 IST 10 Dec; third-party calendars",
+   "source": "fedratecalc.com"
+  },
+  {
+   "date": "2026-12-25",
+   "type": "NSE_HOLIDAY",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 1,
+   "expect": "NSE closed",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-10-31"
   }
  ]
 }
