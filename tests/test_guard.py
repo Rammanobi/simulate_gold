@@ -541,7 +541,9 @@ def test_portfolio_trigger(tmp_path):
 
 
 # ------------------------------------------------------------------ guidance
-def test_guidance_stale_and_favour(tmp_path):
+def test_guidance_stale_and_favour(tmp_path, monkeypatch):
+    from simgold import memstore       # the alignment allows favour here (the engine caps a bias at the ceiling since 2026-10-31)
+    monkeypatch.setattr(memstore, "current_alignment", lambda *a, **k: {m: {"ceiling": "favour", "state": "T"} for m in ("GOLD", "SILVER", "COPPER")})
     def run(guid, score, minutes=4):
         pf = newpf()
         pf.liquidbees, pf.floor, pf.best_profit, pf.last_accrual = 103000.0, 101000.0, 2500.0, D_MID.isoformat()
@@ -736,3 +738,12 @@ def test_engine_writes_day_fields(tmp_path):
         t = bar + timedelta(minutes=k)
         run_tick(pf, Market(t, {"GOLDBEES": 100.0}, {"GOLDBEES": t}, {"GOLDBEES": 0.95}), env)
     assert pf.positions and pf.day_costs > 0
+
+
+@pytest.mark.parametrize("bad", [float("nan"), "nan", "NaN", float("inf"), float("-inf")])
+def test_fastlane_non_finite_stop_or_fraction_is_refused(bad):
+    """NaN compares False with everything, so it used to pass the 'not looser, below the price' checks (AI evals, 29 Oct)."""
+    now = datetime(2026, 10, 14, 11, 0, tzinfo=IST)
+    pos = {"SILVERBEES": {"qty": 10, "price": 200.0, "stop": 196.0}}
+    acc, rej = guard.sanitize_fastlane({"SILVERBEES": {"tighten_stop": bad, "sell_fraction": bad}}, now, pos)
+    assert acc == [] and len(rej) == 2

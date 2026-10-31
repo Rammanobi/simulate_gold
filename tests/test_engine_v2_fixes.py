@@ -215,12 +215,14 @@ def test_account_stop_sells_everything_latches_and_alerts_once(tmp_path):
     crashed = {s: 1.0 for s in SYMS}
     crashed["GOLDBEES"] = 74.0                                          # 1000 units * 74 = 74,000 < 75,000
     run_tick(pf, mk(UP, 300, 11, 0, prices=crashed), env)
+    assert pf.positions                                                 # the first tick under the stop only counts (2026-10-31)
+    run_tick(pf, mk(UP, 300, 11, 1, prices=crashed), env)
     assert not pf.positions
     sells = [d for d in decs(env, 300) if d["action"] == "SELL"]
     assert sells and sells[0]["trigger"] == "Account stop"
     al = json.loads((env.state_dir / "alerts.json").read_text())
     assert sum(1 for e in al["alerts"].values() if e["category"] == "account_stop") == 1
-    run_tick(pf, mk(UP, 300, 11, 1, prices=crashed), env)
+    run_tick(pf, mk(UP, 300, 11, 2, prices=crashed), env)
     assert sum(1 for e in json.loads((env.state_dir / "alerts.json").read_text())["alerts"].values()
                if e["category"] == "account_stop")  == 1 and sum(1 for d in decs(env, 300) if d["trigger"] == "Account stop" and d["action"] == "BLOCK") == 1
     # the next day, value back over the stop and the trend ON: still no buys (latched)

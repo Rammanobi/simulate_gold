@@ -539,6 +539,8 @@ def sanitize_fastlane(raw: dict, now: datetime, positions: dict[str, dict], p: d
                     f = float(v)
                 except (TypeError, ValueError):
                     f = -1
+                if not math.isfinite(f):
+                    f = -1
                 if not (0 < f <= 1):
                     rej.append(f"{sym}.sell_fraction: must be between 0 and 1")
                 elif not pos or pos["qty"] <= 0:
@@ -549,6 +551,8 @@ def sanitize_fastlane(raw: dict, now: datetime, positions: dict[str, dict], p: d
                 try:
                     x = float(v)
                 except (TypeError, ValueError):
+                    x = -1
+                if not math.isfinite(x):          # NaN compares False with everything, so it would pass every check below
                     x = -1
                 if not pos or pos["qty"] <= 0:
                     rej.append(f"{sym}.tighten_stop: no open position")

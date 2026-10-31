@@ -209,7 +209,8 @@ def test_account_stop_halts_buys_and_alerts(tmp_path):
     closes = {s: series("up", s) for s in SYMS}
     env = make_env(tmp_path)
     pf = fresh_pf(70000.0)                                             # under the Rs 75,000 stop
-    tick(pf, env, closes, 300)
+    tick(pf, env, closes, 300, 11, 0)
+    tick(pf, env, closes, 300, 11, 1)                                  # two consecutive fresh ticks under the stop (2026-10-31)
     assert not pf.positions
     dec = all_decisions(env)
     assert any(d["trigger"] == "Account stop" and d["action"] == "BLOCK" for d in dec)

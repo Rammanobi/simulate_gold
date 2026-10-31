@@ -190,7 +190,8 @@ strategy:
   stops:                              # owner approval 2026-10-29: stop-loss package D5-S (docs/RULEBOOK.md V2.3 / V2.4; absent = the older behaviour)
     intraday_exit: [SILVERBEES, HINDCOPPER]   # the trend exit level max(peak - 3 x ATR20, 20-day low) is enforced every minute ([] = daily check only)
     confirm_ticks: 2                  # consecutive FRESH prices at or under a level before a stop sells (trend exit and AI stops)
-    gap: sell                         # an open already under the level sells as soon as the confirm ticks are in (no waiting for the close)
+    account_confirm_ticks: 2          # owner approval 2026-10-31: the ₹75,000 account stop sells only after this many consecutive FRESH ticks with value at or under it
+    gap: sell                       # an open already under the level sells as soon as the confirm ticks are in (no waiting for the close)
     protect_floor: true               # AI tighten_stop / sell_fraction / block never touch the GOLDBEES floor units; only the -25% brake and the account stop sell them
   news_blocks_buys: false             # owner approval 2026-10-29: news headlines are recorded and shown but no longer pause buys or wake the fast lane under v2 (true = the older behaviour)
   fastlane_only_held: true            # owner approval 2026-10-29: the fast lane runs only for a price shock on a symbol that is held (false = any shock or news)
