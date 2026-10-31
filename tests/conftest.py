@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from simgold import config
 
 config.load_params()["strategy"]["mode"] = "v1_scores"
@@ -39,3 +41,13 @@ def cash_params(base: dict | None = None) -> dict:
     p = copy.deepcopy(base or config.load_params())
     p["capital"]["idle"] = "cash"
     return p
+
+
+@pytest.fixture(autouse=True)
+def _no_network_for_weekly_line(monkeypatch):
+    """The weekly 'rules vs live' line downloads daily bars; tests never touch the network (it is simply left out)."""
+    from simgold import weekly
+
+    def _offline(p, start):
+        raise RuntimeError("network disabled in tests")
+    monkeypatch.setattr(weekly, "fetch_frames", _offline)
