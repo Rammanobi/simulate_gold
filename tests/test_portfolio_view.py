@@ -152,7 +152,7 @@ def test_bought_today_numbers(days):
 
 def test_dashboard_template_has_both_styles():
     t = (pfx.REPO / "docs" / "dashboard" / "template.html").read_text(encoding="utf-8")
-    assert "f.style===\"B\"" in t and "pfDonut" in t and 'class="bar"' in t
+    assert "donut(" in t and "holdingsTable" in t and "fundCards" in t
 
 
 def test_ab_order_sentence_bar_cards_table_tiles_trades(days):

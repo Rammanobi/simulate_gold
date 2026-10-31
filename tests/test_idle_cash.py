@@ -146,7 +146,7 @@ def test_livepnl_cash_mode_reports_cash_and_no_accrual():
 
 def test_template_and_wording(tmp_path):
     t = (ROOT / "docs" / "dashboard" / "template.html").read_text(encoding="utf-8")
-    assert "Cash (idle money)" in t and "isCash" in t and "px4" in t
+    assert "idle_instrument" in t and "LIQUIDBEES" in t and "Cash" in t        # idle money is cash; the LIQUIDBEES era is noted
 
 
 def _root(tmp_path, pf_extra=None):
