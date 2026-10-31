@@ -236,7 +236,7 @@ class Engine:
             pf.total_costs += cost
             pf.day_costs += cost
             pf.trades.append({"ts": self.now.isoformat(timespec="seconds"), "asset": sym, "side": "BUY", "qty": qty,
-                              "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 2), "pnl": 0.0,
+                              "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 4), "pnl": 0.0,
                               "reason": reason})
             return {"qty": qty, "fill": fill, "pnl": None, "amount": amount, "cost": cost}
         pos = pf.positions.get(sym)
@@ -258,8 +258,8 @@ class Engine:
         pos.buy_costs *= 1 - share
         pos.qty -= qty
         pf.trades.append({"ts": self.now.isoformat(timespec="seconds"), "asset": sym, "side": "SELL", "qty": qty,
-                          "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 2),
-                          "pnl": round(pnl, 2), "reason": reason})
+                          "price": round(fill, 4), "value": round(amount, 2), "costs": round(cost, 4),
+                          "pnl": round(pnl, 4), "reason": reason})
         if pos.qty == 0:
             pf.positions.pop(sym)
         if pnl < 0:
