@@ -25,7 +25,7 @@ engine lock and the run guard; the -15% brake, the -25% brake and the 75,000 acc
 cannot; a buy never exceeds cash including costs; a missed buy is retried once next morning and expires after 09:50; the
 "allocation stuck" alert after 2 checks and its resolution; news never pauses buys; monitoring noise never turns safe mode on but a
 genuine HIGH does; live-push failures (timeout, git error, no git) never raise or block a tick; the workflow still self-dispatches.
-One test is `xfail(strict)` and documents a real, unfixed bug (see the PR).
+No eval is xfail any more: the single-tick account-stop bug was fixed on 2026-10-31 (`strategy.stops.account_confirm_ticks`).
 
 ## test_properties.py - random paths x random AI advice
 200 derandomized hypothesis examples (a seeded loop of 200 if hypothesis is not installed; `EVAL_EXAMPLES=n` changes the count):

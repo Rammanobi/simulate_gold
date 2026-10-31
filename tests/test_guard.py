@@ -541,7 +541,9 @@ def test_portfolio_trigger(tmp_path):
 
 
 # ------------------------------------------------------------------ guidance
-def test_guidance_stale_and_favour(tmp_path):
+def test_guidance_stale_and_favour(tmp_path, monkeypatch):
+    from simgold import memstore       # the alignment allows favour here (the engine caps a bias at the ceiling since 2026-10-31)
+    monkeypatch.setattr(memstore, "current_alignment", lambda *a, **k: {m: {"ceiling": "favour", "state": "T"} for m in ("GOLD", "SILVER", "COPPER")})
     def run(guid, score, minutes=4):
         pf = newpf()
         pf.liquidbees, pf.floor, pf.best_profit, pf.last_accrual = 103000.0, 101000.0, 2500.0, D_MID.isoformat()
