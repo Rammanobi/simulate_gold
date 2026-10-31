@@ -1,5 +1,4 @@
 {
- "on": true,
- "since": "2026-10-30T12:47:19+05:30",
- "reason": "HIGH incident not fixed within 30 min: routines_silent"
+ "on": false,
+ "cleared": "fix verified: PR #31 merged (routines_silent no longer switches safe mode on); owner session 31 Oct"
 }
