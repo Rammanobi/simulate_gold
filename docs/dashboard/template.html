@@ -187,7 +187,6 @@ svg{display:block;width:100%;height:auto}
 .fscroll{overflow-x:auto}
 .pf{--g:#c9a227;--s:#8a94a3;--c:#c2693b;--k:#4f7cc4}
 .pf .sent{font-size:15px;line-height:1.5;margin:0 0 10px}
-.pf .ptot{font-size:12.5px;color:var(--muted)}.pf .ptot b{display:block;font-size:30px;line-height:1.15;color:var(--ink)}
 .pf .bar{display:flex;height:28px;border-radius:7px;overflow:hidden;margin:12px 0 8px}
 .pf .bar i{display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-size:12.5px;font-weight:700;min-width:3px}
 .pf .leg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;margin-bottom:12px}
@@ -610,11 +609,6 @@ function renderNotes(d){
 // ---------- Where your money is (all 3 funds + cash + total; from money.funds / summary.funds) and every trade ----------
 const PFC={gold:"#c9a227",silver:"#8a94a3",copper:"#c2693b",cash:"#4f7cc4"}, PFN={gold:"Gold",silver:"Silver",copper:"Copper",cash:"Cash"};
 const pfPct=r=>r.share_pct<=0?"0%":r.share_pct<0.5?"<1%":r.share_pct.toFixed(0)+"%";
-function pfTotal(m){return `<div class="ptot">Total money now<b>${inr(m.total_now,2)}</b>what you would have selling everything now</div>`}
-function pfTiles(m){
-  const c=x=>x>0?"pos":x<0?"neg":"", t=(l,v,p,s)=>`<div class="tile"><span>${l}</span><b class="${c(v)}">${sgn(v,0)}</b><small class="${c(v)}">${p==null?"":(p>=0?"+":"−")+Math.abs(p).toFixed(2)+"%"}</small><div><span>${s}</span></div></div>`;
-  return `<div class="tiles">${t("Today's profit",m.today_profit,m.today_pct,"since yesterday's close")}${t("Overall profit",m.overall_profit,m.overall_pct,"since "+inr(m.start_capital,0)+" start")}</div>`;
-}
 function pfDonut(rows){
   const R=70,C=2*Math.PI*R, tot=rows.reduce((a,r)=>a+Math.max(r.value,0),0); let off=0;
   const arcs=tot>0?rows.filter(r=>r.value>0).map(r=>{const l=C*r.value/tot, a=`<circle r="${R}" cx="85" cy="85" fill="none" stroke="${PFC[r.metal]}" stroke-width="26" stroke-dasharray="${l.toFixed(2)} ${(C-l).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 85 85)"><title>${PFN[r.metal]} ${pfPct(r)}</title></circle>`; off+=l; return a}).join(""):`<circle r="${R}" cx="85" cy="85" fill="none" stroke="var(--line)" stroke-width="26"/>`;
@@ -638,13 +632,13 @@ function fundsHTML(m){
   const note=`<p class="fsent" style="color:var(--muted);font-size:12.5px">Cost includes buying costs; total value and profit are after the estimated cost of selling.</p>`;
   const style=f.style==="A"||f.style==="B"?f.style:"AB";
   if(style==="B"){
-    return `<div class="pf"><div class="donut"><svg viewBox="0 0 170 170" role="img" aria-label="Where the money is">${pfDonut(rows)}<text x="85" y="80" text-anchor="middle" font-size="11" fill="var(--muted)">Total money now</text><text x="85" y="100" text-anchor="middle" font-size="17" font-weight="800" fill="var(--ink)">${inr(m.total_now,0)}</text></svg><div>${legend}</div></div>${pfTable(m,rows,f,c,pr)}${pfTiles(m)}${note}</div>`;
+    return `<div class="pf"><div class="donut"><svg viewBox="0 0 170 170" role="img" aria-label="Where the money is">${pfDonut(rows)}</svg><div>${legend}</div></div>${pfTable(m,rows,f,c,pr)}${note}</div>`;
   }
   const bar=rows.filter(r=>r.share_pct>0).map(r=>`<i style="width:${Math.max(r.share_pct,1)}%;background:${PFC[r.metal]}">${r.share_pct>=9?pfPct(r):""}</i>`).join("")||`<i style="width:100%;background:${PFC.cash}"></i>`;
   const cards=rows.filter(r=>r.kind==="fund").map(r=>r.held
     ? `<div class="fc" style="--x:${PFC[r.metal]}"><div class="nm">${esc(r.symbol)}<small>${esc(r.label)}</small></div><div class="pl ${c(r.profit)}">${sgn(r.profit,0)}<small>${(r.profit_pct>=0?"+":"−")+Math.abs(r.profit_pct).toFixed(2)}%</small></div><div class="ln">${Number(r.units).toLocaleString("en-IN")} shares × ${inr(r.price,2)} = ${inr(r.value,0)}</div><div class="ln2">You paid ${inr(r.invested,0)} incl. costs (${inr(r.invested/r.units,2)} each; ${inr(r.avg_price,2)} before costs)</div></div>`
     : `<div class="fc off" style="--x:${PFC[r.metal]}"><b style="color:var(--ink)">${esc(r.symbol)}</b> · ${esc(r.label)} · Not held${r.price?" · price now "+inr(r.price,2):""}</div>`).join("");
-  return `<div class="pf"><p class="sent">${esc(f.sentence||"")}</p>${pfTotal(m)}<div class="bar">${bar}</div>${legend}<div class="cards">${cards}</div>${style==="AB"?`<div style="margin-top:14px">${pfTable(m,rows,f,c,pr)}</div>`:""}${pfTiles(m)}${note}</div>`;
+  return `<div class="pf"><p class="sent">${esc(f.sentence||"")}</p><div class="bar">${bar}</div>${legend}<div class="cards">${cards}</div>${style==="AB"?`<div style="margin-top:14px">${pfTable(m,rows,f,c,pr)}</div>`:""}${note}</div>`;
 }
 function tradesHTML(d){
   const led=Array.isArray(d.ledger)?d.ledger:[]; if(!led.length) return `<p class="fsent">No buys or sells yet.</p>`;
@@ -664,19 +658,14 @@ function moneyHTML(m){
         pct=x=>x==null?"":" ("+(x>0?"+":x<0?"−":"")+Math.abs(x).toFixed(2)+"%)",
         fill=r=>`${r.symbol}: ${Number(r.qty).toLocaleString("en-IN")} unit${r.qty===1?"":"s"} × ${inr(r.price,4).replace(/0{1,2}$/,"")} = ${inr(r.amount,2)}`;
   let o=h("Total money now","What you'd have selling everything now",inr(m.total_now,2));
-  o+=h("Invested in metals now","Metals held, valued at today's prices",inr(m.metals_value,2));
-  (m.metals||[]).forEach(x=>{ o+=s(`${x.symbol}: ${Number(x.qty).toLocaleString("en-IN")} unit${x.qty===1?"":"s"} × ${inr(x.price,2)}`,inr(x.value,2)); });
-  if(!(m.metals||[]).length) o+=s("Metals: nothing held",inr(0,2));
-  if(Math.abs(m.exit_cost||0)>=0.005) o+=s("Less: estimated cost of selling","−"+inr(m.exit_cost,2));
-  o+=s((m.idle_label||"Cash")+" (idle money)",inr(m.cash,2));
+  o+=h("Today's profit","Gain or loss since yesterday's close",sgn(m.today_profit,2)+pct(m.today_pct),m.today_profit);
+  o+=h("Overall profit","Gain or loss since "+inr(m.start_capital)+" start",sgn(m.overall_profit,2)+pct(m.overall_pct),m.overall_profit);
+  o+=h("Live profit right now",m.held?"Gain on what you hold now":"Nothing held, so zero",sgn(m.live_profit,2),m.live_profit);
   o+=h("Today's investment","Money spent and received today","");
   o+=s("Spent on buys today",inr(m.today_bought,2)); if(m.today_buys_more) o+=s(`+ ${m.today_buys_more} earlier fills not listed`,""); (m.today_buys||[]).forEach(r=>{ o+=s(fill(r),""); });
   o+=s("Received from sells today",inr(m.today_sold,2)); if(m.today_sells_more) o+=s(`+ ${m.today_sells_more} earlier fills not listed`,""); (m.today_sells||[]).forEach(r=>{ o+=s(fill(r),""); });
   o+=h("Overall investment so far","Total bought and sold since start","");
   o+=s("Bought in total",inr(m.bought_total,2))+s("Sold in total",inr(m.sold_total,2));
-  o+=h("Today's profit","Gain or loss since yesterday's close",sgn(m.today_profit,2)+pct(m.today_pct),m.today_profit);
-  o+=h("Overall profit","Gain or loss since "+inr(m.start_capital)+" start",sgn(m.overall_profit,2)+pct(m.overall_pct),m.overall_profit);
-  o+=h("Live profit right now",m.held?"Gain on what you hold now":"Nothing held, so zero",sgn(m.live_profit,2),m.live_profit);
   const b=m.breakdown||{};
   o+=`<tr class="b"><td colspan="2">Overall profit ${sgn(m.overall_profit,2)} = booked profit ${sgn(b.booked,2)} + open gain ${sgn(b.open,2)} + costs paid ${sgn(b.costs,2)} + past ${m.idle_cash===false?"LIQUIDBEES interest":"interest on idle money"} ${sgn(b.interest,2)} (before the 22 Oct switch to cash; booked is ${sgn(b.booked_after_costs,2)} after costs).</td></tr>`;
   return `<table class="mg">${o}</table>`;

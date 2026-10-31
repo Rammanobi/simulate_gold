@@ -76,12 +76,12 @@ def test_renders_every_fund_and_reconciles(days, style, name):
         if r["kind"] == "fund" and not r["held"]:
             assert "not held" in html.lower()
     t = f["total"]
-    assert report.inr(ms["today_profit"]) in html and report.sg(ms["overall_profit"]) in html
+    assert "Total money now" not in html and "Today's profit" not in html and "Overall profit" not in html      # shown once, in the glance block
     assert abs(sum(_p(r["value"]) for r in f["rows"]) - _p(ms["cash"]) - _p(ms["metals_value"] if "metals_value" in ms else
               sum(m["value"] for m in ms["metals"]))) < 2
     assert t["value"] == ms["total_now"]
     if style in ("A", "AB"):
-        assert report.inr(ms["total_now"], 2) in html and f["sentence"] in html.replace("&amp;", "&")
+        assert f["sentence"] in html.replace("&amp;", "&")
         assert 1 <= html.count("bgcolor=") < 100                      # the stacked bar (and card strips), never the waffle
     if style in ("B", "AB"):
         assert "Shares</td>" in html and "Buy price" in html and "Price now" in html
@@ -157,7 +157,7 @@ def test_dashboard_template_has_both_styles():
 
 def test_ab_order_sentence_bar_cards_table_tiles_trades(days):
     html = report._funds_html(days["AB"]["bought_today"]) + report._trades_html(days["AB"]["bought_today"])
-    marks = ["is in gold", "Total money now", "Gold</b>", "GOLDBEES", "Buy price", "Today's profit", report.TRADES_TITLE]
+    marks = ["is in gold", "Gold</b>", "GOLDBEES", "Buy price", report.TRADES_TITLE]
     pos = [html.index(m) for m in marks]
     assert pos == sorted(pos), dict(zip(marks, pos))
     assert "bgcolor=\"#c9a227\"" in html and html.count("bgcolor=") < 100
@@ -178,3 +178,31 @@ def test_full_email_has_no_duplicate_sections_and_tiles_stack(days, style):
     assert 'width="33%"' not in page and "display:inline-block;vertical-align:top;width:100%;max-width:186px" in page
     closed = dict(days[style]["bought_today"], closed=True)
     assert "Every purchase so far" not in report.render_email(closed)
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_one_flow_no_number_shown_twice(days, style):
+    day = days[style]["bought_today"]
+    page = report.render_email(day)
+    ms = day["money_summary"]
+    assert page.count("Total money now") == 1 and page.count("Overall profit<div") == 1
+    assert "Invested in metals now" not in page and "Metals held, valued at" not in page
+    assert page.count(report.inr(ms["total_now"], 2)) == 1
+    glance = report._summary_html(ms)
+    for lab in ("Total money now", "Today's profit", "Overall profit", "Live profit right now", "Today's investment", "Overall investment so far"):
+        assert lab in glance
+    assert glance.index("Total money now") < glance.index("Today's profit") < glance.index("Overall profit") < glance.index("Live profit") \
+        < glance.index("Today's investment") < glance.index("Overall investment")
+    assert page.index(report.SUMMARY_TITLE) < page.index(report.FUNDS_TITLE) < page.index(report.TRADES_TITLE)
+    txt = report.render_text(day)
+    assert "Invested in metals now" not in txt and txt.count("Total money now") == 1
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_header_weekday_matches_the_date(days, style):
+    day = days[style]["bought_today"]
+    assert day["date"] == "2026-10-29"
+    day["weekday"] = "Monday"                                         # a stale stored weekday must not leak into the header
+    page = report.render_email(day)
+    assert "Thursday, 29 October 2026" in page and "Monday, 29 October" not in page
+    assert "Thursday 29 Oct 2026" in report.render_text(day)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import json
 from pathlib import Path
 
@@ -33,6 +34,7 @@ def make_day(positions: dict, trades: list, prices: dict, style: str = "A", date
     rows = holdings.compute(norm, px, 0.0, upto=date, positions=pos)
     day = json.loads((REPO / "templates" / "sample_day.json").read_text(encoding="utf-8"))
     day["date"] = date
+    day["weekday"] = dt.date.fromisoformat(date).strftime("%A")
     day["money_summary"] = ms
     day["holdings_view"] = {"date": date, "rows": rows, "ledger": ledger, "ledger_total": total, "ledger_shown": len(ledger),
                             "total_value": round(sum(r["value"] for r in rows), 2)}
