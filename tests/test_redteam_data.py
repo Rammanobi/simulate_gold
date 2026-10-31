@@ -254,7 +254,9 @@ def test_guidance_with_wrong_bias_type_does_not_crash_and_is_not_favour(tmp_path
     {"updated": "2099-01-01T00:00:00+05:30", "bias": {"GOLD": "favour"}},
     {"updated": "1970-01-01T00:00:00+05:30", "bias": {"GOLD": "favour"}},
 ])
-def test_guidance_huge_or_far_timestamps_never_loosen(tmp_path, raw):
+def test_guidance_huge_or_far_timestamps_never_loosen(tmp_path, raw, monkeypatch):
+    from simgold import memstore       # the alignment allows favour here (the engine caps a bias at the ceiling since 2026-10-31)
+    monkeypatch.setattr(memstore, "current_alignment", lambda *a, **k: {m: {"ceiling": "favour", "state": "T"} for m in ("GOLD", "SILVER", "COPPER")})
     env = env_for(tmp_path)
     (env.state_dir / "guidance.json").write_text(json.dumps(raw))
     pf = Portfolio()

@@ -110,8 +110,6 @@ def test_impossible_prices_are_ignored(tmp_path):
     assert sim.pf.positions[G].qty > 0 and not sim.trades("SELL")
 
 
-@pytest.mark.xfail(strict=True, reason="REAL BUG (not fixed, needs owner approval): the account stop sells on ONE tick at/under 75,000, so a single "
-                   "-20% bad print (inside the 25% data filter) on an ~80k, gold-heavy account latches the permanent stop. See PR body.")
 def test_a_bad_bar_on_a_stressed_account_must_not_latch_the_account_stop(tmp_path):
     """An account already down to ~80k and mostly in gold meets ONE -20% bad print (inside the 25% data filter)."""
     hist = K.synth_hist({G: "up"})
@@ -321,6 +319,8 @@ def test_minus_25_percent_brake_sells_the_floor_too(tmp_path):
 def test_account_stop_sells_everything_at_once_even_the_protected_floor_and_latches(tmp_path):
     sim, px = brake_sim(tmp_path, 74000, 100000)
     sim.tick(K.at(D0, 9, 30), px)                            # not even the daily check: the stop works every minute
+    assert sim.pf.positions                                  # owner approval 2026-10-31: the first tick under the stop only counts
+    sim.tick(K.at(D0, 9, 31), px)                            # the second consecutive fresh tick sells
     assert not sim.pf.positions
     s = sim.trades("SELL", G)
     assert len(s) == 1 and s[0]["trigger"] == "Account stop"

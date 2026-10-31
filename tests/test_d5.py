@@ -127,6 +127,8 @@ def test_account_stop_still_sells_everything_under_d5(tmp_path):
     low = {s: float(closes[s][300]) for s in T.SYMS}
     low["GOLDBEES"] = 74.0
     F.run_tick(pf, F.mk(closes, 300, 11, 0, prices=low), env)
+    assert pf.positions                                    # one tick under the stop only counts (2026-10-31)
+    F.run_tick(pf, F.mk(closes, 300, 11, 1, prices=low), env)
     assert not pf.positions
 
 

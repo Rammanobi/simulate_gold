@@ -618,7 +618,43 @@ class Engine:
             and (upd - self.now) <= timedelta(minutes=5)
         raw = g.get("bias")
         bias = {config.symbol_of(k): guard.normalise_bias(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+        self.cap_bias_at_ceiling(bias)
         return bias, fresh, upd
+
+    def cap_bias_at_ceiling(self, bias: dict) -> None:
+        """Owner approval 2026-10-31: whatever is in guidance.json is re-checked against the CURRENT alignment ceiling
+        (simgold/regime.py align), however it got there. A bias above the ceiling is lowered to it (only ever lowers; neutral and
+        block are never touched). If the alignment cannot be computed the ceiling is neutral (favour -> neutral). One plain
+        decision line per change, not per minute."""
+        if not any(v == "favour" for v in bias.values()):
+            return
+        try:
+            from . import memstore
+            al = memstore.current_alignment(self.env.state_dir.parent, self.now, self.p)
+            if not isinstance(al, dict):
+                al = {}
+        except Exception:       # noqa: BLE001 - fail safe: no alignment, no favour
+            al = {}
+        logged = self.cd.setdefault("bias_ceiling_logged", {})
+        for metal in ("GOLD", "SILVER", "COPPER"):
+            sym = config.symbol_of(metal)
+            if bias.get(sym) != "favour":
+                logged.pop(sym, None)
+                continue
+            rec = al.get(metal)
+            ceil = rec.get("ceiling") if isinstance(rec, dict) else None
+            ceil = ceil if ceil in guard.BIAS_RANK else "neutral"
+            if ceil == "favour":
+                logged.pop(sym, None)
+                continue
+            bias[sym] = ceil
+            state = rec.get("state", "UNKNOWN") if isinstance(rec, dict) else "UNKNOWN"
+            tag = f"{ceil}:{state}"
+            if logged.get(sym) != tag:
+                logged[sym] = tag
+                self.record("SKIP", sym, 0, None,
+                            f"Guidance said favour for {metal}, but the current alignment ({state}) allows at most {ceil}, "
+                            f"so the engine treats it as {ceil}.", "Opus guidance")
 
     def effective_bias(self, sym: str, bias: dict, fresh: bool, upd: datetime | None) -> str:
         b = bias.get(sym, "neutral") if fresh else "neutral"
@@ -831,6 +867,7 @@ class Engine:
         s = self.st.get("stops") or {}
         return {"intraday": [x for x in (s.get("intraday_exit") or []) if x in self.syms],
                 "confirm": max(1, int(s.get("confirm_ticks") or 1)),
+                "account_confirm": max(1, int(s.get("account_confirm_ticks") or 2)),   # owner approval 2026-10-31
                 "protect": bool(s.get("protect_floor", False))}
 
     def v2_floor_weight(self, targets: dict, level: int | None = None) -> float:
@@ -994,7 +1031,26 @@ class Engine:
         clears it (strategy.account_stop_clear_after, an ISO date on or after the day it fired, in a config commit)."""
         stop, value = float(self.st["account_stop"]), self.value()
         fired = False
-        if value <= stop and not self.v2_account_suspended() and not self.v2_account_latched():
+        need = self.v2_stops_cfg()["account_confirm"]
+        v2 = self.v2_state()
+        confirmed = False
+        if value > stop:
+            v2.pop("acct_below", None)                               # a tick above the stop resets the count
+        elif not self.v2_account_suspended() and not self.v2_account_latched():
+            held = sorted(self.pf.positions)
+            if all(self.fresh(s) for s in held):                     # a stale price neither counts nor resets
+                key = "|".join(f"{s}@{self.mkt.price_ts[s].isoformat()}" if s in self.mkt.price_ts else s for s in held) \
+                    or self.now.isoformat()
+                rec = v2.get("acct_below")
+                if not isinstance(rec, dict) or rec.get("date") != self.day.isoformat():
+                    rec = {"n": 0, "key": None, "date": self.day.isoformat()}
+                if rec["key"] != key:                                # one count per distinct set of fresh prices
+                    rec["n"] += 1
+                    rec["key"] = key
+                v2["acct_below"] = rec
+                confirmed = rec["n"] >= need
+        if confirmed:
+            v2.pop("acct_below", None)
             self.cd["account_stop_latched"] = {"date": self.day.isoformat(), "value": round(value, 2)}
             why = (f"Portfolio value ₹{value:,.0f} is at or under the hard account stop ₹{stop:,.0f}, so everything is sold and all "
                    f"buys stay halted until the owner clears the stop (strategy.account_stop_clear_after).")
