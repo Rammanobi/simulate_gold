@@ -257,6 +257,11 @@ alerts:
   watchdog_stale_min: 75             # state/health.json older than this in market hours -> HIGH (GitHub cron is late; the hourly routine dispatches the watchdog)
   near_floor_inr: 100                # value this close to (or under) the floor is HIGH
 
+# ---- daily report email guarantee (tools/report_retry.py, .github/workflows/report-retry.yml) ----
+# On a trading day, if the report is not SENT by this IST time, the code backup email goes out at once (owner approval 2026-10-29).
+report:
+  backup_after: "16:30"
+
 # ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----
 # Used ONLY when the watchdog reports routines_silent. DeepSeek is OpenAI-compatible; the key lives in the GitHub secret
 # DEEPSEEK_API_KEY (never in the repo). Each model list is a preference order; the first ID the account really has is used.

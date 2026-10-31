@@ -61,9 +61,12 @@ NO_SAFE_MODE = ("system_unstable", "allocation_stuck")      # alerts that never 
 #   watchdog_stale   the watchdog itself ran late (GitHub schedule lateness)
 #   transient_fetch  one failed price fetch that the next tick retries (LOW, already "recorded only")
 #   stale_guidance   a MEDIUM echo of routines_silent: the engine treats stale guidance as neutral, which is its safe default
+#   routines_silent  the Claude routines did not run (usage limit, schedule): same safe default, the engine trades on alone
 # 23 Oct 2026: one 148 min GitHub schedule gap made the watchdog raise 5 incidents at once; with a morning price-feed blip
 # and a transient fetch error that was "7 distinct incidents" and safe mode went on. Real engine and data checks still count.
-SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance"})
+# 30 Oct 2026: with the hourly routine cut to 12:15/14:15 and the weekly usage limit reached, routines_silent (HIGH) turned
+# safe mode on at 12:47 and blocked the 15:10 floor buy, although the engine itself was healthy.
+SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance", "routines_silent"})
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
     "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,

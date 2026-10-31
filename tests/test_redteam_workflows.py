@@ -127,13 +127,13 @@ def test_report_retry_backup_email_step_is_gated_and_uses_the_right_secrets():
     text, doc = WF["report-retry.yml"]
     steps = doc["jobs"]["retry"]["steps"]
     b = next(s for s in steps if s.get("name", "").startswith("Backup email"))
-    assert b["if"] == "steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'"
+    assert b["if"] == "steps.decide.outputs.verdict == 'BACKUP' || steps.decide.outputs.verdict == 'GIVE_UP' || steps.decide.outputs.verdict == 'FORCE_BACKUP'"
     assert b["env"]["SMTP_USER"] == "${{ secrets.SMTP_USER }}"
     assert b["env"]["SMTP_APP_PASSWORD"] == "${{ secrets.SMTP_APP_PASSWORD }}"
     assert b["env"]["REPORT_EMAIL"] == "${{ secrets.REPORT_EMAIL }}"
     assert b["env"]["DEEPSEEK_API_KEY"] == "${{ secrets.DEEPSEEK_API_KEY }}"
     run = b["run"]
-    assert 'status --date "$DAY")" = "backup_sent"' in run                      # never twice
+    assert 'status --date "$DAY")" = "backup_sent"' in run and '"$VERDICT" != "FORCE_BACKUP"' in run                      # never twice
     assert "Backup email not configured: add SMTP_USER, SMTP_APP_PASSWORD, REPORT_EMAIL secrets" in run
     assert run.index("tools/backup_email.py") < run.index("mark-backup")
     assert "--dry-run" not in run and "echo \"$SMTP" not in run and "echo \"$REPORT_EMAIL" not in run
@@ -171,3 +171,10 @@ def test_market_hours_dispatches_its_own_next_session_safely():
     assert "actions/workflows/market-hours.yml/dispatches" in run and "-f ref=main" in run
     assert run.count("GITHUB_STEP_SUMMARY") >= 4                                      # every decision is logged
     assert "secrets." not in run
+
+
+def test_report_retry_has_the_1630_backup_crons():
+    doc = WF["report-retry.yml"][1]
+    crons = [c["cron"] for c in _on(doc)["schedule"]]
+    assert "0,15,30 11 * * *" in crons and "0 12 * * *" in crons
+    assert [ist(f"{m} 11") for m in (0, 15, 30)] == ["16:30", "16:45", "17:00"] and ist("0 12") == "17:30"

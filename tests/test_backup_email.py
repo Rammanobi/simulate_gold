@@ -52,7 +52,7 @@ def _reset():
 
 
 @pytest.mark.parametrize("bad", ["", "   ", None, f"a{AT}x.com,b{AT}y.com", f"a{AT}x.com;b{AT}y.com", f"a{AT}x.com b{AT}y.com",
-                                 f"a{AT}x.com\nBcc: b{AT}y.com", f"a{AT}x.com\r", "not-an-address", f"a{AT}{AT}x.com"])
+                                 f"a{AT}x.com\nBcc: b{AT}y.com", "not-an-address", f"a{AT}{AT}x.com"])
 def test_recipient_must_be_exactly_one_plain_address(bad):
     with pytest.raises(BE.Refused) as e:
         BE.check_recipient(bad)
@@ -61,8 +61,8 @@ def test_recipient_must_be_exactly_one_plain_address(bad):
 
 
 def test_sender_and_password_checks():
-    assert BE.check_sender(USER, PW) == (USER, PW)
-    for u, p in [("", PW), (f"a{AT}x.com,b{AT}y.com", PW), (USER, ""), (USER, "pw\nX")]:
+    assert BE.check_sender(USER, PW) == (USER, PW.replace(" ", ""))
+    for u, p in [("", PW), (f"a{AT}x.com,b{AT}y.com", PW), (USER, ""), (USER, " \n ")]:
         with pytest.raises(BE.Refused) as e:
             BE.check_sender(u, p)
         assert PW not in str(e.value) and AT not in str(e.value)
@@ -99,7 +99,7 @@ def test_run_sends_once_to_exactly_one_recipient_and_never_prints_secrets(tmp_pa
     assert BE.run(root, DAY, dict(ENV), smtp_factory=FakeSSL, out=said.append) == 0
     s = FakeSSL.instances[0]
     assert (s.host, s.port) == ("smtp.gmail.com", 465)
-    assert s.log[0] == ("login", USER, PW)
+    assert s.log[0] == ("login", USER, PW.replace(" ", ""))
     _, msg, frm, to = s.log[1]
     assert frm == USER and to == [TO] and msg["To"] == TO
     assert msg["Subject"].startswith("Metals Daybook") and msg["Subject"].endswith("backup (Claude unavailable)")
@@ -195,3 +195,12 @@ def test_no_address_or_secret_in_the_tool_or_doc():
     for p in (ROOT / "tools" / "backup_email.py", ROOT / "docs" / "BACKUP_EMAIL.md", ROOT / ".github" / "workflows" / "report-retry.yml"):
         text = p.read_text(encoding="utf-8").replace("actions\x40users.noreply.github.com", "")   # the commit bot
         assert not re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+\.[A-Za-z]{2,}", text), p.name
+
+
+def test_pasted_secrets_with_spaces_or_line_breaks_are_cleaned():
+    # GitHub's secret box can keep a pasted trailing line break; Gmail shows app passwords as "abcd efgh ijkl mnop"
+    assert BE.check_recipient(TO + "\n") == TO
+    assert BE.check_recipient("  " + TO + "\r\n") == TO
+    assert BE.check_sender(USER + "\n", "abcd efgh ijkl mnop\n") == (USER, "abcdefghijklmnop")
+    with pytest.raises(BE.Refused):
+        BE.check_recipient(f"a{AT}x.com\nBcc: b{AT}y.com")      # a line break inside is still refused (header injection)
