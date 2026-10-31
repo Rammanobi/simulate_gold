@@ -105,7 +105,8 @@ def test_run_sends_once_to_exactly_one_recipient_and_never_prints_secrets(tmp_pa
     assert msg["Subject"].startswith("Metals Daybook") and msg["Subject"].endswith("backup (Claude unavailable)")
     gen = (root / "reports" / "daily" / f"{DAY}.email.html").read_text(encoding="utf-8")
     assert msg.get_body(("html",)).get_content() == gen
-    assert msg.get_body(("plain",)).get_content() == (root / "reports" / "daily" / f"{DAY}.txt").read_text(encoding="utf-8")
+    # an ASCII-only body gets a final newline from the MIME layer, so compare without trailing newlines
+    assert msg.get_body(("plain",)).get_content().rstrip("\n") == (root / "reports" / "daily" / f"{DAY}.txt").read_text(encoding="utf-8").rstrip("\n")
     out = "\n".join(said)
     assert PW not in out and TO not in out and USER not in out and f"o***{AT}example.com" in out
 

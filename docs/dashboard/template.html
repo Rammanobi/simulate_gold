@@ -133,7 +133,7 @@ svg{display:block;width:100%;height:auto}
 .ht td small,.ht th small{display:block;font-size:11px;color:var(--muted);font-weight:400}
 .ht .rs{white-space:normal;text-align:left;min-width:220px;max-width:420px;color:var(--muted);font-size:12px}
 .ht .sw{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:6px}
-.ht .sd{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--c);border-radius:5px;padding:0 6px}
+.ht .sd,.fd .sd{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--c);border-radius:5px;padding:0 6px}
 .hl{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:-4px 0 12px}
 .hl span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:5px}
 .hnote{font-size:12px;color:var(--muted);margin-top:8px}
@@ -176,6 +176,33 @@ svg{display:block;width:100%;height:auto}
 .mg .n{display:block;font-size:12.5px;font-weight:400;color:var(--muted)}
 .mg tr.s td{font-size:13px;color:var(--muted);padding-left:14px}
 .mg tr.s td.v{padding-left:0}
+.fd{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.fd th{font-size:11.5px;color:var(--muted);font-weight:600;text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+.fd td{padding:8px;text-align:right;border-bottom:1px solid var(--line);vertical-align:top}
+.fd th:first-child,.fd td:first-child{text-align:left}
+.fd td small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.fd tr.tot td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
+.fd td.nh{color:var(--muted);text-align:left}
+.fsent{margin:10px 0 0;font-size:14px;line-height:1.5}
+.fscroll{overflow-x:auto}
+.pf{--g:#c9a227;--s:#8a94a3;--c:#c2693b;--k:#4f7cc4}
+.pf .sent{font-size:15px;line-height:1.5;margin:0 0 10px}
+.pf .bar{display:flex;height:28px;border-radius:7px;overflow:hidden;margin:12px 0 8px}
+.pf .bar i{display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-size:12.5px;font-weight:700;min-width:3px}
+.pf .leg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;margin-bottom:12px}
+.pf .leg span:before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--x);margin-right:6px}
+.pf .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.pf .fc{border:1px solid var(--line);border-left:6px solid var(--x);border-radius:12px;padding:12px 14px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px}
+.pf .fc.off{background:color-mix(in srgb,var(--muted) 10%,transparent);padding:8px 14px;font-size:13px;color:var(--muted);display:block}
+.pf .fc .nm{font-weight:800;font-size:15px}.pf .fc .nm small{display:block;font-weight:400;font-size:12px;color:var(--muted)}
+.pf .fc .pl{text-align:right;font-weight:800;font-size:22px;line-height:1.1}.pf .fc .pl small{display:block;font-size:12.5px}
+.pf .fc .ln{flex:0 0 100%;font-size:14px;font-weight:700}.pf .fc .ln2{flex:0 0 100%;font-size:12.5px;color:var(--muted)}
+.pf .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.pf .tile{background:color-mix(in srgb,var(--muted) 9%,transparent);border-radius:12px;padding:12px}
+.pf .tile span{font-size:12px;color:var(--muted)}.pf .tile b{display:block;font-size:22px;line-height:1.25}.pf .tile small{font-size:12.5px;font-weight:700}
+.pf .donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.pf .donut svg{width:170px;height:170px;flex:0 0 auto}
+.pf .tl{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.pf .tl small{display:block;color:var(--muted);font-size:12px}
 .mg tr.b td{padding-top:12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);line-height:1.45}
 @media (max-width:640px){.mg tr.h td{font-size:15px}.mg tr.h td.v{font-size:17px}}
 </style>
@@ -191,6 +218,8 @@ svg{display:block;width:100%;height:auto}
 <div class="days" id="days"></div>
 <div id="banner"></div>
 <div class="card" id="moneycard" hidden><h2>Your money at a glance</h2><div id="moneybody"></div></div>
+<div class="card" id="fundscard" hidden><h2>Where your money is</h2><div id="fundsbody"></div>
+  <h2 style="margin-top:18px">Every trade so far</h2><div id="tradesbody"></div></div>
 <div class="card nowcard" id="nowcard">
   <div class="sg-head"><h2>Portfolio now</h2><div class="badges" id="nowbadges"></div></div>
   <div class="nowstat" id="nowstat">Loading live P&amp;L…</div>
@@ -403,6 +432,9 @@ function render(){
     : `<div class="banner">${esc(d.summary||"")}${d.thrift?" · routines ran in THRIFT mode":""}</div>`;
   const mc=document.getElementById("moneycard"), mh=moneyHTML(d.money);
   mc.hidden=!mh; document.getElementById("moneybody").innerHTML=mh;
+  const fh=fundsHTML(d.money), fc=document.getElementById("fundscard");
+  fc.hidden=!fh; document.getElementById("fundsbody").innerHTML=fh;
+  for(const id of ["holdcard","ledcard"]){const el=document.getElementById(id); if(el) el.hidden=!!fh;} document.getElementById("tradesbody").innerHTML=fh?tradesHTML(d):"";   // holdings + ledger: same data, shown once above
   const cush=d.cushion;
   document.getElementById("kpis").innerHTML = [
     ["Today's profit",`<span class="${d.pnl>0?"pos":d.pnl<0?"neg":""}">${sgn(d.pnl,2)}</span>`,`${(d.pnl_pct>=0?"+":"")+(d.pnl_pct??0).toFixed(3)}% · this day only`],
@@ -574,6 +606,51 @@ function renderNotes(d){
   el.innerHTML = d.notes.length ? d.notes.map(n=>`<li class="st note"><div class="tm">${esc(n.time)}</div><div><span class="tag">${esc(n.who)}</span><span class="why">${esc(n.text)}</span></div></li>`).join("") : `<li class="empty">No routine notes.</li>`;
 }
 // ---------- Your money at a glance (the 7 plain numbers; day document `money`, live payload `summary`) ----------
+// ---------- Where your money is (all 3 funds + cash + total; from money.funds / summary.funds) and every trade ----------
+const PFC={gold:"#c9a227",silver:"#8a94a3",copper:"#c2693b",cash:"#4f7cc4"}, PFN={gold:"Gold",silver:"Silver",copper:"Copper",cash:"Cash"};
+const pfPct=r=>r.share_pct<=0?"0%":r.share_pct<0.5?"<1%":r.share_pct.toFixed(0)+"%";
+function pfDonut(rows){
+  const R=70,C=2*Math.PI*R, tot=rows.reduce((a,r)=>a+Math.max(r.value,0),0); let off=0;
+  const arcs=tot>0?rows.filter(r=>r.value>0).map(r=>{const l=C*r.value/tot, a=`<circle r="${R}" cx="85" cy="85" fill="none" stroke="${PFC[r.metal]}" stroke-width="26" stroke-dasharray="${l.toFixed(2)} ${(C-l).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 85 85)"><title>${PFN[r.metal]} ${pfPct(r)}</title></circle>`; off+=l; return a}).join(""):`<circle r="${R}" cx="85" cy="85" fill="none" stroke="var(--line)" stroke-width="26"/>`;
+  return arcs;
+}
+function pfTable(m,rows,f,c,pr){
+  const trs=rows.map(r=>{
+    const nm=`<td><span class="sw" style="--c:${PFC[r.metal]}"></span><b>${r.kind==="cash"?"Cash":esc(r.symbol)}</b><small>${esc(r.label)}</small></td>`;
+    if(r.kind==="cash") return `<tr>${nm}<td class="nh" colspan="3">idle money</td><td>–</td><td><b>${inr(r.value,0)}</b></td><td>–</td><td>${pfPct(r)}</td></tr>`;
+    if(!r.held) return `<tr>${nm}<td class="nh" colspan="3">not held</td><td>${r.price?inr(r.price,2):"–"}</td><td><b>${inr(0,0)}</b></td><td>${inr(0,0)}</td><td>0%</td></tr>`;
+    return `<tr>${nm}<td>${Number(r.units).toLocaleString("en-IN")}</td><td>${inr(r.avg_price,2)}</td><td>${inr(r.invested,0)}</td><td>${inr(r.price,2)}</td><td><b>${inr(r.value,0)}</b></td><td class="${c(r.profit)}">${pr(r)}</td><td>${pfPct(r)}</td></tr>`;}).join("");
+  const t=f.total||{}, tot=`<tr class="tot"><td>Total</td><td></td><td></td><td>${inr(t.invested,0)}</td><td></td><td>${inr(t.value,0)}</td><td class="${c(t.profit)}">${sgn(t.profit,0)}</td><td>100%</td></tr>`;
+  const inv=`<p class="fsent" style="color:var(--muted);font-size:12.5px;margin-top:6px">Profit on the money invested: <b class="${c(t.profit)}">${sgn(t.profit,0)} · ${(t.profit_pct>=0?"+":"−")+Math.abs(t.profit_pct||0).toFixed(2)}%</b> on ${inr(t.invested,0)} invested</p>`;
+  return `<div class="fscroll"><table class="fd"><thead><tr><th>Fund</th><th>Shares</th><th>Buy price</th><th>Cost<small>incl. buy costs</small></th><th>Price now</th><th>Value</th><th>Profit</th><th>Share</th></tr></thead><tbody>${trs}${tot}</tbody></table></div>${inv}`;
+}
+function fundsHTML(m){
+  const f=m&&m.funds; if(!f||!Array.isArray(f.rows)) return "";
+  const rows=f.rows.map(r=>({...r,metal:r.metal||(r.kind==="cash"?"cash":"gold")}));
+  const c=x=>x>0?"pos":x<0?"neg":"", pr=r=>`${sgn(r.profit,0)}<small>${r.profit_pct==null?"":(r.profit_pct>=0?"+":"−")+Math.abs(r.profit_pct).toFixed(2)+"%"}</small>`;
+  const legend=`<div class="leg">${rows.map(r=>`<span style="--x:${PFC[r.metal]}"><b>${PFN[r.metal]}</b> ${inr(r.value,0)} · ${pfPct(r)}</span>`).join("")}</div>`;
+  const note=`<p class="fsent" style="color:var(--muted);font-size:12.5px">Cost includes buying costs; total value and profit are after the estimated cost of selling.</p>`;
+  const style=f.style==="A"||f.style==="B"?f.style:"AB";
+  if(style==="B"){
+    return `<div class="pf"><div class="donut"><svg viewBox="0 0 170 170" role="img" aria-label="Where the money is">${pfDonut(rows)}</svg><div>${legend}</div></div>${pfTable(m,rows,f,c,pr)}${note}</div>`;
+  }
+  const bar=rows.filter(r=>r.share_pct>0).map(r=>`<i style="width:${Math.max(r.share_pct,1)}%;background:${PFC[r.metal]}">${r.share_pct>=9?pfPct(r):""}</i>`).join("")||`<i style="width:100%;background:${PFC.cash}"></i>`;
+  const cards=rows.filter(r=>r.kind==="fund").map(r=>r.held
+    ? `<div class="fc" style="--x:${PFC[r.metal]}"><div class="nm">${esc(r.symbol)}<small>${esc(r.label)}</small></div><div class="pl ${c(r.profit)}">${sgn(r.profit,0)}<small>${(r.profit_pct>=0?"+":"−")+Math.abs(r.profit_pct).toFixed(2)}%</small></div><div class="ln">${Number(r.units).toLocaleString("en-IN")} shares × ${inr(r.price,2)} = ${inr(r.value,0)}</div><div class="ln2">You paid ${inr(r.invested,0)} incl. costs (${inr(r.invested/r.units,2)} each; ${inr(r.avg_price,2)} before costs)</div></div>`
+    : `<div class="fc off" style="--x:${PFC[r.metal]}"><b style="color:var(--ink)">${esc(r.symbol)}</b> · ${esc(r.label)} · Not held${r.price?" · price now "+inr(r.price,2):""}</div>`).join("");
+  return `<div class="pf"><p class="sent">${esc(f.sentence||"")}</p><div class="bar">${bar}</div>${legend}<div class="cards">${cards}</div>${style==="AB"?`<div style="margin-top:14px">${pfTable(m,rows,f,c,pr)}</div>`:""}${note}</div>`;
+}
+function tradesHTML(d){
+  const led=Array.isArray(d.ledger)?d.ledger:[]; if(!led.length) return `<p class="fsent">No buys or sells yet.</p>`;
+  const total=d.ledger_total!=null?d.ledger_total:led.length, shown=led;
+  const style=d.money&&d.money.funds&&d.money.funds.style;   // AB and A: a list; B: a table
+  const more=total>shown.length?`<p class="fsent" style="color:var(--muted);font-size:12.5px">and ${total-shown.length} older not shown here</p>`:"";
+  const chip=e=>`<span class="sd" style="--c:var(${e.side==="BUY"?"--buy":"--sell"})">${e.side==="BUY"?"Buy":"Sell"}</span>`;
+  const prof=e=>e.side==="SELL"&&e.pnl!=null?sgn(e.pnl,2):"";
+  if(style!=="B") return `<div class="pf">${shown.map(e=>`<div class="tl"><div>${esc(e.date)} · <b>${esc(e.symbol)}</b> ${chip(e)}<small>${Number(e.units).toLocaleString("en-IN")} × ${px4(e.price)} = ${inr(e.amount,2)}${e.costs==null?"":" · costs "+inr(e.costs,2)}</small></div><div class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}"><b>${prof(e)}</b></div></div>`).join("")}</div>${more}`;
+  const rows=shown.map(e=>`<tr><td>${esc(e.date)}<small>${esc(e.time)}</small></td><td style="text-align:left"><b>${esc(e.symbol)}</b></td><td style="text-align:left">${chip(e)}</td><td>${Number(e.units).toLocaleString("en-IN")}</td><td>${px4(e.price)}</td><td>${inr(e.amount,2)}</td><td>${e.costs==null?"–":inr(e.costs,2)}</td><td class="${e.side==="SELL"&&e.pnl!=null?(e.pnl>=0?"pos":"neg"):""}">${prof(e)}</td></tr>`).join("");
+  return `<div class="fscroll"><table class="fd"><thead><tr><th>Date</th><th style="text-align:left">Fund</th><th style="text-align:left">Buy / Sell</th><th>Shares</th><th>Price</th><th>Amount</th><th>Costs</th><th>Profit on that sale</th></tr></thead><tbody>${rows}</tbody></table></div>${more}`;
+}
 function moneyHTML(m){
   if(!m || typeof m.total_now!=="number") return "";
   const c=x=>x>0?"pos":x<0?"neg":"", h=(t,n,v,k)=>`<tr class="h"><td>${esc(t)}<span class="n">${esc(n)}</span></td><td class="v ${k===undefined?"":c(k)}">${esc(v)}</td></tr>`,
@@ -581,19 +658,14 @@ function moneyHTML(m){
         pct=x=>x==null?"":" ("+(x>0?"+":x<0?"−":"")+Math.abs(x).toFixed(2)+"%)",
         fill=r=>`${r.symbol}: ${Number(r.qty).toLocaleString("en-IN")} unit${r.qty===1?"":"s"} × ${inr(r.price,4).replace(/0{1,2}$/,"")} = ${inr(r.amount,2)}`;
   let o=h("Total money now","What you'd have selling everything now",inr(m.total_now,2));
-  o+=h("Invested in metals now","Metals held, valued at today's prices",inr(m.metals_value,2));
-  (m.metals||[]).forEach(x=>{ o+=s(`${x.symbol}: ${Number(x.qty).toLocaleString("en-IN")} unit${x.qty===1?"":"s"} × ${inr(x.price,2)}`,inr(x.value,2)); });
-  if(!(m.metals||[]).length) o+=s("Metals: nothing held",inr(0,2));
-  if(Math.abs(m.exit_cost||0)>=0.005) o+=s("Less: estimated cost of selling","−"+inr(m.exit_cost,2));
-  o+=s((m.idle_label||"Cash")+" (idle money)",inr(m.cash,2));
+  o+=h("Today's profit","Gain or loss since yesterday's close",sgn(m.today_profit,2)+pct(m.today_pct),m.today_profit);
+  o+=h("Overall profit","Gain or loss since "+inr(m.start_capital)+" start",sgn(m.overall_profit,2)+pct(m.overall_pct),m.overall_profit);
+  o+=h("Live profit right now",m.held?"Gain on what you hold now":"Nothing held, so zero",sgn(m.live_profit,2),m.live_profit);
   o+=h("Today's investment","Money spent and received today","");
   o+=s("Spent on buys today",inr(m.today_bought,2)); if(m.today_buys_more) o+=s(`+ ${m.today_buys_more} earlier fills not listed`,""); (m.today_buys||[]).forEach(r=>{ o+=s(fill(r),""); });
   o+=s("Received from sells today",inr(m.today_sold,2)); if(m.today_sells_more) o+=s(`+ ${m.today_sells_more} earlier fills not listed`,""); (m.today_sells||[]).forEach(r=>{ o+=s(fill(r),""); });
   o+=h("Overall investment so far","Total bought and sold since start","");
   o+=s("Bought in total",inr(m.bought_total,2))+s("Sold in total",inr(m.sold_total,2));
-  o+=h("Today's profit","Gain or loss since yesterday's close",sgn(m.today_profit,2)+pct(m.today_pct),m.today_profit);
-  o+=h("Overall profit","Gain or loss since "+inr(m.start_capital)+" start",sgn(m.overall_profit,2)+pct(m.overall_pct),m.overall_profit);
-  o+=h("Live profit right now",m.held?"Gain on what you hold now":"Nothing held, so zero",sgn(m.live_profit,2),m.live_profit);
   const b=m.breakdown||{};
   o+=`<tr class="b"><td colspan="2">Overall profit ${sgn(m.overall_profit,2)} = booked profit ${sgn(b.booked,2)} + open gain ${sgn(b.open,2)} + costs paid ${sgn(b.costs,2)} + past ${m.idle_cash===false?"LIQUIDBEES interest":"interest on idle money"} ${sgn(b.interest,2)} (before the 22 Oct switch to cash; booked is ${sgn(b.booked_after_costs,2)} after costs).</td></tr>`;
   return `<table class="mg">${o}</table>`;
@@ -648,7 +720,7 @@ function updateLiveStatus(){
 function renderLive(){
   const D=LIVE, body=document.getElementById("nowbody"), err=document.getElementById("nowerr");
   err.hidden = !!D; body.hidden = !D; if(!D){ updateLiveStatus(); return; }
-  document.getElementById("nowmoney").innerHTML = moneyHTML(D.summary);
+  document.getElementById("nowmoney").innerHTML = moneyHTML(D.summary) + (fundsHTML(D.summary) ? `<h3 style="margin:16px 0 6px;font-size:15px">Where your money is right now</h3>` + fundsHTML(D.summary) : "");
   const closed = !marketHours() || D.market_open===false, t=D.today||{};
   document.getElementById("nowlbl").textContent = (closed ? "Last session ("+dmon(D.session_date)+") vs previous close" : "Today vs yesterday's close")
     + (num(D.prev_close_value)!=null ? " (" + inr(D.prev_close_value) + (D.prev_close_date ? " on "+dmon(D.prev_close_date) : "") + ")" : " (₹1,00,000 start)");

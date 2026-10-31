@@ -104,38 +104,31 @@ def test_empty_ledger_text_in_email_and_text(tmp_path):
     root = root_with(tmp_path, [])
     day = report.build_day(D, root)
     html, text = report.render_email(day), report.render_text(day)
-    assert "Your holdings" in html and "Every purchase so far" in html
-    assert "No buys or sells yet — all money is in LIQUIDBEES." in html
-    assert "No buys or sells yet — all money is in LIQUIDBEES." in text
-    assert html.index("Your holdings") < html.index("Every purchase so far")
+    assert "Where your money is" in html and "Every trade so far" in html
+    assert "No buys or sells yet." in html and "No buys or sells yet." in text
+    assert "Every purchase so far" not in html and "Your holdings" not in html       # the old duplicate sections are gone
 
 
-def test_email_has_holdings_table_and_ledger(tmp_path):
+def test_email_has_fund_table_and_trades(tmp_path):
     pos = {"GOLDBEES": {"qty": 15, "avg_cost": 105.0, "buy_costs": 8.25, "opened": "2026-10-13", "last_price": 120.0}}
     gold = [t for t in TRADES if t["asset"] == "GOLDBEES"]
     root = root_with(tmp_path, gold[1:], positions=pos, archive=gold[:1])      # the first buy comes from the archive
     day = report.build_day(D, root)
     assert day["holdings_view"]["ledger_total"] == 3
     html, text = report.render_email(day), report.render_text(day)
-    assert html.index("Your holdings") < html.index("What I did")
-    for needle in ("GOLDBEES", "SILVERBEES", "HINDCOPPER", "LIQUIDBEES", "₹105.00", "₹1,583", "+₹217", "took half", "first buy", "BUY", "SELL"):
+    assert html.index("Where your money is") < html.index("What I did")
+    for needle in ("GOLDBEES", "SILVERBEES", "HINDCOPPER", "₹105.00", "₹1,583", "+₹216", "BUY", "SELL"):
         assert needle in html, needle
     assert "No buys or sells yet" not in html
-    assert "YOUR HOLDINGS" in text and "EVERY PURCHASE SO FAR" in text and "15 units, avg ₹105.00" in text
-    assert "<script" not in html
+    assert "WHERE YOUR MONEY IS" in text and "EVERY TRADE SO FAR" in text and "15 shares, avg buy price ₹105.00" in text
+    assert "<script" not in html and "Every purchase so far" not in html
 
 
-def test_ledger_reasons_are_escaped(tmp_path):
-    root = root_with(tmp_path, [tr("2026-10-14T10:00:00+05:30", "GOLDBEES", "BUY", 1, 120.0, 1.0, reason="<b>x</b> & <script>1</script>")])
-    html = report.render_email(report.build_day(D, root))
-    assert "<script>1" not in html and "&lt;b&gt;x&lt;/b&gt; &amp;" in html
-
-
-def test_email_ledger_is_capped_at_60(tmp_path):
+def test_email_trades_are_capped_and_say_so(tmp_path):
     many = [tr(f"2026-10-14T{10 + i // 60:02d}:{i % 60:02d}:00+05:30", "GOLDBEES", "BUY", 1, 100.0, 0.1) for i in range(90)]
     day = report.build_day(D, root_with(tmp_path, many))
     assert len(day["holdings_view"]["ledger"]) == 60 and day["holdings_view"]["ledger_total"] == 90
-    assert "Showing the latest 60 of 90" in report.render_email(day)
+    assert f"and {90 - report.TRADES_SHOWN} older" in report.render_email(day)
 
 
 def test_dashboard_has_holdings_and_ledger(tmp_path):
