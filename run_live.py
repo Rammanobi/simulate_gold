@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 
-from simgold import alerts, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
+from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -200,6 +200,7 @@ class Live:
         self.write_brief()                          # committed by the sync below
         day = (self.last_tick_day or now_ist().date()).isoformat()
         dashboard.safe_write(day, ROOT)             # logs/dashboard-DATE.json for the dashboard page
+        alldays.safe_write(ROOT)                    # logs/alldays.json: every day, for the Money map page
         if gitsync.sync(ROOT, monitor=self.mon):
             log.info("git sync ok")
         # a pull may have changed files the engine owns the schema of; nothing is cached, so just note it
@@ -214,6 +215,7 @@ class Live:
             EQUITY_PATH.write_text("\n".join(lines) + "\n")
         except OSError:
             log.exception("could not write equity.csv")
+        alldays.safe_write(ROOT)                    # the closing day for the Money map (the final sync rewrites it and pushes)
 
 
 def acquire_lock(path: Path):

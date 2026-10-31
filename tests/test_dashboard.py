@@ -184,7 +184,7 @@ def test_v2_min_invested_is_shown_when_configured(tmp_path):
 
 def test_dashboard_template_has_the_live_card_and_no_external_scripts():
     html = (ROOT / "docs" / "dashboard" / "template.html").read_text(encoding="utf-8")
-    assert "__DATA__" in html and "pollLive" in html and "nowcard" in html
-    assert "live/now.json" in html and "state/live_now.json" in html
+    assert "__DATA__" in html and "pollLive" in html and 'id="top"' in html      # Money map page (see tests/test_alldays.py)
+    assert "live/now.json" in html and "main/logs/alldays.json" in html
     import re
     assert not re.findall(r"<script[^>]+src=", html)
