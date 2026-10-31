@@ -123,9 +123,11 @@ def apply_overrides(p: dict, sets: list[str] | None) -> dict:
 
 
 def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | pd.Timestamp = "2010-06-01",
-           end: str | pd.Timestamp | None = None) -> dict:
+           end: str | pd.Timestamp | None = None, init: dict | None = None) -> dict:
     """Replay strategy v2 on daily bars. frames: {"close","high","low"}, columns = symbols. Returns
-    {"equity": Series, "gross": Series, "trades": DataFrame(date, sym, dv, kind), "brake": Series, "weights": DataFrame}."""
+    {"equity": Series, "gross": Series, "trades": DataFrame(date, sym, dv, kind), "brake": Series, "weights": DataFrame}.
+    init: optional opening book {"cash": rupees, "hold": {sym: rupees at the first bar's close}} instead of all cash. The first bar
+    is then the day the book is struck: it is valued, but takes no orders (they are already in the book) and earns no return."""
     p = p or config.load_params()
     st = p["strategy"]
     syms = list(st["symbols"])
@@ -150,6 +152,11 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
     xopen = frames.get("open")
     xstop = {s: False for s in xsyms}
     cash, brake, pending = cap0, None, []
+    if init is not None:
+        cash = float(init["cash"])
+        for s_, v_ in (init.get("hold") or {}).items():
+            if s_ in hold:
+                hold[s_] = float(v_)
     eq, gross, wlog, blog, tlog = [], [], [], [], []
     prev = None
 
@@ -225,6 +232,8 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
                                 brake_level=brake["level"], eligible=s not in brake["reconfirm"], sigma_ok=not np.isnan(rows[s]["sigma"]))
             if dec.action in ("BUY", "SELL"):
                 orders.append((s, dec.to_w, dec.kind))
+        if init is not None and prev is None:
+            orders = []                                   # the opening book already holds whatever was decided that day
         if lag <= 0:
             execute(d, orders, V)
             V = cash + sum(hold.values())

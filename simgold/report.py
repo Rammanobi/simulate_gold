@@ -731,6 +731,13 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         day["money_summary"] = _money_summary(date, root, day)
     except Exception:          # the report must never fail over this extra block
         pass
+    try:
+        if not day.get("closed"):
+            from simgold import weekly
+            if weekly.is_last_trading_day_of_week(dt.date.fromisoformat(day["date"])):
+                day["weekly_line"] = weekly.week_line(root, dt.date.fromisoformat(day["date"]))
+    except Exception:          # the weekly line is extra; never fail the report over it
+        pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -1431,7 +1438,7 @@ def summary_breakdown(ms: dict) -> str:
             f"{sg(b['interest'], 2)} (before the 22 Oct switch to cash; booked is {sg(b['booked_after_costs'], 2)} after costs).")
 
 
-def _summary_html(ms: dict | None) -> str:
+def _summary_html(ms: dict | None, weekly_line: str | None = None) -> str:
     if not ms:
         return ""
     td = f"font-family:{FONT};"
@@ -1446,12 +1453,15 @@ def _summary_html(ms: dict | None) -> str:
                     f'<td align="right" valign="top" style="padding:2px 0;{td}font-size:13px;color:#4b5563;white-space:nowrap;">{esc(val)}</td></tr>\n')
     out += (f'<tr><td colspan="2" style="padding:14px 0 4px 0;{td}font-size:13px;line-height:19px;color:#4b5563;border-top:1px solid #e5e7eb;">'
             f'{esc(summary_breakdown(ms))}</td></tr>\n')
+    if weekly_line:
+        out += (f'<tr><td colspan="2" style="padding:10px 0 4px 0;{td}font-size:14px;line-height:21px;font-weight:600;color:{INK};'
+                f'border-top:1px solid #e5e7eb;">{esc(weekly_line)}</td></tr>\n')
     return (f'<tr><td style="padding:18px 20px 0 20px;{td}font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:#6b7280;">{esc(SUMMARY_TITLE)}</td></tr>'
             f'<tr><td style="padding:4px 20px 8px 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">\n{out}</table></td></tr>\n'
             + _section("Details"))
 
 
-def _summary_text(ms: dict | None) -> list[str]:
+def _summary_text(ms: dict | None, weekly_line: str | None = None) -> list[str]:
     if not ms:
         return []
     L = [SUMMARY_TITLE.upper(), ""]
@@ -1460,7 +1470,10 @@ def _summary_text(ms: dict | None) -> list[str]:
         L.append(f"   ({r['note']})")
         for lab, val, _ in r["sub"]:
             L.append(f"   - {lab}" + (f": {val}" if val else ""))
-    L += ["", summary_breakdown(ms), "", "DETAILS", ""]
+    L += ["", summary_breakdown(ms)]
+    if weekly_line:
+        L += ["", weekly_line]
+    L += ["", "DETAILS", ""]
     return L
 
 
@@ -1491,7 +1504,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                         GREEN if p["distance_to_floor"] > 0 else RED, f"above {inr(p['floor'])}")
                 + '</tr></table></td></tr>\n' + _holdings_html(day) + _section("Tomorrow")
                 + f'<tr><td style="padding:0 20px;font-family:{FONT};font-size:15px;line-height:23px;color:#1f2937;">{esc(day["tomorrow"])}</td></tr>\n')
-        return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + body + _ops_html(day) + foot
+        return head + _owner_top_html(day) + _summary_html(day.get("money_summary"), day.get("weekly_line")) + body + _ops_html(day) + foot
 
     pnl = p["day_pnl"]
     r = _round(pnl)
@@ -1600,7 +1613,7 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
                  f'font-family:{FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;border-bottom:3px solid #c9a227;">'
                  f'{INBOX_LABEL}</a></td></tr></table></td></tr>\n')
         button = button.replace("padding:28px 20px 8px 20px", "padding:14px 20px 8px 20px", 1)
-    return head + _owner_top_html(day) + _summary_html(day.get("money_summary")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
+    return head + _owner_top_html(day) + _summary_html(day.get("money_summary"), day.get("weekly_line")) + hero + tiles + gauge + _targets_html(day) + glance + _holdings_html(day) + market + did + money + pnlsec + tom + _ops_html(day) + inbox + button + foot
 
 
 # --------------------------------------------------------------------- text
@@ -1616,7 +1629,7 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
     when = f"{day['weekday']} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")
     L = ["GOLDBEES / SILVERBEES / HINDCOPPER - Daily report", when, ""]
     L += _owner_top_text(day)
-    L += _summary_text(day.get("money_summary"))
+    L += _summary_text(day.get("money_summary"), day.get("weekly_line"))
     if day.get("closed"):
         L += ["MARKET CLOSED", day["one_line_summary"], "", f"Portfolio: {inr(p['close'])}   Floor: {inr(p['floor'])}", "",
               *_holdings_text(day), "TOMORROW", day["tomorrow"], "", *_ops_text(day), *_inbox_text(day, inbox_url, sample),

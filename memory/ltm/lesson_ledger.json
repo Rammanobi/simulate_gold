@@ -85,6 +85,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "a6d95189",
+   "text": "GOLDBEES 50% floor target at 15:10 was blocked after a -1.54% opening gap; the book stayed cash on a -1.73% gold day",
+   "status": "candidate",
+   "first_seen": "2026-10-30",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-10-30",
+     "text": "09:15 gap block -1.54%, 15:10 floor target blocked, actual 0%"
+    }
+   ],
+   "contradict": []
   }
  ]
 }

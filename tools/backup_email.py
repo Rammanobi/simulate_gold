@@ -57,7 +57,7 @@ def mask(addr: str) -> str:
 
 
 def check_recipient(addr: str | None) -> str:
-    a = addr or ""
+    a = (addr or "").strip()          # GitHub's secret box can keep a pasted line break at the ends
     if not a.strip():
         raise Refused("REPORT_EMAIL is empty")
     if re.search(r"[,;\s]", a):
@@ -68,13 +68,12 @@ def check_recipient(addr: str | None) -> str:
 
 
 def check_sender(user: str | None, password: str | None) -> tuple[str, str]:
-    u = user or ""
+    u = (user or "").strip()
     if not u.strip() or re.search(r"[,;\s]", u) or not ADDRESS.match(u):
         raise Refused("SMTP_USER must be one plain Gmail address")
-    if not (password or "").strip():
+    password = re.sub(r"\s", "", password or "")   # Gmail shows it as 4 groups of 4; spaces/line breaks are never part of it
+    if not password:
         raise Refused("SMTP_APP_PASSWORD is empty")
-    if re.search(r"[\r\n]", password):
-        raise Refused("SMTP_APP_PASSWORD contains a newline")
     return u, password
 
 

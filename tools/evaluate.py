@@ -25,6 +25,7 @@ def main(argv=None) -> int:
     g.add_argument("--all", action="store_true", help="since inception")
     ap.add_argument("--format", choices=("json", "md", "html"), default="md")
     ap.add_argument("--benchmarks", default=None, help="optional CSV of closes: date,GOLDBEES,SILVERBEES")
+    ap.add_argument("--no-weekly", action="store_true", help="skip the 'This week: live vs rules alone' line (it fetches price data)")
     ap.add_argument("--write", action="store_true", help="write reports/monthly/YYYY-MM.json and .md (needs a month)")
     a = ap.parse_args(argv)
     utf8_stdout()
@@ -36,7 +37,7 @@ def main(argv=None) -> int:
     if a.write and not month:
         print("--write needs a single month, not --all", file=sys.stderr)
         return 2
-    r = evaluate.evaluate(a.root, month, a.benchmarks)
+    r = evaluate.evaluate(a.root, month, a.benchmarks, weekly=not a.no_weekly)
     if a.write:
         if not r.get("available"):
             print("nothing to write: " + r.get("note", "no data"), file=sys.stderr)
