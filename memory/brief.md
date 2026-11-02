@@ -1,4 +1,4 @@
-# Brief 2026-11-02 15:30 IST (Mon) | NSE CLOSED (session over)
+# Brief 2026-11-02 15:51 IST (Mon) | NSE CLOSED (session over)
 
 ## Portfolio
 value ₹98,743 | account stop ₹75,000 | drawdown from peak -1.4% (peak ₹100,138) | brake level 0 (-15% halves, -25% flat) | best profit ₹138 | day P&L -₹238
@@ -23,7 +23,7 @@ HINDCOPPER 411.15 (as of 15:29) | vs prev close +2.57% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=block, SILVER=block, COPPER=neutral | 72 min old
+GOLD=block, SILVER=block, COPPER=neutral | 1.5 h old STALE for the engine
 note: GOLD[BREAKDOWN_RISK]: GOLDBEES -2.1% vs prev close, code default block; no web check. SILVER[DEFENSIVE_SHOCK]…
 
 ## Fast-lane requests today

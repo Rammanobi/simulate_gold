@@ -99,6 +99,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "7f286bf1",
+   "text": "A floor-retry buy right after a price-shock block on a -1.9% gap-down was underwater by the close; retries may wait for the gap to settle.",
+   "status": "candidate",
+   "first_seen": "2026-11-02",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-11-02",
+     "text": "437 GOLDBEES bought @112.9965 at 09:45, close 112.57, day -2.31%"
+    }
+   ],
+   "contradict": []
   }
  ]
 }
