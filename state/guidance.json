@@ -1,18 +1,18 @@
 {
- "updated": "2026-11-02T08:52:15+05:30",
+ "updated": "2026-11-02T14:19:09+05:30",
  "bias": {
-  "GOLD": "neutral",
+  "GOLD": "block",
   "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "GOLD[RANGE]: no verified overnight data, code default neutral. SILVER[DEFENSIVE_SHOCK]: 30 Oct shock z -3.87, SILVERBEES -5.6% on week, no overnight data; stay blocked. COPPER[DOWNTREND]: thesis cautious, no overnight data; neutral.",
+ "note": "GOLD[BREAKDOWN_RISK]: GOLDBEES -2.1% vs prev close, code default block; no web check. SILVER[DEFENSIVE_SHOCK]: SILVERBEES -1.2% on day after 30 Oct shock; stay blocked. COPPER[DOWNTREND]: HINDCOPPER +2.5% on day, thesis cautious; neutral.",
  "prices_at_update": {
-  "GOLDBEES": 115.1,
-  "SILVERBEES": 173.32,
-  "HINDCOPPER": 400.5
+  "GOLDBEES": 112.79,
+  "SILVERBEES": 171.26,
+  "HINDCOPPER": 410.9
  },
  "alignment": {
-  "GOLD": "RANGE",
+  "GOLD": "BREAKDOWN_RISK",
   "SILVER": "DEFENSIVE_SHOCK",
   "COPPER": "DOWNTREND"
  }
