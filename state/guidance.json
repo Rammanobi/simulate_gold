@@ -1,11 +1,11 @@
 {
- "updated": "2026-11-03T14:16:57+05:30",
+ "updated": "2026-11-03T14:17:13+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "GOLD[BREAKDOWN_RISK]: price shock -2.3% on day, keep block. SILVER[DEFENSIVE]: -3.9% on day, block. COPPER[DOWNTREND]: -2.1%, neutral ceiling, no results due.",
+ "note": "[fallback: DeepSeek] Gold and silver remain blocked after sharp daily drops, while copper stays neutral with a less extreme move.",
  "prices_at_update": {
   "GOLDBEES": 112.64,
   "SILVERBEES": 166.51,
