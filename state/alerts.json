@@ -107,42 +107,40 @@
    "acked": false,
    "category": "stale_guidance",
    "component": "watchdog",
-   "count": 2,
+   "count": 1,
    "deferred": false,
    "detail": "guidance is 3.4 h old (limit 3 h)",
    "emails": [],
-   "first_seen": 1793688403.7282739,
+   "first_seen": 1793774803.8886938,
    "fp": "watchdog|guidance_stale|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1793688430.8164775,
-   "resolved_at": 1793695585.6325872,
+   "last_seen": 1793774803.8886938,
    "resolved_emailed": false,
    "severity": "medium",
-   "status": "resolved",
+   "status": "open",
    "step": "guidance_stale"
   },
   "watchdog|routines_silent|": {
    "acked": false,
    "category": "routines_silent",
    "component": "watchdog",
-   "count": 4,
+   "count": 1,
    "deferred": false,
-   "detail": "guidance.json was last written by the fallback (limit 3 h): the Claude routines are not running (usage limit or credits?)",
+   "detail": "guidance.json was last written 3.4 h ago (limit 3 h): the Claude routines are not running (usage limit or credits?)",
    "emails": [],
-   "first_seen": 1793688403.7282739,
+   "first_seen": 1793774803.8886938,
    "fp": "watchdog|routines_silent|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1793695612.6070154,
-   "resolved_at": 1793701699.91473,
+   "last_seen": 1793774803.8886938,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "routines_silent"
   },
   "watchdog|ticks_missing|": {
@@ -202,20 +200,22 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1793772427.3085322,
+   "resolved_at": 1793774804.0669134,
    "resolved_emailed": false,
    "severity": "medium",
-   "status": "open",
+   "status": "resolved",
    "step": "watchdog_stale"
   }
  },
  "fires": {
   "date": "2026-11-04",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1793772427.3085322
+   1793772427.3085322,
+   1793774803.8886938
   ]
  },
- "last_high_fire": 1793688403.7282739,
+ "last_high_fire": 1793774803.8886938,
  "pending": [],
  "version": 1
 }
