@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-04T08:52:55+05:30",
+ "updated": "2026-11-04T14:18:18+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
-  "COPPER": "neutral"
+  "COPPER": "block"
  },
- "note": "GOLD[BREAKDOWN_RISK]: no overnight data found, code default block kept; JOBS Fri 6 Nov. SILVER[DEFENSIVE]: no overnight data, default block kept; thesis cautious. COPPER[DOWNTREND]: no overnight data, neutral (ceiling); thesis cautious.",
+ "note": "[fallback: DeepSeek] Sharp up moves across all three metals today warrant blocking new buys to avoid chasing extended prices.",
  "prices_at_update": {
-  "GOLDBEES": 112.72,
-  "SILVERBEES": 167.08,
-  "HINDCOPPER": 400.4
+  "GOLDBEES": 116.41,
+  "SILVERBEES": 176.69,
+  "HINDCOPPER": 421.65
  },
  "alignment": {
   "GOLD": "BREAKDOWN_RISK",
-  "SILVER": "DEFENSIVE",
-  "COPPER": "DOWNTREND"
+  "SILVER": "SHORT_SQUEEZE",
+  "COPPER": "SHORT_SQUEEZE"
  }
 }
