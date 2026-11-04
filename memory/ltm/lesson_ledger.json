@@ -113,6 +113,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "09065372",
+   "text": "A +3% gold ETF day with trend OFF still lifted the 50% floor holding; the floor holding can carry a rally while buys are blocked",
+   "status": "candidate",
+   "first_seen": "2026-11-04",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-11-04",
+     "text": "437 GOLDBEES unreal +1,479 at close, all buys price-shock blocked"
+    }
+   ],
+   "contradict": []
   }
  ]
 }
