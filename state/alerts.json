@@ -42,6 +42,26 @@
    "status": "resolved",
    "step": "tick"
   },
+  "market hours paper trading|unknown|": {
+   "acked": false,
+   "category": "workflow_failed",
+   "component": "market-hours paper trading",
+   "count": 1,
+   "deferred": false,
+   "detail": "failure in unknown / unknown",
+   "emails": [],
+   "first_seen": 1793791169.3115966,
+   "fp": "market hours paper trading|unknown|",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1793791169.3115966,
+   "resolved_emailed": false,
+   "severity": "medium",
+   "status": "open",
+   "step": "unknown"
+  },
   "system|safe mode|": {
    "acked": false,
    "category": "system_unstable",
@@ -211,11 +231,12 @@
  },
  "fires": {
   "date": "2026-11-04",
-  "n": 3,
+  "n": 4,
   "ts": [
    1793772427.3085322,
    1793774803.8886938,
-   1793782032.8275874
+   1793782032.8275874,
+   1793791169.3115966
   ]
  },
  "last_high_fire": 1793774803.8886938,
