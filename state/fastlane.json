@@ -1,7 +1,7 @@
 {
- "updated": "2026-10-22T09:16:46+05:30",
+ "updated": "2026-11-05T09:16:24+05:30",
  "GOLDBEES": {
-  "tighten_stop": 116.4
+  "tighten_stop": 115.0
  },
- "note": "Gold opened about 2.2% lower with silver down 3% and no clear news found, so the gold stop is set at 116.40 to limit further loss."
+ "note": "Gold jumped about 5% this morning, so the gold stop is raised to 115 to lock in part of the gain; no selling."
 }
