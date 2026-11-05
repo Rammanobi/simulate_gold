@@ -14,7 +14,8 @@
       "Bash(python tools/dashboard.py:*)",
       "Bash(python tools/report_retry.py:*)",
       "Bash(cat config/inbox_url.txt)",
-      "Bash(cat config/dashboard_url.txt)"
+      "Bash(cat config/dashboard_url.txt)",
+      "mcp__Gmail__send_message"
     ]
   },
   "hooks": {
