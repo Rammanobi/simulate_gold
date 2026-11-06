@@ -1,20 +1,6 @@
 {
- "updated": "2026-10-31T09:52:43+05:30",
+ "updated": "2026-11-06T08:51:31+05:30",
  "events": [
-  {
-   "date": "2026-10-28",
-   "type": "FOMC",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 3,
-   "confirmed": true,
-   "added": "2026-10-19",
-   "by": "migration",
-   "time": "23:30"
-  },
   {
    "date": "2026-10-30",
    "type": "MONTH_END",
@@ -52,12 +38,12 @@
     "SILVER"
    ],
    "impact": 3,
-   "confirmed": false,
-   "added": "2026-10-31",
-   "by": "weekly",
+   "confirmed": true,
+   "added": "2026-11-06",
+   "by": "premarket",
    "time": "19:00",
-   "expect": "US Oct CPI out Tue 10 Nov 08:30 ET (NSE shut 10 Nov); third-party calendars, bls.gov not checked",
-   "source": "thriveinmarkets.com"
+   "expect": "US Oct CPI Tue 10 Nov 08:30 ET; NSE shut 10 Nov",
+   "source": "bls.gov"
   },
   {
    "date": "2026-11-10",
@@ -149,6 +135,21 @@
    "confirmed": true,
    "by": "code",
    "added": "2026-10-31"
+  },
+  {
+   "date": "2026-12-31",
+   "type": "MONTH_END",
+   "metals": [
+    "GOLD",
+    "SILVER",
+    "COPPER"
+   ],
+   "impact": 2,
+   "expect": "last trading day of the month; green month-end matters",
+   "source": "nse",
+   "confirmed": true,
+   "by": "code",
+   "added": "2026-11-06"
   }
  ]
 }

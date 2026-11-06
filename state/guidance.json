@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-05T14:17:18+05:30",
+ "updated": "2026-11-06T08:51:32+05:30",
  "bias": {
-  "GOLD": "block",
-  "SILVER": "block",
+  "GOLD": "neutral",
+  "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "[fallback: DeepSeek] Gold and silver remain blocked after today's sharp up gaps and tomorrow's US jobs report, while copper's modest move keeps it neutral.",
+ "note": "GOLD[SPIKE]: no overnight data (searches returned no 5-6 Nov prices); US jobs 19:00 IST today, ceiling neutral. SILVER[DOWNTREND]: no overnight data; jobs today. COPPER[SHORT_SQUEEZE]: no overnight data; thesis cautious.",
  "prices_at_update": {
-  "GOLDBEES": 118.16,
-  "SILVERBEES": 177.51,
-  "HINDCOPPER": 429.2
+  "GOLDBEES": 118.11,
+  "SILVERBEES": 177.93,
+  "HINDCOPPER": 427.7
  },
  "alignment": {
   "GOLD": "SPIKE",
