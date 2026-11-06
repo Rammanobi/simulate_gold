@@ -1,8 +1,8 @@
 {
- "used_at": "2026-11-05T23:41:42+05:30",
- "model": "deepseek-flash",
+ "used_at": "2026-11-06T12:16:56+05:30",
+ "model": "deepseek-v4-pro",
  "ok": true,
- "note": "fallback daily report for 2026-11-05",
+ "note": "GOLD=neutral, SILVER=neutral, COPPER=block",
  "dates": [
   "2026-10-13",
   "2026-10-15",
@@ -10,6 +10,7 @@
   "2026-10-30",
   "2026-11-03",
   "2026-11-04",
-  "2026-11-05"
+  "2026-11-05",
+  "2026-11-06"
  ]
 }
