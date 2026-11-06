@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-06T12:17:30+05:30",
+ "updated": "2026-11-06T14:18:21+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "block",
-  "COPPER": "block"
+  "COPPER": "neutral"
  },
- "note": "[fallback: DeepSeek] Copper is blocked due to its sharp -3.1% drop, while gold and silver remain neutral with US jobs data after the close. | CEILING: downgraded SILVER neutral->block: DEFENSIVE",
+ "note": "[fallback: DeepSeek] conservative fallback bias | CEILING: downgraded SILVER neutral->block: DEFENSIVE",
  "prices_at_update": {
-  "GOLDBEES": 115.79,
-  "SILVERBEES": 173.18,
-  "HINDCOPPER": 414.05
+  "GOLDBEES": 116.22,
+  "SILVERBEES": 174.63,
+  "HINDCOPPER": 416.6
  },
  "alignment": {
   "GOLD": "SPIKE",
