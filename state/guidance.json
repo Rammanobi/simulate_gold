@@ -1,18 +1,18 @@
 {
- "updated": "2026-11-09T08:53:17+05:30",
+ "updated": "2026-11-09T14:18:55+05:30",
  "bias": {
   "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD[RANGE]: no overnight data (web search returned no 9 Nov quotes); US CPI today 19:00 IST, ceiling neutral. SILVER[DOWNTREND]: no overnight data; CPI today, thesis cautious. COPPER[COUNTER_TREND]: no overnight data; thesis cautious. Note: state/fallback.json guidance was DeepSeek, overwritten.",
+ "note": "GOLD[EMERGING]: +0.6% on the day, US CPI 19:00 IST tonight, ceiling neutral. SILVER[DOWNTREND]: +1.0% on the day, CPI tonight, thesis cautious. COPPER[COUNTER_TREND]: +2.3% on the day, thesis cautious, no confirmed tailwind. NSE shut 10 Nov.",
  "prices_at_update": {
-  "GOLDBEES": 116.2,
-  "SILVERBEES": 174.95,
-  "HINDCOPPER": 424.0
+  "GOLDBEES": 116.87,
+  "SILVERBEES": 176.35,
+  "HINDCOPPER": 430.75
  },
  "alignment": {
-  "GOLD": "RANGE",
+  "GOLD": "EMERGING",
   "SILVER": "DOWNTREND",
   "COPPER": "COUNTER_TREND"
  }
