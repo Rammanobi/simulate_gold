@@ -1,8 +1,8 @@
 {
- "used_at": "2026-11-06T14:17:30+05:30",
- "model": "deepseek-v4-pro",
- "ok": true,
- "note": "GOLD=neutral, SILVER=neutral, COPPER=neutral; reply was not valid JSON of the required shape; all neutral",
+ "used_at": "2026-11-09T12:16:59+05:30",
+ "model": "",
+ "ok": false,
+ "note": "all thinking models failed (last: deepseek-v4-pro: empty reply)",
  "dates": [
   "2026-10-13",
   "2026-10-15",
