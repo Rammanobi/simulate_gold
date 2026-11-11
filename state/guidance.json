@@ -1,11 +1,11 @@
 {
- "updated": "2026-11-11T14:17:29+05:30",
+ "updated": "2026-11-11T14:17:50+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD[RANGE]: block kept, -1.2% vs prev close, 0.4% above AI stop 115, hawkish Fed headlines. SILVER[DOWNTREND]: neutral, ceiling. COPPER[COUNTER_TREND]: neutral, +2.1% bounce in a down LTM, no new facts.",
+ "note": "[fallback: DeepSeek] Gold blocked due to earlier price-shock trigger; silver and copper neutral given mixed signals.",
  "prices_at_update": {
   "GOLDBEES": 115.42,
   "SILVERBEES": 176.7,
