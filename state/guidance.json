@@ -1,18 +1,18 @@
 {
- "updated": "2026-11-11T08:52:22+05:30",
+ "updated": "2026-11-11T12:17:40+05:30",
  "bias": {
   "GOLD": "block",
-  "SILVER": "block",
+  "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "GOLD[EMERGING]: gold about -2% on hot US CPI 10 Nov, Fed hike odds up for Dec, exact levels n/a, kitco.com. SILVER[DOWNTREND]: sharply lower late US session 10 Nov, no figure, kitco.com. COPPER[COUNTER_TREND]: no overnight data, ceiling neutral.",
+ "note": "[fallback: DeepSeek] Gold is blocked after a price-shock trigger from falling over 1.5% from previous close; silver and copper lack clear directional signals, so neutral.",
  "prices_at_update": {
-  "GOLDBEES": 116.93,
-  "SILVERBEES": 176.55,
-  "HINDCOPPER": 429.45
+  "GOLDBEES": 115.42,
+  "SILVERBEES": 176.75,
+  "HINDCOPPER": 442.1
  },
  "alignment": {
-  "GOLD": "EMERGING",
+  "GOLD": "RANGE",
   "SILVER": "DOWNTREND",
   "COPPER": "COUNTER_TREND"
  }
