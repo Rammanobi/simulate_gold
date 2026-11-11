@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-09T14:18:55+05:30",
+ "updated": "2026-11-11T08:52:22+05:30",
  "bias": {
-  "GOLD": "neutral",
-  "SILVER": "neutral",
+  "GOLD": "block",
+  "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "GOLD[EMERGING]: +0.6% on the day, US CPI 19:00 IST tonight, ceiling neutral. SILVER[DOWNTREND]: +1.0% on the day, CPI tonight, thesis cautious. COPPER[COUNTER_TREND]: +2.3% on the day, thesis cautious, no confirmed tailwind. NSE shut 10 Nov.",
+ "note": "GOLD[EMERGING]: gold about -2% on hot US CPI 10 Nov, Fed hike odds up for Dec, exact levels n/a, kitco.com. SILVER[DOWNTREND]: sharply lower late US session 10 Nov, no figure, kitco.com. COPPER[COUNTER_TREND]: no overnight data, ceiling neutral.",
  "prices_at_update": {
-  "GOLDBEES": 116.87,
-  "SILVERBEES": 176.35,
-  "HINDCOPPER": 430.75
+  "GOLDBEES": 116.93,
+  "SILVERBEES": 176.55,
+  "HINDCOPPER": 429.45
  },
  "alignment": {
   "GOLD": "EMERGING",

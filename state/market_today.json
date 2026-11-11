@@ -1,20 +1,10 @@
 {
- "date": "2026-11-05",
+ "date": "2026-11-11",
  "market": [
   {
-   "name": "Gold (COMEX)",
-   "move_pct": 1.58,
-   "note": "Large overnight gain, source undated"
-  },
-  {
-   "name": "Silver (COMEX)",
-   "move_pct": 1.57,
-   "note": "Rebound inside a downtrend"
-  },
-  {
-   "name": "Copper (COMEX)",
-   "move_pct": 0.09,
-   "note": "Little changed"
+   "name": "Gold (global)",
+   "move_pct": -2.0,
+   "note": "Fell about 2% on hot US CPI; silver also sharply lower, size n/a"
   }
  ]
 }
