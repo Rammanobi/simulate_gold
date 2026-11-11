@@ -1,5 +1,5 @@
 {
- "updated": "2026-11-09T15:47:24+05:30",
+ "updated": "2026-11-11T15:46:57+05:30",
  "months": [
   {
    "month": "2026-10",
@@ -22,14 +22,14 @@
   {
    "month": "2026-11",
    "start": 98980.67,
-   "end": 100647.17,
-   "pct": 1.684,
-   "green": true,
-   "bh_goldbees_pct": 1.59,
-   "bh_gold_silver_pct": 1.727,
+   "end": 99922.12,
+   "pct": 0.951,
+   "green": false,
+   "bh_goldbees_pct": 0.148,
+   "bh_gold_silver_pct": 1.078,
    "liquidbees_pct": null,
-   "excess_vs_goldbees": 0.094,
-   "max_dd_rs": 834.26,
+   "excess_vs_goldbees": 0.803,
+   "max_dd_rs": 1240.46,
    "trades": 1,
    "win_rate": null,
    "costs": 26.9,
@@ -40,9 +40,9 @@
  ],
  "trial": {
   "start": 100000.0,
-  "end": 100647.17,
-  "pct": 0.647,
-  "green": true,
-  "bh_goldbees_pct": -2.436
+  "end": 99922.12,
+  "pct": -0.078,
+  "green": false,
+  "bh_goldbees_pct": -3.821
  }
 }
