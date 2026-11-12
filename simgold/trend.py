@@ -19,6 +19,7 @@ All numbers live in config/params.yaml under `strategy:`.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -268,6 +269,78 @@ def describe(i: TrendInfo, st: dict) -> tuple[str, str]:
         return state, (f"close {_px(c)} < exit level {_px(stop)} = max(peak close {_px(peak)} - {k:g} x "
                        f"ATR{st['atr_days']} {_px(a)}, {nx}-day low {_px(ll)})")
     return state, f"close {_px(c)} is not above the {ne}-day high {_px(hh)}"
+
+
+def level_numbers(i: TrendInfo, st: dict, sym: str | None = None) -> dict:
+    """The trend test as plain numbers, so a report can draw a "why cash?" meter without parsing the reason text.
+
+    level_kind   "sma200" (gold; the window is strategy.sma_days) or "donchian55" (silver, copper; strategy.donchian_entry_days)
+    level_raw    the SMA, or the prior-N-day high
+    level        the price the trend test is decided at NOW, including the hysteresis band actually used:
+                 state OFF -> the ON level (SMA x (1 + band), or the N-day high); state ON -> the OFF level (SMA x (1 - band),
+                 or the exit level max(peak close - k x ATR, M-day low))
+    level_side   "on" (the close must rise above `level` to turn ON) or "off" (a close below `level` turns it OFF)
+    close        the close the check used (the provisional 15:10 price)
+    gap_pct      (level / close - 1) x 100: how far the close has to move to cross `level` (+ = it must rise, - = cushion above it)
+    weight_if_on percent of the portfolio this fund would get on its own if its trend were ON: min(cap, vol_target / sigma) x 100
+    Any number that cannot be known (not enough history) is None."""
+    r, c = i.row, i.close
+    sma_kind = i.kind == "sma_trend"
+    kind = f"sma{st['sma_days']}" if sma_kind else f"donchian{st['donchian_entry_days']}"
+    raw = r.get("sma") if sma_kind else r.get("hh")
+    level, side = None, "off" if i.on else "on"
+    if sma_kind:
+        if raw is not None:
+            level = raw * (1 - st["sma_hysteresis"]) if i.on else raw * (1 + st["sma_hysteresis"])
+    elif i.on:
+        level = r.get("stop")
+    else:
+        level = raw
+    cap = (st.get("symbols") or {}).get(sym or i.sym, {}).get("cap")
+    w = raw_weight(True, i.sigma, cap, st["vol_target"]) if cap is not None else None
+    rd = lambda x, n=2: round(float(x), n) if isinstance(x, (int, float)) and math.isfinite(x) else None
+    return {"level_kind": kind, "level_raw": rd(raw), "level": rd(level), "level_side": side, "close": rd(c),
+            "gap_pct": rd((level / c - 1) * 100) if level is not None and c else None,
+            "weight_if_on": rd(w * 100, 1) if w else None}
+
+
+_RE_SMA = re.compile(r"SMA(\d+)\s+([\d.]+)")
+_RE_HIGH = re.compile(r"(\d+)-day high\s+([\d.]+)")
+_RE_EXIT = re.compile(r"exit level\s+([\d.]+)")
+
+
+def level_numbers_from_record(rec: dict, st: dict) -> dict:
+    """The same fields as level_numbers() for a TARGET record: the record's own numbers when the engine wrote them, else
+    rebuilt from an older record's reason text, price, state and sigma (the band and caps come from `st`). {} when nothing is usable."""
+    keys = ("level_kind", "level_raw", "level", "level_side", "close", "gap_pct", "weight_if_on")
+    if isinstance(rec.get("level"), (int, float)) or rec.get("level_kind"):
+        return {k: rec.get(k) for k in keys}
+    reason, sym = str(rec.get("reason") or ""), str(rec.get("symbol") or "")
+    on = str(rec.get("state") or "").upper() == "ON"
+    close = rec.get("price") if isinstance(rec.get("price"), (int, float)) and rec.get("price") else None
+    kind = raw = level = None
+    m = _RE_SMA.search(reason)
+    if m:
+        kind, raw = f"sma{m.group(1)}", float(m.group(2))
+        b = float(st.get("sma_hysteresis") or 0.0)
+        level = raw * (1 - b) if on else raw * (1 + b)
+    else:
+        m, x = _RE_HIGH.search(reason), _RE_EXIT.search(reason)
+        if m:
+            kind, raw = f"donchian{m.group(1)}", float(m.group(2))
+        elif x:
+            kind = f"donchian{st.get('donchian_entry_days', 55)}"
+        level = ((float(x.group(1)) if x else None) or raw) if on else raw
+    if kind is None:
+        return {}
+    sg = rec.get("sigma")
+    cap = (st.get("symbols") or {}).get(sym, {}).get("cap")
+    w = (raw_weight(True, float(sg), cap, st["vol_target"])
+         if isinstance(sg, (int, float)) and cap is not None and st.get("vol_target") else 0.0)
+    rd = lambda v, n=2: round(float(v), n) if v is not None else None
+    return {"level_kind": kind, "level_raw": rd(raw), "level": rd(level), "level_side": "off" if on else "on", "close": rd(close),
+            "gap_pct": rd((level / close - 1) * 100) if level is not None and close else None,
+            "weight_if_on": rd(w * 100, 1) if w else None}
 
 
 # ---------------------------------------------------------------- stop-loss package D5-S (strategy.stops)

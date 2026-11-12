@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from simgold import alldays
+from simgold import alldays, config
 from simgold.market import NSE_HOLIDAYS, is_trading_day
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,11 +63,13 @@ def test_every_day_reconciles_to_the_close_exactly(root):
     for d in out["days"]:
         assert round(sum(d["alloc"].values()), 2) == d["close_value"]
         assert d["invested_value"] + d["cash_value"] == pytest.approx(d["close_value"], abs=0.005)
-        for h in d["holdings"]:                              # holdings are valued at the close price
-            assert h["value"] == round(h["qty"] * h["price"], 2)
+        for h in d["holdings"]:                              # holdings are valued at the close price after the estimated cost of selling
+            cost = config.load_params()["instruments"][h["symbol"]]["cost"]
+            assert h["value"] == round(h["qty"] * h["price"] * (1 - cost / 2), 2)
             assert d["alloc"][h["symbol"]] == h["value"]
     d1 = out["days"][0]
-    assert d1["alloc"]["GOLDBEES"] == round(400 * 118.13, 2) and d1["alloc"]["Cash"] == round(100048.28 - 400 * 118.13, 2)
+    g1 = round(400 * 118.13 * (1 - 0.0010 / 2), 2)
+    assert d1["alloc"]["GOLDBEES"] == g1 and d1["alloc"]["Cash"] == round(100048.28 - g1, 2)
 
 
 def test_day_profit_is_close_minus_previous_close(root):

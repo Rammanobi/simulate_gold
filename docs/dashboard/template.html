@@ -323,7 +323,7 @@ function fundCards(n) { const tot = n.total, by = Object.fromEntries(n.holdings.
     return '<div class="fcard" data-seg="' + f.sym + '" style="--c:var(' + f.v + ')"><div><h3>' + f.name + '</h3><div class="val">' + fmtShort(h.value) + '</div><div class="sh">' + h.units + ' sh @ ' + fmtINR(h.avg, 2) + '</div><div class="sub">cost ' + fmtINR(h.invested) + ' \u00B7 now ' + fmtINR(h.price, 2) + '</div>' + signChip(h.gain, h.gainPct, {plain: true}) + '</div><div class="sp">' + sp + '</div></div>'; }).join('') +
    '<div class="fcard" data-seg="CASH" style="--c:var(--cash)"><div><h3>Cash</h3><div class="val">' + fmtShort(n.alloc.CASH) + '</div><div class="sub">' + Math.round(n.alloc.CASH / tot * 100) + '% of total \u00B7 idle' + (n.idle === 'liquidbees' ? ' (LIQUIDBEES)' : '') + '</div></div></div>'; }
 function topHtml(n) { const bd = n.summary && n.summary.breakdown;
-  const note = bd ? 'Overall profit = booked ' + fmtINR(bd.booked) + ' + open gain ' + fmtINR(bd.open) + ' + costs ' + fmtINR(bd.costs) + ' + past interest ' + fmtINR(bd.interest) + '.' : '';
+  const note = bd ? 'Overall profit = open gain ' + fmtINR(bd.open) + ' + booked ' + fmtINR(bd.booked) + ' (after costs) + past interest ' + fmtINR(bd.interest) + '.' : '';
   return '<section class="hero2"><div class="stat"><span class="lbl">Total value</span><span class="big" id="total">' + fmtINR(n.total) + '</span></div>' +
    '<div class="stat"><span class="lbl">Overall</span>' + signChip(n.overall, n.overallPct) + '</div>' +
    '<div class="stat"><span class="lbl">Today</span>' + signChip(n.dayProfit, n.dayPct) + '</div>' +

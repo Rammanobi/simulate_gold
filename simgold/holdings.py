@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 
 from simgold import config
+from simgold.summary import _p, _r      # whole-paise rounding shared with the money summary, so both give the same figures
 
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
 LIQUID = "LIQUIDBEES"
@@ -156,13 +157,27 @@ def replay(trades: list[dict], upto: str | None = None) -> dict[str, dict]:
     return st
 
 
+def sell_cost(sym: str, costs: dict | None = None) -> float:
+    """The per-instrument round-trip cost fraction (params instruments.SYM.cost); a position is valued after half of it
+    (the estimated cost of selling), exactly as Engine.value() does. `costs` {sym: fraction} overrides the config."""
+    if costs is not None:
+        return _f(costs.get(sym), 0.0) or 0.0
+    try:
+        return _f(((config.load_params().get("instruments") or {}).get(sym) or {}).get("cost"), 0.0) or 0.0
+    except Exception:  # noqa: BLE001 - a missing config never stops a report
+        return 0.0
+
+
 def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, upto: str | None = None,
-            positions: dict | None = None, liquid_price: float | None = None, idle_cash: bool | None = None) -> list[dict]:
+            positions: dict | None = None, liquid_price: float | None = None, idle_cash: bool | None = None,
+            sell_costs: dict | None = None) -> list[dict]:
     """The four holding rows (GOLDBEES, SILVERBEES, HINDCOPPER, LIQUIDBEES).
 
     `positions` (state/portfolio.json positions) is passed only for the engine's current day and then overrides the replay
-    for units, average price, purchase costs and first-buy date. Metal rows: units, avg_price, invested (units x avg + costs),
-    price, value, gain (value - invested), gain_pct, share_pct, first_buy, realised; compatibility keys qty/avg/close/unrealized.
+    for units, average price, purchase costs and first-buy date. Metal rows: units, avg_price, invested (units x avg + buy costs),
+    price, value (units x price AFTER the estimated cost of selling, the engine's own valuation), gross_value (units x price),
+    gain (value - invested, the same "open gain" as simgold/summary.py), gain_pct, share_pct, first_buy, realised (sum of the
+    sells' pnl, after costs); compatibility keys qty/avg/close/unrealized. `sell_costs` {sym: cost fraction} overrides the config.
     The LIQUIDBEES row has value, share_pct and approximate units. With idle money as plain cash (capital.idle: cash) that
     row is "Cash (idle money)": value and share only, no units or price (`cash: True`)."""
     if idle_cash is None:
@@ -187,15 +202,16 @@ def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, u
         if px is None and units:
             px = avg
         invested = cost_value + costs
-        value = units * px if (units and px is not None) else 0.0
-        gain = value - invested if units else 0.0
+        gross = units * px if (units and px is not None) else 0.0
+        value = gross * (1 - sell_cost(sym, sell_costs) / 2)
+        gain_p = _p(value) - _p(invested) if units else 0
         rows.append({"symbol": sym, "name": NAMES[sym], "units": units, "avg_price": round(avg, 4),
-                     "invested": round(invested, 2), "price": (round(px, 4) if px is not None else None),
-                     "value": round(value, 2), "gain": round(gain, 2),
-                     "gain_pct": round(100.0 * gain / invested, 2) if units and invested else 0.0,
+                     "invested": _r(_p(invested)), "price": (round(px, 4) if px is not None else None),
+                     "value": _r(_p(value)), "gross_value": _r(_p(gross)), "gain": _r(gain_p),
+                     "gain_pct": round(gain_p / _p(invested) * 100, 2) if units and _p(invested) else 0.0,
                      "share_pct": 0.0, "first_buy": first, "realised": round(float(s.get("realised", 0.0)), 2),
                      "qty": units, "avg": round(avg, 4), "close": (round(px, 4) if px is not None else None),
-                     "unrealized": round(gain, 2)})
+                     "unrealized": _r(gain_p)})
     lv = max(0.0, float(liquid_value or 0.0))
     if idle_cash:
         rows.append({"symbol": LIQUID, "name": CASH_NAME, "value": round(lv, 2), "share_pct": 0.0, "units": None, "price": None,

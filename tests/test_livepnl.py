@@ -195,4 +195,4 @@ def test_live_payload_carries_the_money_summary():
     assert s["live_profit"] == d["open"]["pnl"] and s["held"] and len(s["metals"]) == 2
     assert s["today_profit"] == d["today"]["pnl"] and s["overall_profit"] == d["total"]["pnl"]
     b = s["breakdown"]
-    assert round(b["booked"] + b["open"] + b["costs"] + b["interest"], 2) == s["overall_profit"]
+    assert round(b["booked"] + b["open"] + b["interest"], 2) == s["overall_profit"]

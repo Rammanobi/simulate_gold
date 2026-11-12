@@ -9,7 +9,8 @@ amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}
 checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened), targets[] (empty on v1 days).
 Strategy v2 days only (strategy absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
 min_invested?, peak?, drawdown_pct?, account_stop_level?} and targets[{symbol, time, trend ON/OFF, state, sigma (the engine's TARGET fields), reason, sigma60, target_pct, actual_pct, stop, exit_level?,
-ai_stop?}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
+ai_stop?, level_kind (sma200|donchian55), level_raw, level (the ON level incl. the hysteresis band when OFF, the OFF level when ON),
+level_side (on|off), close (the 15:10 check price), gap_pct (level/close-1 in %), weight_if_on (% of the portfolio)}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
 "Drawdown brake" / "Account stop" decisions.
 
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
@@ -26,7 +27,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from simgold import config, holdings as holdings_mod, report
+from simgold import config, holdings as holdings_mod, report, trend
 from simgold.market import now_ist
 
 log = logging.getLogger(__name__)
@@ -92,6 +93,15 @@ def _params(root: Path) -> dict:
         return {}
 
 
+def _trend_params(par: dict) -> dict:
+    """The strategy numbers for the trend levels (band, caps, vol target): the root's own params.yaml over the repo's."""
+    try:
+        base = config.load_params().get("strategy") or {}
+    except Exception:  # noqa: BLE001
+        base = {}
+    return {**base, **par}
+
+
 def _num(v):
     return _f(v) if isinstance(v, (int, float, str)) else None
 
@@ -148,7 +158,7 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
     floor = _num(par.get("min_invested", par.get("gold_floor")))
     if floor is not None:
         strategy["min_invested"] = floor if floor > 1 else round(floor * 100, 1)
-    targets = []
+    targets, tpar = [], _trend_params(par)
     for s in SYMS:
         r = last.get(s)
         if not r:
@@ -161,6 +171,7 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
              "reason": (m.group(1) if m else reason)[:300],
              "sigma60": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None,
              "target_pct": _num(r.get("target_pct")), "actual_pct": _num(r.get("actual_pct"))}
+        t.update(trend.level_numbers_from_record(r, tpar))     # level, level_kind, close, gap_pct, weight_if_on: numbers, not text
         real = [v for v in (stp.get("exit_level"), stp.get("ai_stop")) if v]
         if real:
             t["stop"] = max(real)

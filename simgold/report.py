@@ -174,7 +174,8 @@ def load_ticks(path: Path) -> list[dict] | None:
                 if t and v is not None:
                     out.append({"t": t, "value": v, "floor": _num(row.get("floor")),
                                 "cash": _num(row.get("cash")),
-                                "liquidbees": _num(row.get("liquidbees"))})
+                                "liquidbees": _num(row.get("liquidbees")),
+                                "prices": {k: x for k in holdings_mod.SYMS if (x := _num(row.get(k)))}})
     except (OSError, csv.Error):
         return None
     out.sort(key=lambda r: _mins(r["t"]))
@@ -917,10 +918,15 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     month_pnl = close - ms
 
     # --- positions at close
+    # ONE closing price per fund for every surface: the last tick of the day (the price the day's close value in
+    # state/equity.csv was computed on), else the engine's last price on the position, else the last decision price.
     last_price: dict[str, float] = {}
     for d in decisions:
         if d["price"] > 0:
             last_price[d["symbol"]] = d["price"]
+    tick_px: dict[str, float] = {}
+    for t in ticks:
+        tick_px.update(t.get("prices") or {})
     holdings = []
     for sym, p in (portfolio.get("positions") or {}).items():
         if not isinstance(p, dict):
@@ -932,9 +938,12 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         avg = _num(p.get("avg"), None)
         if avg is None:
             avg = _num(p.get("avg_cost"), 0.0)
-        px = last_price.get(s) or _num(p.get("last")) or avg
-        h = {"symbol": s, "qty": qty, "avg": avg, "close": px, "value": round(qty * px, 2),
-             "unrealized": round(qty * (px - avg), 2)}
+        px = tick_px.get(s) or _num(p.get("last_price")) or _num(p.get("last")) or last_price.get(s) or avg
+        # value after the estimated cost of selling; unrealized = that value - (units x avg + buy costs): the money summary's "open gain"
+        net = qty * px * (1 - holdings_mod.sell_cost(s) / 2)
+        invested = qty * avg + (_num(p.get("buy_costs"), 0.0) or 0.0)
+        h = {"symbol": s, "qty": qty, "avg": avg, "close": px, "value": round(net, 2), "gross_value": round(qty * px, 2),
+             "unrealized": round(net - invested, 2)}
         stop = _num(p.get("ai_stop")) if v2 else _num(p.get("stop"))      # v2: only a real (AI / inherited) stop is a stop
         h["stop"] = stop if stop is not None else 0.0
         if v2:
@@ -1046,6 +1055,10 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         for r in raw or []:
             if isinstance(r, dict) and str(r.get("action", "")).upper() == "TARGET":
                 last_t[_norm_symbol(r.get("symbol"))] = {k: r.get(k) for k in ("state", "sigma", "target_pct", "actual_pct", "reason")}
+                try:            # level, level_kind, close, gap_pct, weight_if_on as numbers (the "why cash?" meter)
+                    last_t[_norm_symbol(r.get("symbol"))].update(trend.level_numbers_from_record(r, config.load_params().get("strategy") or {}))
+                except Exception:      # the numbers are extra; the text reason still says it
+                    pass
         day["targets"] = [{"symbol": k, **v} for k, v in last_t.items()]
     if costs_estimated:
         day["costs_estimated"] = True
@@ -1322,9 +1335,10 @@ def summary_rows(ms: dict) -> list[dict]:
 
 def summary_breakdown(ms: dict) -> str:
     b = ms["breakdown"]
-    return (f"Overall profit {sg(ms['overall_profit'], 2)} = booked profit {sg(b['booked'], 2)} + open gain {sg(b['open'], 2)} "
-            f"+ costs paid {sg(b['costs'], 2)} + past {'interest on idle money' if ms.get('idle_cash', True) else 'LIQUIDBEES interest'} "
-            f"{sg(b['interest'], 2)} (before the 22 Oct switch to cash; booked is {sg(b['booked_after_costs'], 2)} after costs).")
+    return (f"Overall profit {sg(ms['overall_profit'], 2)} = open gain {sg(b['open'], 2)} (after the cost of selling) "
+            f"+ booked profit {sg(b['booked'], 2)} (sells, after costs) "
+            f"+ past {'interest on idle money' if ms.get('idle_cash', True) else 'LIQUIDBEES interest'} {sg(b['interest'], 2)} "
+            f"(earned before the 22 Oct switch to cash).")
 
 
 def _summary_html(ms: dict | None, extra: str = "", weekly_line: str | None = None) -> str:

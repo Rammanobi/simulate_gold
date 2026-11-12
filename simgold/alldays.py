@@ -194,9 +194,10 @@ def build_day(date: str, doc: dict, root: Path, ledger: list[dict], prev_close: 
     if close is None:
         close = prev_close
     day_trades = [e for e in ledger if e["date"] == date]
-    # closing price per fund: the dashboard's own row (the price the close value was computed on), else the last tick, else the last fill
+    # ONE closing price per fund, the same one every other surface uses: the last tick of the day (what the close value in
+    # state/equity.csv was computed on), else the dashboard document's own row, else the last fill (below)
     doc_px = {h.get("symbol"): _r(h.get("price"), 4) for h in doc.get("holdings") or [] if isinstance(h, dict)}
-    px = {s: doc_px.get(s) or tp[s][1] for s in SYMS}
+    px = {s: tp[s][1] or doc_px.get(s) for s in SYMS}
     rows = holdings_mod.compute(ledger, {s: v for s, v in px.items() if v}, 0.0, upto=date, idle_cash=True)
     held = _holdings_rows(rows)
     for h in held:
