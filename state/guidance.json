@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-11T14:17:50+05:30",
+ "updated": "2026-11-13T08:51:31+05:30",
  "bias": {
-  "GOLD": "block",
+  "GOLD": "neutral",
   "SILVER": "neutral",
   "COPPER": "neutral"
  },
- "note": "[fallback: DeepSeek] Gold blocked due to earlier price-shock trigger; silver and copper neutral given mixed signals.",
+ "note": "GOLD[RANGE]: no reliable overnight data (searches returned undated/conflicting quotes); hawkish Fed hike talk after 10 Nov hot core CPI, keep neutral. SILVER[DOWNTREND]: no overnight data, ceiling neutral. COPPER[DOWNTREND]: no overnight data, ceiling neutral.",
  "prices_at_update": {
-  "GOLDBEES": 115.42,
-  "SILVERBEES": 176.7,
-  "HINDCOPPER": 438.95
+  "GOLDBEES": 115.27,
+  "SILVERBEES": 176.8,
+  "HINDCOPPER": 436.0
  },
  "alignment": {
   "GOLD": "RANGE",
   "SILVER": "DOWNTREND",
-  "COPPER": "COUNTER_TREND"
+  "COPPER": "DOWNTREND"
  }
 }

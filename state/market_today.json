@@ -1,10 +1,20 @@
 {
- "date": "2026-11-11",
+ "date": "2026-11-13",
  "market": [
   {
-   "name": "Gold (global)",
-   "move_pct": -2.0,
-   "note": "Fell about 2% on hot US CPI; silver also sharply lower, size n/a"
+   "name": "Gold (COMEX)",
+   "move_pct": 0.0,
+   "note": "n/a, no reliable overnight quote found"
+  },
+  {
+   "name": "Silver (COMEX)",
+   "move_pct": 0.0,
+   "note": "n/a, no reliable overnight quote found"
+  },
+  {
+   "name": "Copper",
+   "move_pct": 0.0,
+   "note": "n/a, no reliable overnight quote found"
   }
  ]
 }
