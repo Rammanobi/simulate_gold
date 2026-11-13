@@ -1,7 +1,7 @@
 {
- "updated": "2026-11-05T09:16:24+05:30",
+ "updated": "2026-11-13T09:16:41+05:30",
  "GOLDBEES": {
-  "tighten_stop": 115.0
+  "tighten_stop": 111.0
  },
- "note": "Gold jumped about 5% this morning, so the gold stop is raised to 115 to lock in part of the gain; no selling."
+ "note": "Gold fell 2.6% at the open with no confirmed news, so the gold stop is raised to 111.0 to limit further loss."
 }
