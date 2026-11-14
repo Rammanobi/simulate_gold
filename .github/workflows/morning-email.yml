@@ -1,0 +1,71 @@
+name: morning-email
+
+# Morning email sent by GitHub, no Claude involved (tools/morning_email.py). The engine relay dispatches this at ~08:55 IST;
+# the two crons are a fallback (08:50 and 09:20 IST, weekdays; GitHub crons can be hours late, the tool refuses after 11:00 IST).
+# Off until the owner sets report.morning_email: true in config/params.yaml (force bypasses only that switch).
+# Secrets (Gmail SMTP, same as the backup email): SMTP_USER, SMTP_APP_PASSWORD, REPORT_EMAIL. See docs/BACKUP_EMAIL.md.
+on:
+  schedule:
+    - cron: "20 3 * * 1-5"      # 08:50 IST
+    - cron: "50 3 * * 1-5"      # 09:20 IST
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Day the email is about (YYYY-MM-DD); empty = today. Must be today."
+        required: false
+        default: ""
+      force:
+        description: "Bypass the report.morning_email switch (trading-day, before-11:00 and once-a-day guards still apply)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Build and validate only: send nothing, write no marker"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write     # commits state/morning_sent.json
+
+concurrency:
+  group: morning-email
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Kolkata
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -q -r requirements.txt
+
+      - name: Send the morning email
+        env:
+          IN_DATE: ${{ github.event.inputs.date }}
+          IN_FORCE: ${{ github.event.inputs.force }}
+          IN_DRY: ${{ github.event.inputs.dry_run }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+        run: |
+          args=""
+          if echo "$IN_DATE" | grep -Eq '^20[0-9]{2}-[0-9]{2}-[0-9]{2}$'; then args="$args --date $IN_DATE"; fi
+          if [ "$IN_FORCE" = "true" ]; then args="$args --force"; fi
+          if [ "$IN_DRY" = "true" ]; then args="$args --dry-run"; fi
+          python tools/morning_email.py $args 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Commit the sent marker
+        if: always()
+        run: |
+          git config user.name "simgold-morning-email"; git config user.email "actions@users.noreply.github.com"
+          for p in state/morning_sent.json; do [ -e "$p" ] && git add -A -- "$p"; done
+          git diff --cached --quiet || git commit -qm "morning-email: $(date +%F) sent"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
