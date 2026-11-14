@@ -170,7 +170,7 @@ def sell_cost(sym: str, costs: dict | None = None) -> float:
 
 def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, upto: str | None = None,
             positions: dict | None = None, liquid_price: float | None = None, idle_cash: bool | None = None,
-            sell_costs: dict | None = None) -> list[dict]:
+            sell_costs: dict | None = None, values: dict | None = None) -> list[dict]:
     """The four holding rows (GOLDBEES, SILVERBEES, HINDCOPPER, LIQUIDBEES).
 
     `positions` (state/portfolio.json positions) is passed only for the engine's current day and then overrides the replay
@@ -178,6 +178,8 @@ def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, u
     price, value (units x price AFTER the estimated cost of selling, the engine's own valuation), gross_value (units x price),
     gain (value - invested, the same "open gain" as simgold/summary.py), gain_pct, share_pct, first_buy, realised (sum of the
     sells' pnl, after costs); compatibility keys qty/avg/close/unrealized. `sell_costs` {sym: cost fraction} overrides the config.
+    `values` {sym: rupees} are the money summary's own settled values (simgold.summary.settle): they replace the computed value so that
+    cash + holdings add up to the close to the paisa on every surface.
     The LIQUIDBEES row has value, share_pct and approximate units. With idle money as plain cash (capital.idle: cash) that
     row is "Cash (idle money)": value and share only, no units or price (`cash: True`)."""
     if idle_cash is None:
@@ -204,6 +206,8 @@ def compute(trades: list[dict], prices: dict[str, float], liquid_value: float, u
         invested = cost_value + costs
         gross = units * px if (units and px is not None) else 0.0
         value = gross * (1 - sell_cost(sym, sell_costs) / 2)
+        if units and values and values.get(sym) is not None:
+            value = float(values[sym])
         gain_p = _p(value) - _p(invested) if units else 0
         rows.append({"symbol": sym, "name": NAMES[sym], "units": units, "avg_price": round(avg, 4),
                      "invested": _r(_p(invested)), "price": (round(px, 4) if px is not None else None),
@@ -280,8 +284,25 @@ def last_prices(root: Path, date: str) -> dict[str, float]:
     return out
 
 
+def portfolio_day(portfolio: dict | None) -> str:
+    """The session date the portfolio state belongs to ('' when unknown): the newest of last_accrual, day_costs_date and counters.date."""
+    pf = portfolio or {}
+    return max(str(pf.get("last_accrual") or ""), str(pf.get("day_costs_date") or ""), str((pf.get("counters") or {}).get("date") or ""))
+
+
+def held_prices(portfolio: dict | None) -> dict[str, float]:
+    """{symbol: the engine's last price} of the positions held in the portfolio state (the carried-over close on a holiday)."""
+    out = {}
+    for sym, p in ((portfolio or {}).get("positions") or {}).items():
+        if isinstance(p, dict) and (_f(p.get("qty"), 0) or 0) > 0:
+            v = _f(p.get("last_price")) or _f(p.get("last"))
+            if v and v > 0:
+                out[sym] = v
+    return out
+
+
 def view(date: str, root: Path, prices: dict[str, float], liquid_value: float, portfolio: dict | None = None,
-         cap: int | None = DOC_LEDGER_CAP) -> dict:
+         cap: int | None = DOC_LEDGER_CAP, values: dict | None = None) -> dict:
     """Everything a report or the dashboard needs for `date`: {date, rows, ledger, ledger_total, ledger_shown, total_value}.
     `prices` are the day's closing prices (missing ones fall back to the last tick, then the last trade price)."""
     root = Path(root)
@@ -297,10 +318,9 @@ def view(date: str, root: Path, prices: dict[str, float], liquid_value: float, p
     for e in reversed(trades):                          # last resort: the most recent fill up to that day
         if e["date"] <= date and not px.get(e["symbol"]):
             px[e["symbol"]] = e["price"]
-    pf_day = max(str(portfolio.get("last_accrual") or ""), str(portfolio.get("day_costs_date") or ""),
-                 str((portfolio.get("counters") or {}).get("date") or ""))
+    pf_day = portfolio_day(portfolio)
     current = bool(pf_day) and date >= pf_day and isinstance(portfolio.get("positions"), dict)
-    rows = compute(trades, px, liquid_value, upto=date, positions=portfolio.get("positions") if current else None)
+    rows = compute(trades, px, liquid_value, upto=date, positions=portfolio.get("positions") if current else None, values=values)
     ledger, total = ledger_rows(trades, upto=date, cap=cap)
     return {"date": date, "rows": rows, "ledger": ledger, "ledger_total": total, "ledger_shown": len(ledger),
             "total_value": round(sum(r["value"] for r in rows), 2)}

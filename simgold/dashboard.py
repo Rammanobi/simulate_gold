@@ -171,7 +171,10 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
              "reason": (m.group(1) if m else reason)[:300],
              "sigma60": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None,
              "target_pct": _num(r.get("target_pct")), "actual_pct": _num(r.get("actual_pct"))}
-        t.update(trend.level_numbers_from_record(r, tpar))     # level, level_kind, close, gap_pct, weight_if_on: numbers, not text
+        try:
+            t.update(trend.level_numbers_from_record(r, tpar))     # level, level_kind, close, gap_pct, weight_if_on: numbers, not text
+        except Exception:  # noqa: BLE001 - the numbers are extra; the text reason still says it
+            log.warning("dashboard: no trend numbers for %s", s, exc_info=True)
         real = [v for v in (stp.get("exit_level"), stp.get("ai_stop")) if v]
         if real:
             t["stop"] = max(real)
@@ -265,9 +268,11 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
     alloc = {s: 0.0 for s in SYMS}
     for h in closes:
         alloc[h["symbol"]] = round(float(h.get("value") or 0), 2)
-    alloc["LIQUIDBEES"] = round(float(p.get("cash_in_liquidbees") or 0), 2)
+    ms = day.get("money_summary") or {}
+    alloc["LIQUIDBEES"] = round(float(ms["cash"] if ms.get("cash") is not None else (p.get("cash_in_liquidbees") or 0)), 2)
     try:        # holdings (4 rows, as of the day) and the full trade ledger up to and including the day
-        hv = holdings_mod.view(date, root, {h["symbol"]: h["close"] for h in closes if h.get("close")}, alloc["LIQUIDBEES"])
+        hv = holdings_mod.view(date, root, {h["symbol"]: h["close"] for h in closes if h.get("close")}, alloc["LIQUIDBEES"],
+                               values={m["symbol"]: m["value"] for m in ms.get("metals") or []} or None)
         holdings = _with_stops(hv["rows"], closes)
         ledger, ledger_total = hv["ledger"], hv["ledger_total"]
     except Exception:  # noqa: BLE001 - never lose the day document over the extra view

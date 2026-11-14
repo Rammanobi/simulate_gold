@@ -12,8 +12,10 @@ Definitions (simgold/summary.py):
   overall  = total - 100000 = open + booked + interest, to the paisa
 """
 import json
+import logging
 import random
 import shutil
+import subprocess
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -52,7 +54,8 @@ def surfaces(tmp_path_factory, shipped_config):
     prices = holdings.last_prices(root, DAY)
     live = livepnl.build(pf, prices, {}, livepnl.read_equity(root / "state" / "equity.csv"), shipped_config,
                          datetime(2026, 11, 6, 15, 29, tzinfo=IST), [], market_open=False)
-    return {"root": root, "day": day, "doc": doc, "alldays": all_days["days"][-1], "live": live, "pf": pf, "prices": prices}
+    return {"root": root, "day": day, "doc": doc, "alldays": all_days["days"][-1], "alldays_full": all_days, "live": live, "pf": pf,
+            "prices": prices}
 
 
 def _gold(rows, k):
@@ -212,3 +215,178 @@ def test_engine_target_records_carry_the_numbers(tmp_path):
         assert d["close"] == pytest.approx(d["price"], abs=0.006) and d["level"] < d["close"] and d["gap_pct"] < 0
         assert d["weight_if_on"] == round(min(st["symbols"][sym]["cap"], st["vol_target"] / d["sigma"]) * 100, 1)
         assert trend.level_numbers_from_record(d, st)["level"] == d["level"]
+
+
+# ------------------------------------------------------------------------------------------------ review round 1
+NODE_DRIVER = r"""
+const vm = require('vm'), fs = require('fs');
+const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const els = {};
+const el = sel => els[sel] || (els[sel] = {innerHTML: '', textContent: '', className: '', scrollLeft: 0, scrollWidth: 0, dataset: {}, style: {},
+  classList: {add() {}, remove() {}, toggle() {}, contains() { return false; }}, setAttribute() {}, removeAttribute() {}, firstChild: null,
+  querySelector() { return null; }, querySelectorAll() { return []; }, closest() { return null; }});
+const doc = {querySelector: el, querySelectorAll: () => [], addEventListener() {}, hidden: false, body: el('body'),
+  documentElement: {getAttribute() { return null; }, setAttribute() {}, removeAttribute() {}}};
+const ctx = vm.createContext({document: doc, location: {hash: '#static'}, setInterval() {}, setTimeout() {}, clearTimeout() {}, console,
+  Date, Math, JSON, Object, Array, Number, String, isFinite, parseFloat, Promise, fetch: undefined, __LIVE: cfg.live});
+vm.runInContext(cfg.script, ctx);
+const out = vm.runInContext('LIVE = __LIVE; renderTop(); const v = view(); JSON.stringify({v: v, top: $("#top").innerHTML, hold: $("#hold").innerHTML})', ctx);
+process.stdout.write(out);
+"""
+
+
+def _run_template(tmp_path, alldays_doc, live):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    html = (Path(__file__).resolve().parent.parent / "docs" / "dashboard" / "template.html").read_text(encoding="utf-8")
+    script = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+    script = script.replace("__DATA__", json.dumps(alldays_doc))
+    (tmp_path / "cfg.json").write_text(json.dumps({"script": script, "live": live}), encoding="utf-8")
+    (tmp_path / "drive.js").write_text(NODE_DRIVER, encoding="utf-8")
+    r = subprocess.run([node, str(tmp_path / "drive.js"), str(tmp_path / "cfg.json")], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_dashboard_page_shows_the_feeds_numbers_not_its_own(surfaces, tmp_path):
+    """The page used to recompute value = qty x price (gross), gain and cash from the live file: 50,779.40 / +1,373.04 / 49,548.92."""
+    s = surfaces
+    out = _run_template(tmp_path, s["alldays_full"], s["live"])
+    v = out["v"]
+    g = next(h for h in v["holdings"] if h["symbol"] == "GOLDBEES")
+    assert v["live"] is True
+    assert (g["value"], g["gain"]) == (50754.01, 1347.65) == (_gold(s["live"]["positions"], "value"), _gold(s["live"]["positions"], "open_pnl"))
+    assert v["alloc"]["CASH"] == s["live"]["cash"] == 49574.31
+    assert v["openGain"] == s["live"]["summary"]["live_profit"] == 1347.65
+    assert v["total"] == s["live"]["total_value"] == 100328.32
+    assert round(sum(v["alloc"].values()), 2) == v["total"]
+    assert "1,348" in out["top"] and "1,373" not in out["top"] + out["hold"]          # the old gross gain must not show up anywhere
+
+
+def test_dashboard_page_falls_back_for_an_old_feed(surfaces, tmp_path):
+    old = json.loads(json.dumps(surfaces["live"]))
+    for p in old["positions"]:
+        p.pop("value"), p.pop("open_pnl")
+    old.pop("cash"), old["summary"].pop("live_profit")
+    g = next(h for h in _run_template(tmp_path, surfaces["alldays_full"], old)["v"]["holdings"] if h["symbol"] == "GOLDBEES")
+    assert g["value"] == round(437 * 116.2, 2) or abs(g["value"] - 50779.4) < 0.01       # an old feed has nothing better than qty x price
+
+
+def test_closed_day_with_a_position_held_uses_the_carried_price_and_real_cash(tmp_path, shipped_config):
+    """10 Nov 2026 was a holiday with 437 GOLDBEES held: the report priced it at its average cost and invented cash."""
+    root = tmp_path / "r"
+    shutil.copytree(FIX, root)
+    day = report.build_day("2026-11-10", root, holiday="Test holiday")
+    assert day["closed"] is True
+    ms = day["money_summary"]
+    assert ms["total_now"] == 100328.32 and ms["cash"] == 49574.31
+    assert ms["metals"][0]["price"] == 116.2 and ms["live_profit"] == 1347.65 and ms["metals"][0]["value"] == 50754.01
+    assert ms["breakdown"]["interest"] == 146.82 and ms["breakdown"]["booked"] == -1166.15 and ms["overall_profit"] == 328.32
+    hv = day["holdings_view"]
+    assert hv["total_value"] == 100328.32
+    assert _gold(hv["rows"], "price") == 116.2 and _gold(hv["rows"], "gain") == 1347.65 and _gold(hv["rows"], "value") == 50754.01
+    assert next(r["value"] for r in hv["rows"] if r["symbol"] == "LIQUIDBEES") == 49574.31
+
+
+def test_5_nov_snapshot_is_paise_exact(tmp_path, shipped_config):
+    """Close 101,162.58 = cash 49,574.31 + gold 51,588.27; open +2,181.91; interest 146.82 (the exact total is ...57.65, which rounds up)."""
+    root = tmp_path / "r"
+    shutil.copytree(FIX.parent / "2026-11-05", root)
+    day = report.build_day("2026-11-05", root)
+    ms = day["money_summary"]
+    assert ms["total_now"] == 101162.58 and ms["cash"] == 49574.31
+    assert ms["metals"][0]["value"] == 51588.27 and ms["live_profit"] == 2181.91
+    assert ms["breakdown"] == {"booked": -1166.15, "open": 2181.91, "interest": 146.82, "sum": 1162.58, "costs_in_booked": -46.52}
+    assert D(ms["cash"]) + sum(D(m["value"]) for m in ms["metals"]) == D(ms["total_now"]) == D(day["portfolio"]["close"])
+    assert day["holdings_view"]["total_value"] == 101162.58
+    assert _gold(day["holdings_view"]["rows"], "gain") == _gold(day["holdings_close"], "unrealized") == 2181.91
+    doc = dashboard.build("2026-11-05", root)
+    assert round(sum(doc["alloc"].values()), 2) == 101162.58 and doc["alloc"]["LIQUIDBEES"] == 49574.31 and _gold(doc["holdings"], "gain") == 2181.91
+
+
+HELD_DAYS = ["2026-10-21", "2026-10-22", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"]
+
+
+def test_alldays_cash_and_holdings_add_up_to_the_close_on_every_held_day(tmp_path):
+    root = tmp_path / "r"
+    shutil.copytree(FIX.parent / "held-days", root)
+    days = {d["date"]: d for d in alldays.build(root)["days"]}
+    assert [d for d in HELD_DAYS if d not in days] == []
+    for date in HELD_DAYS:
+        d = days[date]
+        real_cash = alldays.tick_cash(root / "logs" / f"ticks-{date}.csv")
+        assert d["invested_value"] > 0
+        assert D(d["cash_value"]) == D(real_cash), date                                  # the engine's real cash, not a plug
+        assert D(d["cash_value"]) + D(d["invested_value"]) == D(d["close_value"]), date
+        assert sum(D(h["value"]) for h in d["holdings"]) == D(d["invested_value"]), date
+        assert all(D(h["profit"]) == D(h["value"]) - D(h["cost"]) for h in d["holdings"]), date
+        assert D(sum(Decimal(str(v)) for v in d["alloc"].values())) == D(d["close_value"]), date
+    assert days["2026-11-05"]["holdings"][0]["profit"] == 2181.91 and days["2026-11-05"]["cash_value"] == 49574.31
+
+
+def test_settle_adds_up_exactly_and_keeps_real_cash():
+    rnd = random.Random(11)
+    for _ in range(500):
+        nets = {s: rnd.uniform(1000, 60000) for s in rnd.sample(["GOLDBEES", "SILVERBEES", "HINDCOPPER"], rnd.randint(0, 3))}
+        cash = rnd.uniform(0, 60000)
+        close = round(cash + sum(nets.values()) + rnd.uniform(-0.006, 0.006), 2)
+        vals, cash_p, total_p = summary.settle(nets, cash, close)
+        assert total_p == round(close * 100) and cash_p + sum(vals.values()) == total_p
+        if nets:
+            assert cash_p == summary._p(cash) and all(abs(vals[s] - nets[s] * 100) < 2.0 for s in nets)
+    vals, cash_p, total_p = summary.settle({"GOLDBEES": 1000.0}, None, 5000.0)                  # unknown cash: it is what is left
+    assert (vals, cash_p, total_p) == ({"GOLDBEES": 100000}, 400000, 500000)
+    vals, cash_p, total_p = summary.settle({"GOLDBEES": 1000.0}, 100.0, 90000.0)                # a state that is not that day's: plain rounding
+    assert (vals, cash_p) == ({"GOLDBEES": 100000}, 8900000)
+
+
+def _random_live(rnd):
+    held, trades, cash = {}, [], rnd.uniform(1000, 60000)
+    for sym in rnd.sample(["GOLDBEES", "SILVERBEES", "HINDCOPPER"], rnd.randint(1, 3)):
+        px = rnd.uniform(90, 450)
+        held[sym] = {"qty": rnd.randint(1, 400), "avg_cost": px, "buy_costs": rnd.uniform(5, 40), "opened": "2026-10-20",
+                     "last_price": px * rnd.uniform(0.9, 1.1)}
+    if rnd.random() < 0.5:
+        trades.append({"ts": "2026-10-19T10:00:00+05:30", "asset": "SILVERBEES", "side": "SELL", "qty": 10, "price": 200.0, "value": 2000.0,
+                       "costs": 5.0, "pnl": rnd.uniform(-300, 300)})
+    return {"cash": cash, "liquidbees": 0.0, "positions": held, "trades": trades}
+
+
+def test_live_feed_adds_up_to_the_paisa_on_random_books():
+    """Fails if livepnl goes back to its own float sums: positions + cash = total, open = sum of positions, parts = overall."""
+    rnd = random.Random(5)
+    params = config.load_params()
+    for _ in range(200):
+        pf = _random_live(rnd)
+        prices = {s: p["last_price"] for s, p in pf["positions"].items()}
+        d = livepnl.build(pf, prices, {}, [("2026-10-30", 100000.0)], params, datetime(2026, 11, 2, 11, 0, tzinfo=IST), [], market_open=True)
+        sm = d["summary"]
+        assert D(d["total_value"]) == D(sm["total_now"]) == D(d["cash"]) + sum(D(p["value"]) for p in d["positions"])
+        assert D(d["open"]["pnl"]) == D(sm["live_profit"]) == sum(D(p["open_pnl"]) for p in d["positions"])
+        assert all(D(p["open_pnl"]) == D(p["value"]) - D(p["invested"]) for p in d["positions"])
+        b = sm["breakdown"]
+        assert D(b["open"]) + D(b["booked"]) + D(b["interest"]) == D(d["total"]["pnl"]) == D(d["total_value"]) - 100000
+
+
+def test_a_missing_trades_archive_is_flagged_not_called_interest(caplog):
+    """Interest is a residual: sells that are not in the trade list would silently show up as 'past interest'."""
+    pf = {"cash": 99000.0, "liquidbees": 0.0, "positions": {}, "realised_pnl": -1166.15, "trades": [
+        {"ts": "2026-10-23T09:16:00+05:30", "asset": "GOLDBEES", "side": "SELL", "qty": 1, "price": 100.0, "value": 100.0, "costs": 1.0, "pnl": -100.0}]}
+    with caplog.at_level(logging.WARNING, logger="simgold.summary"):
+        ms = summary.money_summary(pf, {}, [("2026-10-30", 99000.0)], "2026-11-02", config.load_params())
+    assert ms["breakdown"]["ledger_gap"] == -1066.15 and "realised_pnl" in caplog.text
+    pf["trades"][0]["pnl"] = -1166.15
+    assert "ledger_gap" not in summary.money_summary(pf, {}, [("2026-10-30", 99000.0)], "2026-11-02", config.load_params())["breakdown"]
+
+
+def test_trend_numbers_survive_odd_input():
+    np = pytest.importorskip("numpy")
+    st = config.load_params()["strategy"]
+    i = _info("sma_trend", False, np.float32(116.13), {"sma": np.float32(123.86)}, np.float32(0.1961))
+    n = trend.level_numbers(i, st)
+    assert n["level"] == 124.48 and n["level_raw"] == 123.86 and n["close"] == 116.13 and n["gap_pct"] == 7.19      # np.float32 is not None
+    rec = {"symbol": "GOLDBEES", "state": "OFF", "sigma": 0.2, "price": 116.13, "reason": "close 116.13 < SMA200 123.86."}
+    assert trend.level_numbers_from_record(rec, st)["level_raw"] == 123.86                                       # a sentence-final dot
+    for bad in ({"symbol": "GOLDBEES", "reason": "SMA200 1.2.3", "price": "x", "sigma": "y"}, {"reason": None}, {"symbol": 3, "reason": "55-day high ."}):
+        assert isinstance(trend.level_numbers_from_record(bad, st), dict)

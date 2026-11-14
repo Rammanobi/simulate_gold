@@ -298,26 +298,43 @@ def level_numbers(i: TrendInfo, st: dict, sym: str | None = None) -> dict:
         level = raw
     cap = (st.get("symbols") or {}).get(sym or i.sym, {}).get("cap")
     w = raw_weight(True, i.sigma, cap, st["vol_target"]) if cap is not None else None
-    rd = lambda x, n=2: round(float(x), n) if isinstance(x, (int, float)) and math.isfinite(x) else None
-    return {"level_kind": kind, "level_raw": rd(raw), "level": rd(level), "level_side": side, "close": rd(c),
-            "gap_pct": rd((level / c - 1) * 100) if level is not None and c else None,
-            "weight_if_on": rd(w * 100, 1) if w else None}
+    level, raw, c = _f(level), _f(raw), _f(c)                    # np.float32 and friends become plain floats first
+    return {"level_kind": kind, "level_raw": _rd(raw), "level": _rd(level), "level_side": side, "close": _rd(c),
+            "gap_pct": _rd((level / c - 1) * 100) if level is not None and c else None,
+            "weight_if_on": _rd(w * 100, 1) if w else None}
 
 
-_RE_SMA = re.compile(r"SMA(\d+)\s+([\d.]+)")
-_RE_HIGH = re.compile(r"(\d+)-day high\s+([\d.]+)")
-_RE_EXIT = re.compile(r"exit level\s+([\d.]+)")
+_NUM = r"(\d+(?:\.\d+)?)"            # a plain decimal: a sentence-final "123.86." must not become a bad float
+_RE_SMA = re.compile(r"SMA(\d+)\s+" + _NUM)
+_RE_HIGH = re.compile(r"(\d+)-day high\s+" + _NUM)
+_RE_EXIT = re.compile(r"exit level\s+" + _NUM)
+
+
+def _rd(x, n: int = 2):
+    """Round to n places; None for anything that is not a finite number. numpy scalars (np.float32 ...) count as numbers."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return round(v, n) if math.isfinite(v) else None
 
 
 def level_numbers_from_record(rec: dict, st: dict) -> dict:
     """The same fields as level_numbers() for a TARGET record: the record's own numbers when the engine wrote them, else
     rebuilt from an older record's reason text, price, state and sigma (the band and caps come from `st`). {} when nothing is usable."""
+    try:
+        return _level_numbers_from_record(rec, st)
+    except (TypeError, ValueError, KeyError, ArithmeticError):      # a malformed old record gives no numbers, never an error
+        return {}
+
+
+def _level_numbers_from_record(rec: dict, st: dict) -> dict:
     keys = ("level_kind", "level_raw", "level", "level_side", "close", "gap_pct", "weight_if_on")
     if isinstance(rec.get("level"), (int, float)) or rec.get("level_kind"):
         return {k: rec.get(k) for k in keys}
     reason, sym = str(rec.get("reason") or ""), str(rec.get("symbol") or "")
     on = str(rec.get("state") or "").upper() == "ON"
-    close = rec.get("price") if isinstance(rec.get("price"), (int, float)) and rec.get("price") else None
+    close = _f(rec.get("price")) or None
     kind = raw = level = None
     m = _RE_SMA.search(reason)
     if m:
@@ -336,11 +353,10 @@ def level_numbers_from_record(rec: dict, st: dict) -> dict:
     sg = rec.get("sigma")
     cap = (st.get("symbols") or {}).get(sym, {}).get("cap")
     w = (raw_weight(True, float(sg), cap, st["vol_target"])
-         if isinstance(sg, (int, float)) and cap is not None and st.get("vol_target") else 0.0)
-    rd = lambda v, n=2: round(float(v), n) if v is not None else None
-    return {"level_kind": kind, "level_raw": rd(raw), "level": rd(level), "level_side": "off" if on else "on", "close": rd(close),
-            "gap_pct": rd((level / close - 1) * 100) if level is not None and close else None,
-            "weight_if_on": rd(w * 100, 1) if w else None}
+         if _f(sg) is not None and cap is not None and st.get("vol_target") else 0.0)
+    return {"level_kind": kind, "level_raw": _rd(raw), "level": _rd(level), "level_side": "off" if on else "on", "close": _rd(close),
+            "gap_pct": _rd((level / close - 1) * 100) if level is not None and close else None,
+            "weight_if_on": _rd(w * 100, 1) if w else None}
 
 
 # ---------------------------------------------------------------- stop-loss package D5-S (strategy.stops)

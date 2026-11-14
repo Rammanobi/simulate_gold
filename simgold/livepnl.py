@@ -185,7 +185,10 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
     prices, prev_close, price_ts = prices or {}, prev_close or {}, price_ts or {}
     if market_open is None:
         market_open = is_market_open(now)
-    total = total_value(pf, prices, params)
+    # ONE set of numbers (simgold/summary.py): the total is the summary's whole-paise total (cash + holdings add up to it exactly)
+    summary = money_summary(pf, prices, equity_rows, sd, params, start_capital=start_capital,
+                            archive=archive_trades, idle_cash=idle_is_cash(params))
+    total = summary["total_now"]
     pc_date, pc_val = prev_close_from_equity(equity_rows, sd, start_capital)
 
     positions, parts_pos, inv_sum, open_sum = [], 0.0, 0.0, 0.0
@@ -258,8 +261,6 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
     pts = add_point(series, hhmm, total) if market_open or not series else [list(r[:2]) for r in series]
     rows = [[t, _num(v), _num(v - pc_val)] for t, v in pts]
 
-    summary = money_summary(pf, prices, equity_rows, sd, params, start_capital=start_capital,
-                            archive=archive_trades, idle_cash=idle_is_cash(params))
     open_total = summary["live_profit"]               # ONE definition (simgold/summary.py): the card and the email show the same open gain
     for row in positions:                              # per-fund figures are the summary's whole-paise ones, not a second rounding
         m = next((x for x in summary["metals"] if x["symbol"] == row["symbol"]), None)
