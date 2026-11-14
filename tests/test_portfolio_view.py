@@ -34,9 +34,9 @@ def test_split_cells_adds_up():
 
 
 def test_style_comes_from_config_and_defaults_to_a():
-    assert summary.portfolio_style({}) == "AB" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
+    assert summary.portfolio_style({}) == "COMPACT" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
     assert summary.portfolio_style({"report": {"portfolio_style": "a"}}) == "A"
-    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "AB"
+    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "COMPACT"
     assert config.load_params()["report"]["portfolio_style"] == "AB"
     assert summary.portfolio_style(config.load_params()) in STYLES
 
@@ -145,7 +145,8 @@ def test_busiest_email_stays_under_gmail_clip(days, style):
 def test_bought_today_numbers(days):
     r = {x["symbol"]: x for x in days["A"]["bought_today"]["money_summary"]["funds"]["rows"]}
     g = r["GOLDBEES"]
-    assert g["units"] == 423 and g["avg_price"] == 116.5 and g["price"] == 117.2 and g["value"] == round(423 * 117.2, 2)
+    assert g["units"] == 423 and g["avg_price"] == 116.5 and g["price"] == 117.2 and g["value"] == round(423 * 117.2 * (1 - 0.0010 / 2), 2)
+    assert g["gross_value"] == round(423 * 117.2, 2)
     assert g["profit"] == round(g["profit"], 2) and g["profit"] < g["value"] - 423 * 116.5 + 1
     assert r["HINDCOPPER"]["held"] is False and r["CASH"]["kind"] == "cash"
 

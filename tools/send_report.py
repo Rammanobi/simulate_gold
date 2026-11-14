@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Generate the day's report and print what the routine must pass to the Gmail send_message tool.
 
-  python tools/send_report.py --date 2026-10-13 [--report-url URL]
+  python tools/send_report.py --date 2026-10-13 [--report-url URL] [--kind evening|morning]
 Prints one JSON object: {"to", "subject", "market_closed", "html_path", "text_path", "page_path", "warnings"}.
   to         -> send_message `to` (the REPORT_EMAIL env var, "" when unset: then skip the email, "REPORT_EMAIL not set")
   subject    -> send_message `subject` (always starts with "Metals Daybook · ")
   html_path  -> read this file and pass its text as `htmlBody`
   text_path  -> read this file and pass its text as `body`
   page_path  -> the interactive page (not sent)
+--kind morning renders the pre-open email for that date (last close's numbers + the day's plan) into reports/daily/D-morning.*;
+it is only rendered, never scheduled (the owner decides when/if it is sent).
 Never run echo/printenv for the address (the auto-mode permission check denies it); read it from `to` here.
 
   python tools/send_report.py --date D --mark-sent   write reports/daily/D.sent.json; run ONLY after Gmail send_message
@@ -51,12 +53,12 @@ def mark_sent(date: str, root: Path) -> Path:
     return p
 
 
-def make(date: str, root: Path, report_url: str | None = None) -> dict:
+def make(date: str, root: Path, report_url: str | None = None, kind: str = "evening") -> dict:
     root = Path(root)
-    day, paths = generate(date, root, report_url=report_url)
+    day, paths = generate(date, root, report_url=report_url, **({"kind": kind} if kind != "evening" else {}))
     warnings = list(day.get("warnings", []))
     mt = brief.load_json(root / "state" / "market_today.json", None)
-    if isinstance(mt, dict) and mt.get("date") and mt["date"] != date and not day.get("closed"):
+    if kind == "evening" and isinstance(mt, dict) and mt.get("date") and mt["date"] != date and not day.get("closed"):
         warnings.append(f"state/market_today.json is dated {mt['date']}, not {date}; the Market section may be stale")
     return {"to": recipient(), "subject": report.subject_line(day), "market_closed": bool(day.get("closed")), "html_path": str(paths["email"].resolve()), "text_path": str(paths["txt"].resolve()),
             "page_path": str(paths["page"].resolve()), "warnings": warnings}
@@ -68,6 +70,7 @@ def main(argv=None) -> int:
     ap.add_argument("--mark-sent", action="store_true")
     ap.add_argument("--recipient", action="store_true")
     ap.add_argument("--report-url")
+    ap.add_argument("--kind", choices=("evening", "morning"), default="evening")
     ap.add_argument("--root", default=str(ROOT))
     a = ap.parse_args(argv)
     utf8_stdout()
@@ -83,7 +86,7 @@ def main(argv=None) -> int:
     if a.mark_sent:
         print(json.dumps({"marked": str(mark_sent(a.date, Path(a.root)).relative_to(Path(a.root)))}))
         return 0
-    out = make(a.date, Path(a.root), a.report_url or dashboard_link(Path(a.root), a.date))
+    out = make(a.date, Path(a.root), a.report_url or dashboard_link(Path(a.root), a.date), a.kind)
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
 
