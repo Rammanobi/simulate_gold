@@ -182,6 +182,10 @@ def test_real_figures_are_the_unified_summary(real):
     for s in ("₹1,00,328", "₹49,574", "+₹328 (+0.33%)", "−₹834", "−₹1,166", "+₹1,348", "+₹147", "₹1,01,198", "₹25,328 above stop", "brake 0"):
         assert s in h and s in t, s
     assert "open +₹1,348 + booked −₹1,166 + interest +₹147 = overall +₹328" in h
+    # the holding's value is summary.settle()'s own (paisa-exact), worded like the full report's card
+    for x in (h, t):
+        assert "437 shares × ₹116.20 = ₹50,779 · ₹50,754 after selling cost" in x
+    assert len(real["html"].encode()) <= 60 * 1024
     assert "Gold 51% · Cash 49%" in h and "437 × ₹113.00 · stop ₹115.00" in h and "LTP ₹116.20" in h
     assert abs(ms["total_now"] - (sum(m["value"] for m in ms["metals"]) + ms["cash"])) <= 1.0
     bd = ms["breakdown"]

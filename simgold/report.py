@@ -2028,7 +2028,9 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
         stop = next((h.get("stop") for h in day.get("holdings_close", []) if h.get("symbol") == r["symbol"] and h.get("stop")), None)
         m["holdings"].append({"symbol": r["symbol"], "metal": r["metal"], "qty": f"{int(r['units']):,}", "atp": inr(r["avg_price"], 2),
                               "stop": inr(stop, 2) if stop else None, "pnl": _fig(r["profit"], r.get("profit_pct")),
-                              "ltp": inr(r["price"], 2), "today": _pfig(today_pct) if today_pct is not None else None, "when": when})
+                              "ltp": inr(r["price"], 2), "today": _pfig(today_pct) if today_pct is not None else None, "when": when,
+                              # the money summary's settled value (summary.settle), worded exactly like the full report's holdings card
+                              "worth": f"{_shares(r['units'])} shares × {inr(r['price'], 2)} = {inr(r.get('gross_value', r['value']))} · {inr(r['value'])} after selling cost"})
     m["cash_row"] = {"amount": inr(cash_row["value"]), "note": "idle, earns nothing" if ms.get("idle_cash", True) else "idle money"}
 
     # ---- B: why cash?
@@ -2235,7 +2237,8 @@ def _card_html(m: dict) -> str:
         rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};", _wrapt(
             "<tr>" + _ctd(NAVY, "", f'<div style="font-size:15px;line-height:22px;font-weight:800;color:#ffffff;">{esc(h["symbol"])}</div>'
                           f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};">{esc(sub)}</div>', 'align="left" valign="top"')
-            + _ctd(NAVY, "", val(h["pnl"], "right", 15) + f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};text-align:right;">{ltp_html}</div>', 'align="right" valign="top"') + "</tr>")) + '</tr>')
+            + _ctd(NAVY, "", val(h["pnl"], "right", 15) + f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};text-align:right;">{ltp_html}</div>', 'align="right" valign="top"') + "</tr>"
+            + f'<tr><td colspan="2" style="font-family:{FONT};font-size:13px;line-height:19px;color:{D["mute"]};padding-top:4px;">{esc(h["worth"])}</td></tr>')) + '</tr>')
     cr = m["cash_row"]
     rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};", _wrapt(
         "<tr>" + _ctd(NAVY, "", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">Cash</span> <span style="font-size:13px;color:{D["mute"]};">{esc(cr["note"])}</span>', 'align="left"')
@@ -2398,6 +2401,7 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
         extra = f" · stop {h['stop']}" if h["stop"] else ""
         t = f" {h['today']['text']} {h['when']}" if h["today"] else ""
         L.append(f"{h['symbol']} {h['qty']} × {h['atp']}{extra}: {h['pnl']['text']} · LTP {h['ltp']}{t}")
+        L.append(f"  {h['worth']}")
     L.append(f"Cash {m['cash_row']['amount']} ({m['cash_row']['note']})")
     if m["why"]:
         w = m["why"]

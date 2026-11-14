@@ -6,8 +6,11 @@ Invested ₹77,764   Cash ₹22,236   Booked → ₹0
 open +₹676 + booked ₹0 = overall +₹676
 Gold 29% · Silver 22% · Copper 27% · Cash 22%
 GOLDBEES 250 × ₹116.50: ↑ +₹146 (+0.50%) · LTP ₹117.20 ↑ +0.26% today
+  250 shares × ₹117.20 = ₹29,300 · ₹29,285 after selling cost
 SILVERBEES 120 × ₹180.00: ↑ +₹442 (+2.05%) · LTP ₹183.87 ↓ −1.59% today
+  120 shares × ₹183.87 = ₹22,064 · ₹22,053 after selling cost
 HINDCOPPER 90 × ₹300.00: ↑ +₹87 (+0.32%) · LTP ₹301.50 ↑ +0.50% today
+  90 shares × ₹301.50 = ₹27,135 · ₹27,101 after selling cost
 Cash ₹22,236 (idle, earns nothing)
 
 WHY CASH? TREND CHECK 15:10
