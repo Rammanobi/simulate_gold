@@ -53,8 +53,8 @@ def make_runner(root, kind_supported=True, subject=SUBJECT):
             return subprocess.CompletedProcess(cmd, 0, "usage: --date --kind\n" if kind_supported else "usage: --date\n", "")
         (Path(root) / "m.html").write_text("<html><body><p>Good morning</p></body></html>", encoding="utf-8")
         (Path(root) / "m.txt").write_text("Good morning\n", encoding="utf-8")
-        js = json.dumps({"subject": subject, "html_path": str(Path(root) / "m.html"), "text_path": str(Path(root) / "m.txt")})
-        return subprocess.CompletedProcess(cmd, 0, "noise\n" + js + "\n", "")
+        js = json.dumps({"subject": subject, "html_path": str(Path(root) / "m.html"), "text_path": str(Path(root) / "m.txt"), "warnings": ["a", "b"]}, indent=1)   # as send_report.py prints it
+        return subprocess.CompletedProcess(cmd, 0, "noise {x}\n" + js + "\n", "")
     runner.calls = calls
     return runner
 
@@ -200,3 +200,67 @@ def test_workflow_secrets_only_in_the_send_step_and_inputs_not_inlined():
     assert all("github.event.inputs" not in s.get("run", "") for s in steps)          # no script injection
     assert any("morning_email.py" in s.get("run", "") for s in steps)
     assert any("state/morning_sent.json" in s.get("run", "") for s in steps)
+    assert "rebase --abort || true" in WF_TEXT and 'exit 1; fi' in WF_TEXT         # abort never kills the step; a failed push is visible
+    send = next(s for s in steps if s.get("name") == "Send the morning email")["run"]
+    assert "--git" in send and "date input must look like" in send                 # claim-before-send; bad date fails the run
+
+
+def test_multiline_indent1_json_from_the_real_renderer_shape_is_parsed(root):
+    set_switch(root, True)
+    r = make_runner(root)
+    assert "\n " in r(["x"], ).stdout          # the fake really is multi-line
+    assert ME.build(root, DAY, r)["subject"] == SUBJECT
+
+
+def test_claim_is_published_before_the_smtp_send_and_sent_update_after(root):
+    set_switch(root, True)
+    events = []
+
+    def publish(msg):
+        events.append(("publish", msg, json.loads((root / ME.MARKER).read_text())["status"], len(FakeSMTP.instances)))
+        return True
+    assert go(root, publish=publish)[0] == 0
+    assert [(e[2], e[3]) for e in events] == [("claimed", 0), ("sent", 1)]
+    assert len(FakeSMTP.instances) == 1
+
+
+def test_failed_claim_push_sends_nothing(root):
+    set_switch(root, True)
+    code, out = go(root, publish=lambda m: False)
+    assert code == 1 and not FakeSMTP.instances and not (root / ME.MARKER).exists() and "nothing sent" in out
+
+
+def test_smtp_failure_releases_the_claim(root):
+    set_switch(root, True)
+    FakeSMTP.fail = RuntimeError("x")
+    msgs = []
+    code, _ = go(root, publish=lambda m: msgs.append(m) or True)
+    assert code == 1 and not (root / ME.MARKER).exists() and "released" in msgs[-1]
+
+
+@pytest.mark.parametrize("subj", ["Metals Daybook \U0001F4C8 Thu", "Metals Daybook \u2705 ok", "Metals Daybook \u200d x"])
+def test_emoji_subject_refused(root, subj):
+    set_switch(root, True)
+    assert go(root, runner=make_runner(root, subject=subj))[0] == 2 and not FakeSMTP.instances
+
+
+def test_rupee_and_middle_dot_subject_allowed(root):
+    set_switch(root, True)
+    assert go(root, runner=make_runner(root, subject="Metals Daybook \u00b7 Thu \u00b7 \u20b9100"))[0] == 0
+
+
+def test_cutoff_is_rechecked_right_before_sending(root):
+    set_switch(root, True)
+    code, out = go(root, now=at(hm="10:59"), clock=lambda: at(hm="11:01"))
+    assert code == 0 and not FakeSMTP.instances and "too late" in out and not (root / ME.MARKER).exists()
+
+
+def test_git_publish_fails_visibly_when_no_push_succeeds(root, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd[1])
+        return subprocess.CompletedProcess(cmd, 1 if cmd[1] in ("push", "pull") else 0, "", "")
+    monkeypatch.setattr(ME.subprocess, "run", fake_run)
+    assert ME.git_publish(root, "m", sleep=lambda s: None) is False
+    assert calls.count("push") == 3 and "rebase" in calls

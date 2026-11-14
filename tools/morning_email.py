@@ -6,7 +6,7 @@
 Run by .github/workflows/morning-email.yml (dispatched by the engine at 08:55 IST, plus two fallback crons). It:
 1. does nothing unless config/params.yaml report.morning_email is true (--force bypasses ONLY this switch);
 2. guards (never bypassed): D must be today (IST) and an NSE trading day; before 11:00 IST (later is useless);
-   once per day (marker state/morning_sent.json {date, sent_at}, committed by the workflow);
+   once per day (marker state/morning_sent.json {date, sent_at, status}: a "claimed" marker is pushed BEFORE sending);
 3. builds the email with `tools/send_report.py --date D --kind morning`; if that option does not exist yet it exits 0;
 4. sends it by the Gmail SMTP path of tools/backup_email.py: one recipient (REPORT_EMAIL), the renderer's own subject
    (must start "Metals Daybook"), plain-text and HTML parts. Secrets and addresses are never printed.
@@ -19,7 +19,10 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
+import time
+import unicodedata
 import sys
 from email.message import EmailMessage
 from pathlib import Path
@@ -47,10 +50,10 @@ def already_sent(root: Path, date: str) -> bool:
         return False
 
 
-def write_marker(root: Path, date: str, now: dt.datetime) -> None:
+def write_marker(root: Path, date: str, now: dt.datetime, status: str = "sent") -> None:
     p = Path(root) / MARKER
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"date": date, "sent_at": now.isoformat(timespec="seconds")}, indent=1) + "\n", encoding="utf-8")
+    p.write_text(json.dumps({"date": date, "sent_at": now.isoformat(timespec="seconds"), "status": status}, indent=1) + "\n", encoding="utf-8")
 
 
 def renderer_available(root: Path, runner=subprocess.run) -> bool:
@@ -68,16 +71,50 @@ def build(root: Path, date: str, runner=subprocess.run) -> dict:
                 "--root", str(root)], capture_output=True, text=True, timeout=300, cwd=str(root))
     if r.returncode != 0:
         raise RuntimeError(f"renderer exit {r.returncode}")
-    lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip().startswith("{")]
-    if not lines:
+    out = r.stdout or ""
+    starts = [m.start() for m in re.finditer(r"^\{", out, re.M)]      # send_report prints indent=1 JSON: only the top-level brace is at column 0
+    if not starts:
         raise RuntimeError("renderer printed no JSON")
-    return json.loads(lines[-1])
+    obj, _ = json.JSONDecoder().raw_decode(out[starts[-1]:])
+    if not isinstance(obj, dict):
+        raise RuntimeError("renderer JSON is not an object")
+    return obj
+
+
+def subject_problem(subject: str) -> str | None:
+    """None when fine. No emoji/symbols/format characters, must start 'Metals Daybook' (the middle dot is allowed)."""
+    if not subject.startswith(BE.SUBJECT_PREFIX):
+        return "the generated subject does not start with 'Metals Daybook'"
+    for ch in subject:
+        if ch != "\u00b7" and (unicodedata.category(ch) in ("So", "Sk", "Cf", "Cs", "Cn", "Co", "Cc") or ord(ch) >= 0x1F000):
+            return "the generated subject contains an emoji or symbol character"
+    return None
+
+
+def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep) -> bool:
+    """Commit state/morning_sent.json and push it to main (pull --rebase first). True only when a push succeeded."""
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=str(root), capture_output=True, text=True).returncode
+    git("config", "user.name", "simgold-morning-email")
+    git("config", "user.email", "actions@users.noreply.github.com")
+    git("add", "-A", "--", str(MARKER))
+    if git("diff", "--cached", "--quiet") != 0:
+        if git("commit", "-q", "-m", message) != 0:
+            return False
+    for i in range(retries):
+        if git("pull", "--rebase", "--autostash", "-X", "theirs", "-q") != 0:
+            git("rebase", "--abort")
+        if git("push", "-q") == 0:
+            return True
+        sleep(5)
+    return False
 
 
 def build_message(subject: str, sender: str, recipient: str, text: str, html: str) -> EmailMessage:
     s = " ".join((subject or "").split())              # no CR/LF header injection
-    if not s.startswith(BE.SUBJECT_PREFIX):
-        raise BE.Refused("the generated subject does not start with 'Metals Daybook'")
+    problem = subject_problem(s)
+    if problem:
+        raise BE.Refused(problem)
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = s, sender, recipient
     msg.set_content(text)
@@ -86,7 +123,8 @@ def build_message(subject: str, sender: str, recipient: str, text: str, html: st
 
 
 def run(root: Path, date: str | None, environ, force=False, dry_run=False, now=None, smtp_factory=None,
-        runner=subprocess.run, out=print) -> int:
+        runner=subprocess.run, out=print, publish=None, clock=None) -> int:
+    """publish(message) -> bool commits+pushes the marker (None: no git, e.g. tests/local runs). clock() -> now, re-read before sending."""
     root = Path(root)
     now = (now or parse_now(None)).astimezone(IST)
     today = now.date()
@@ -120,8 +158,9 @@ def run(root: Path, date: str | None, environ, force=False, dry_run=False, now=N
         out(f"renderer failed ({type(e).__name__})")
         return 1
     try:
-        if not subject.startswith(BE.SUBJECT_PREFIX):
-            raise BE.Refused("the generated subject does not start with 'Metals Daybook'")
+        problem = subject_problem(subject)
+        if problem:
+            raise BE.Refused(problem)
         recipient = BE.check_recipient(environ.get("REPORT_EMAIL"))
     except BE.Refused as e:
         out(f"REFUSED: {e}")
@@ -138,12 +177,27 @@ def run(root: Path, date: str | None, environ, force=False, dry_run=False, now=N
     except BE.Refused as e:
         out(f"REFUSED: {e}")
         return 2
+    later = (clock() if clock else now).astimezone(IST)           # the renderer may have taken minutes
+    if later.date() != today or later.time() >= CUTOFF:
+        out("too late, skipped (11:00 IST passed while building)")
+        return 0
+    # claim BEFORE sending: the marker must be on main first, so a failed push can never lead to a second email
+    write_marker(root, date, later, "claimed")
+    if publish and not publish(f"morning-email: {date} claim"):
+        (root / MARKER).unlink(missing_ok=True)
+        out("could not push the claim marker; nothing sent")
+        return 1
     try:
         BE.send(msg, sender, password, recipient, smtp_factory)
     except Exception as e:  # noqa: BLE001 - never echo the exception text (it can hold addresses)
+        (root / MARKER).unlink(missing_ok=True)
+        if publish:
+            publish(f"morning-email: {date} claim released (send failed)")
         out(f"SMTP failed: {type(e).__name__}")
         return 1
-    write_marker(root, date, now)
+    write_marker(root, date, later, "sent")
+    if publish and not publish(f"morning-email: {date} sent"):
+        out("warning: sent marker not pushed (the claim marker is already on main)")
     out(f"morning email sent to {BE.mask(recipient)}")
     return 0
 
@@ -155,10 +209,14 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--root", default=str(ROOT))
     ap.add_argument("--now", help="ISO timestamp (testing)")
+    ap.add_argument("--git", action="store_true", help="commit and push the marker (claim before sending); the workflow uses it")
     a = ap.parse_args(argv)
     utf8_stdout()
-    return run(Path(a.root), a.date or None, os.environ, a.force, a.dry_run, parse_now(a.now),
-               out=lambda s: print(s, flush=True))
+    root = Path(a.root)
+    return run(root, a.date or None, os.environ, a.force, a.dry_run, parse_now(a.now),
+               out=lambda s: print(s, flush=True),
+               publish=(lambda m: git_publish(root, m)) if a.git else None,
+               clock=None if a.now else (lambda: parse_now(None)))
 
 
 if __name__ == "__main__":
