@@ -50,3 +50,20 @@ and the sizes. Locally, `python tools/backup_email.py --date D --dry-run` builds
 
 Note: `fallback.yml` has its own optional SMTP path that uses different secrets (`SMTP_HOST`, `SMTP_PASS`); setting
 only the three secrets above does not turn that one on.
+
+## Morning email (sent by GitHub, no Claude)
+
+`morning-email.yml` runs `tools/morning_email.py`, which builds the compact morning email with
+`python tools/send_report.py --date D --kind morning` and sends it through the same Gmail SMTP path and the same three
+secrets as the backup email (subject from the renderer, always starting "Metals Daybook", no backup suffix; exactly one
+recipient, `REPORT_EMAIL`).
+
+- **Off by default:** `report.morning_email: false` in `config/params.yaml`. The owner turns it on after the compact email
+  (`--kind morning`) has merged. Until the renderer exists the tool prints "morning renderer not available yet" and exits 0.
+- **Triggers:** the engine relay dispatches the workflow at about 08:55 IST; fallback crons at 08:50 and 09:20 IST on weekdays.
+- **Guards (never bypassed):** NSE trading days only; only before 11:00 IST (otherwise "too late, skipped", exit 0; GitHub
+  crons can run hours late); once per day (marker `state/morning_sent.json` `{date, sent_at, status}`; a `claimed` marker is committed and pushed BEFORE sending, so a failed push can never cause a second email; if the claim cannot be pushed nothing is sent).
+- **Manual run:** Actions, **morning-email**, Run workflow. `force` bypasses only the `morning_email` switch; `dry_run`
+  builds and validates, sends nothing and writes no marker; `date` must be today.
+- The subject must start "Metals Daybook" and contain no emoji or symbol characters; 11:00 IST is re-checked right before sending.
+- A failed send exits 1 and releases the claim, so the next trigger tries again (still before 11:00 IST).

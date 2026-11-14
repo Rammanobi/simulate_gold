@@ -267,6 +267,9 @@ alerts:
 # On a trading day, if the report is not SENT by this IST time, the code backup email goes out at once (owner approval 2026-10-29).
 report:
   backup_after: "16:30"
+  # Morning email sent by GitHub Actions (morning-email.yml + tools/morning_email.py, no Claude). Keep false until the compact
+  # email (send_report.py --kind morning) has merged; the owner then sets true. See docs/BACKUP_EMAIL.md "Morning email".
+  morning_email: false
   portfolio_style: AB               # AB | A | B (see "Where your money is" above)
 
 # ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----
