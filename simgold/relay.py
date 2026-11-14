@@ -27,16 +27,19 @@ ENGINE_WF = "market-hours.yml"
 RELAY_WF = "engine-relay.yml"
 MORNING_EMAIL_WF = "morning-email.yml"
 START = dtime(8, 55)                     # first dispatch of the engine
-CHECKS = (dtime(9, 30), dtime(12, 20))   # re-checks; the relay ends after the last one
+# Re-checks after the 08:55 start. 12:20/12:30 cover the morning run ending and the afternoon hand-over; the hourly ones keep a
+# relay alive until the last engine start (15:20), so there is always a relay or an engine run from 08:55 to the next morning.
+CHECKS = (dtime(9, 30), dtime(12, 20), dtime(12, 30), dtime(13, 30), dtime(14, 30), dtime(15, 20))
 HOP_MAX = timedelta(hours=5, minutes=45)  # one relay run lives at most this long (job timeout is 355 min)
 ENGINE_LAST_START = dtime(15, 25)        # same cut-off as the market-hours hand-over step
-EMAIL_LATE_OK = timedelta(minutes=15)    # a catch-up start later than this sends no "morning" email
+TEST_MARK = "TEST"                       # run-name of dry_run / until runs (engine-relay.yml): they are never counted as a relay
+MAX_UNTIL_AHEAD = timedelta(days=7)
 CHUNK_S = 300                            # real sleeps are cut into chunks of this many seconds
 
 
 # ---------------------------------------------------------------- calendar
 def next_trading_start(now: datetime) -> datetime:
-    """The next relay start (08:55 IST of a trading day). Today's counts while it is still before the last re-check (12:20)."""
+    """The next relay start (08:55 IST of a trading day). Today's counts while it is still before the last re-check (15:20)."""
     now = now.astimezone(IST)
     d = now.date()
     if is_trading_day(d) and now < datetime.combine(d, CHECKS[-1], IST):
@@ -50,7 +53,8 @@ def next_trading_start(now: datetime) -> datetime:
 @dataclass(frozen=True)
 class Event:
     at: datetime
-    kind: str            # start | check1 | check2
+    kind: str            # start | check1 .. checkN
+    catch_up: bool = False   # an event already past when this run began: handled at once, never sends the morning email
 
 
 def day_events(start: datetime, shift: bool = False) -> list[Event]:
@@ -61,7 +65,7 @@ def day_events(start: datetime, shift: bool = False) -> list[Event]:
         offs = [start + (datetime.combine(start.date(), c, IST) - base) for c in CHECKS]
     else:
         offs = [datetime.combine(start.date(), c, IST) for c in CHECKS]
-    return [Event(start, "start"), Event(offs[0], "check1"), Event(offs[1], "check2")]
+    return [Event(start, "start")] + [Event(o, f"check{i}") for i, o in enumerate(offs, 1)]
 
 
 def pending_events(now: datetime, events: list[Event]) -> list[Event]:
@@ -70,7 +74,7 @@ def pending_events(now: datetime, events: list[Event]) -> list[Event]:
     passed = [e for e in events if e.at <= now]
     future = [e for e in events if e.at > now]
     if passed and not (len(passed) == len(events)):          # all passed = the day is over: nothing to do
-        return [Event(now, passed[-1].kind)] + future
+        return [Event(now, passed[-1].kind, True)] + future
     return future
 
 
@@ -109,10 +113,18 @@ def list_runs(api: Api, repo: str, workflow: str) -> list[dict]:
     return list((api("GET", f"repos/{repo}/actions/workflows/{workflow}/runs?per_page=20") or {}).get("workflow_runs") or [])
 
 
+def is_test_run(run: dict) -> bool:
+    """A dry_run / until run of engine-relay.yml (its run-name carries TEST). It lives in its own concurrency group and must never be
+    mistaken for the live chain: 'a pending relay exists' must not be satisfied by a dry run that dispatches nothing."""
+    return TEST_MARK in str(run.get("display_title") or run.get("name") or "")
+
+
 def active_runs(api: Api, repo: str, workflow: str, exclude_id: str | None = None) -> list[dict]:
-    """Runs of `workflow` that are not completed (queued, pending, waiting, requested, in_progress), minus `exclude_id`."""
+    """Runs of `workflow` that are not completed (queued, pending, waiting, requested, in_progress), minus `exclude_id`;
+    for engine-relay.yml only LIVE runs (test runs are ignored)."""
     return [r for r in list_runs(api, repo, workflow)
-            if r.get("status") != "completed" and (not exclude_id or str(r.get("id")) != str(exclude_id))]
+            if r.get("status") != "completed" and (not exclude_id or str(r.get("id")) != str(exclude_id))
+            and not (workflow == RELAY_WF and is_test_run(r))]
 
 
 def dispatch(api: Api, repo: str, workflow: str, inputs: dict | None = None) -> None:
@@ -162,11 +174,18 @@ class VirtualClock(Clock):
         self.t += timedelta(seconds=seconds)
 
 
-def parse_until(text: str | None) -> datetime | None:
+def parse_until(text: str | None, now: datetime | None = None) -> datetime | None:
+    """ISO time (IST when no zone). Raises ValueError for junk, a time more than 5 min in the past or more than 7 days ahead.
+    `until` replaces the 08:55 start of a TEST run (its re-checks keep their offsets); it never applies to the live chain."""
     if not text or not str(text).strip():
         return None
     t = datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
-    return (t if t.tzinfo else t.replace(tzinfo=IST)).astimezone(IST)
+    t = (t if t.tzinfo else t.replace(tzinfo=IST)).astimezone(IST)
+    if now is not None:
+        now = now.astimezone(IST)
+        if t < now - timedelta(minutes=5) or t > now + MAX_UNTIL_AHEAD:
+            raise ValueError(f"until {t:%Y-%m-%d %H:%M} IST is not within 5 minutes ago .. 7 days ahead")
+    return t
 
 
 class Relay:
@@ -177,6 +196,8 @@ class Relay:
         self.clock = clock or Clock()
         self.say = out
         self.actions: list[str] = []          # what was (or, in a dry run, would be) dispatched
+        self.timeline: list[tuple[datetime, str]] = []
+        self.test = bool(dry_run or until is not None)      # a TEST run: own concurrency group, never hands over, never a duplicate
 
     # -- helpers
     def log(self, msg: str) -> None:
@@ -184,6 +205,7 @@ class Relay:
 
     def _dispatch(self, workflow: str, inputs: dict | None = None) -> bool:
         self.actions.append(workflow)
+        self.timeline.append((self.clock.now(), workflow))
         if self.dry:
             self.log(f"would dispatch {workflow} {inputs or ''}".rstrip())
             return True
@@ -205,18 +227,23 @@ class Relay:
     # -- steps
     def duplicate_running(self) -> bool:
         """Another relay already IN PROGRESS (own run id excluded). The concurrency group queues a second one, so this is a safety net."""
+        if self.test:
+            return False                      # a test run has its own group and is not part of the chain
         others = self._active(RELAY_WF, True)
         return bool([r for r in others or [] if r.get("status") == "in_progress"])
 
     def handover(self) -> str:
-        """Dispatch the successor relay unless another relay (not this run) is queued or running."""
+        """Dispatch the successor relay unless another LIVE relay (not this run) is queued or running. A test run never hands over."""
+        if self.test:
+            self.log("test run (dry_run/until): no successor relay is dispatched")
+            return "test-run"
         others = self._active(RELAY_WF, True)
         if others:
             self.log(f"successor not dispatched: another relay run is already pending ({len(others)})")
             return "pending-exists"
         return "dispatched" if self._dispatch(RELAY_WF) else "failed"
 
-    def check_engine(self, ev: Event, late: bool) -> str:
+    def check_engine(self, ev: Event) -> str:
         day = ev.at.date()
         if not is_trading_day(day):
             self.log(f"{ev.kind}: {day} is not a trading day, nothing to dispatch")
@@ -229,7 +256,9 @@ class Relay:
             if active is None:
                 self.log(f"{ev.kind}: run list unavailable, dispatching anyway (duplicates are harmless: runguard + concurrency)")
             res = "dispatched" if self._dispatch(ENGINE_WF, {"session": "auto"}) else "failed"
-        if ev.kind == "start" and not late and morning_email_enabled(self.root, self.params):
+        # the morning email only goes out from the on-time 08:55 event of a run that began before 08:55; a catch-up start (a later hop
+        # of the chain, or a restart) never sends it, so the chain cannot send it twice
+        if ev.kind == "start" and not ev.catch_up and morning_email_enabled(self.root, self.params):
             self._dispatch(MORNING_EMAIL_WF)
         return res
 
@@ -250,18 +279,16 @@ class Relay:
         self.log(f"relay run {self.run_id or '-'}: next event {events[0].kind} at {events[0].at:%Y-%m-%d %H:%M} IST, budget until {deadline:%H:%M}")
         while events:
             ev = events[0]
-            late = False
             if ev.at > self.clock.now():
                 if ev.at > deadline:
                     self._sleep_until(deadline)
                     self.log("hop budget used up before the next event: handing over")
                     return "handover:" + self.handover()
                 self._sleep_until(ev.at)
-            else:
-                late = (self.clock.now() - base_time(ev)) > EMAIL_LATE_OK
             events.pop(0)
-            self.check_engine(ev, late)
-        self.log("last check done: relay ends (the market-hours run hands over again after 15:25)")
+            self.check_engine(ev)
+        self.log("last check done: handing the chain over to the next relay run")
+        self.handover()
         return "done"
 
     def _sleep_until(self, target: datetime) -> None:
@@ -270,12 +297,6 @@ class Relay:
             if rem <= 0:
                 return
             self.clock.sleep(min(rem, CHUNK_S) if not self.dry else rem)
-
-
-def base_time(ev: Event) -> datetime:
-    """The scheduled time of the event kind on the event's own date (08:55 for `start`), for the 'late' test of a catch-up."""
-    day = ev.at.date()
-    return datetime.combine(day, {"start": START, "check1": CHECKS[0], "check2": CHECKS[1]}[ev.kind], IST)
 
 
 # ---------------------------------------------------------------- ensure_engine

@@ -97,7 +97,7 @@ jobs:
             # Hand over to engine-relay.yml (tools/engine_relay.py), which sleeps to the next trading-day 08:55 IST and dispatches the
             # engine itself, so no Claude routine and no GitHub cron is needed to start tomorrow (12 Nov 2026 missed session).
             # Skipped when another engine-relay run is queued or in progress (a failed look-up dispatches: a duplicate relay exits at once).
-            RELAYS=$(gh api "repos/${{ github.repository }}/actions/workflows/engine-relay.yml/runs?per_page=20" --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null || echo unknown)
+            RELAYS=$(gh api "repos/${{ github.repository }}/actions/workflows/engine-relay.yml/runs?per_page=20" --jq '[.workflow_runs[] | select(.status != "completed" and ((.display_title // "") | contains("TEST") | not))] | length' 2>/dev/null || echo unknown)
             if [ "$RELAYS" != "0" ] && [ "$RELAYS" != "unknown" ]; then
               echo "next session: not dispatched (IST $NOW, trading day: $TRADING); engine-relay already active ($RELAYS run(s))" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
             fi

@@ -19,9 +19,27 @@ RELAY_TEXT, RELAY = WF["engine-relay.yml"]
 
 
 def test_relay_has_its_own_concurrency_group_that_never_cancels():
-    assert RELAY["concurrency"] == {"group": "engine-relay", "cancel-in-progress": False}
+    assert RELAY["concurrency"]["cancel-in-progress"] is False
+    group = RELAY["concurrency"]["group"]
+    assert "'engine-relay'" in group and "paper-trader" not in group and "alert-state" not in group
     groups = {n: (d.get("concurrency") or {}).get("group") for n, (_, d) in WF.items()}
-    assert groups["engine-relay.yml"] not in {groups["market-hours.yml"], "paper-trader", "alert-state"}
+    assert groups["market-hours.yml"] == "paper-trader" and groups["engine-relay.yml"] != "paper-trader"
+
+
+def test_dry_run_and_until_runs_get_their_own_group_and_run_name():
+    """Blocker 1 of the PR 57 review: a manual run must not queue behind the live hop nor be counted as its successor."""
+    group, name = RELAY["concurrency"]["group"], RELAY["run-name"]
+    for expr in (group, name):
+        assert "inputs.dry_run" in expr and "inputs.until" in expr
+    assert "'engine-relay-test'" in group and "'engine-relay'" in group
+    assert "TEST" in name
+    assert group.index("engine-relay-test") < group.index("|| 'engine-relay'")          # test group when an input is set, live otherwise
+
+
+def test_relay_run_lists_in_shell_ignore_test_runs():
+    for n, key in (("market-hours.yml", "RELAYS="), ("watchdog.yml", "active=$(gh api \"repos/$GH_REPO/actions/workflows/engine-relay")):
+        line = next(ln for ln in WF[n][0].splitlines() if "engine-relay.yml/runs" in ln)
+        assert 'contains("TEST")' in line
 
 
 def test_relay_timeout_is_under_the_six_hour_cap_and_permissions_are_minimal():
@@ -58,7 +76,7 @@ def test_market_hours_hands_over_to_the_relay_after_1525_or_on_a_closed_day():
     assert step["if"] == "always()" and steps[-2] is step
     assert "engine-relay.yml/dispatches" in run and "engine-relay.yml/runs" in run
     assert '[ "$TRADING" != "True" ] || [ "$NOW" -ge 1525 ]' in run
-    assert 'select(.status != "completed")' in run                                  # guard: no relay already active
+    assert '.status != "completed"' in run                                          # guard: no relay already active
     assert run.index("engine-relay.yml/dispatches") < run.index("market-hours.yml/dispatches")
     assert "inputs[session]=auto" in run                                             # the in-day dispatch is unchanged
 
@@ -80,4 +98,21 @@ def test_watchdog_dispatches_the_relay_when_relay_missing():
     assert doc["permissions"]["actions"] == "write"
     step = next(s for s in doc["jobs"]["check"]["steps"] if "relay_missing" in s.get("name", ""))
     assert "relay_missing" in step["if"] and "engine-relay.yml/dispatches" in step["run"]
-    assert 'select(.status != "completed")' in step["run"]
+    assert '.status != "completed"' in step["run"]
+
+
+@pytest.mark.parametrize("name", ["watchdog.yml", "reminders.yml"])
+def test_missed_session_has_a_claude_free_email_path(name):
+    text, doc = WF[name]
+    job = next(iter(doc["jobs"].values()))
+    step = next(s for s in job["steps"] if "Missed session" in s.get("name", ""))
+    assert "tools/alert_email.py" in step["run"] and step["if"] == "always()"
+    assert set(step["env"]) == {"SMTP_USER", "SMTP_APP_PASSWORD", "REPORT_EMAIL"}
+    assert step["run"].count("exit 0") >= 1                                           # can never fail the workflow
+    names = [s.get("name", "") for s in job["steps"]]
+    assert names.index(step["name"]) > next(i for i, n in enumerate(names) if n.startswith(("Alert policy", "Healthcheck")))
+
+
+def test_watchdog_opens_a_session_missed_issue_like_routines_silent():
+    step = next(s for s in WF["watchdog.yml"][1]["jobs"]["check"]["steps"] if "Missed session" in s.get("name", ""))
+    assert "session-missed" in step["run"] and "/issues" in step["run"] and '"check": *"session_missed"' in step["run"]

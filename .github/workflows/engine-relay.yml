@@ -6,7 +6,9 @@ name: engine-relay
 # dispatches the next relay after 15:25 IST. workflow_dispatch made with GITHUB_TOKEN starts within seconds (proven by run 41983125457).
 # The crons below are only restart sources in case a hop is lost; each run exits at once when another relay run is in progress.
 # Never trades, never commits, never runs run_live.py. Own concurrency group: it must never sit in (or cancel a run of) `paper-trader`.
-# Dry run: gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/engine-relay.yml/dispatches -f ref=main -f 'inputs[dry_run]=true'
+# A dry_run / until run is a TEST run: its own concurrency group (engine-relay-test) and the run-name suffix TEST, so it never waits behind
+# the live hop and is never counted as the live chain's pending successor (see docs/RELAY.md).
+run-name: ${{ (inputs.dry_run || inputs.until) && 'engine-relay TEST' || 'engine-relay' }}
 on:
   schedule:
     - cron: "30 15 * * *"      # 21:00 IST
@@ -29,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: engine-relay
+  group: ${{ (inputs.dry_run || inputs.until) && 'engine-relay-test' || 'engine-relay' }}
   cancel-in-progress: false
 
 jobs:

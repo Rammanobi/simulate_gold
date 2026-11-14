@@ -96,7 +96,7 @@ jobs:
         run: |
           set +e
           # same guard as market-hours.yml's hand-over: any engine-relay run that is not completed owns the overnight wait
-          active=$(gh api "repos/$GH_REPO/actions/workflows/engine-relay.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null)
+          active=$(gh api "repos/$GH_REPO/actions/workflows/engine-relay.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed" and ((.display_title // "") | contains("TEST") | not))] | length' 2>/dev/null)
           if [ "${active:-x}" = "0" ]; then
             gh api -X POST "repos/$GH_REPO/actions/workflows/engine-relay.yml/dispatches" -f ref=main \
               && echo "Dispatched engine-relay.yml (relay_missing)" >> "$GITHUB_STEP_SUMMARY"
@@ -127,6 +127,30 @@ jobs:
             jq -cn --arg id "$id" '{mode:"resolved",incident_id:$id}' > "$RUNNER_TEMP/r.json"
             python -m simgold.alerts post --text-file "$RUNNER_TEMP/r.json" >> "$GITHUB_STEP_SUMMARY"
           done
+          exit 0
+
+      - name: Missed session, Claude-free alarm (GitHub issue + plain email)
+        if: always()
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+        run: |
+          set +e
+          # Claude (the incident routine) was the silent party on 12 Nov 2026, so this needs no AI: an issue (GitHub emails the owner,
+          # like routines_silent) and one short email per day through the backup-email SMTP helper. Never fails the watchdog.
+          if grep -q '"check": *"session_missed"' "$RUNNER_TEMP/problems.txt"; then
+            detail=$(grep '"check": *"session_missed"' "$RUNNER_TEMP/problems.txt" | head -1 | jq -r '.detail // ""')
+            day=$(echo "$detail" | grep -o '[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}' | head -1)
+            [ -z "$day" ] && day=$(date +%F)
+            TITLE="Metals Daybook: no trading session on $day"
+            have=$(gh api "repos/$GH_REPO/issues?state=open&labels=session-missed&per_page=30" --jq "[.[] | select(.title == \"$TITLE\")] | length" 2>/dev/null)
+            if [ "${have:-x}" = "0" ]; then
+              gh api -X POST "repos/$GH_REPO/issues" -f title="$TITLE" -f body="The watchdog found: ${detail}. The engine did not run (most of) that session. No trade was missed by it. Check the market-hours and engine-relay runs; see docs/RELAY.md. Checked $(date '+%F %H:%M') IST." -f 'labels[]=session-missed' >/dev/null \
+                && echo "opened session-missed issue" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            python tools/alert_email.py --problems "$RUNNER_TEMP/problems.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           exit 0
 
       - name: Commit alert and health state

@@ -233,3 +233,44 @@ def test_new_categories_never_switch_safe_mode_on_and_are_still_reported():
     assert alerts.severity_of("session_missed") == "high" and alerts.severity_of("relay_missing") == "medium"
     probs = [H.problem("session_missed", "session_missed", "x"), H.problem("relay_missing", "relay_missing", "y")]
     assert H.clean_for_safe_mode(probs)
+
+
+# ---- review fixes (PR 57) ----
+def test_session_missed_after_midnight_still_sees_the_previous_trading_day(tmp_path):
+    root = _day_root(tmp_path, "2026-11-11", 375)                       # the engine ran on 11 Nov, never on 12 Nov
+    for now in (datetime(2026, 11, 13, 0, 6, tzinfo=IST), datetime(2026, 11, 13, 9, 0, tzinfo=IST), datetime(2026, 11, 13, 15, 39, tzinfo=IST)):
+        p = H.check_session_missed(root, now)
+        assert [x["check"] for x in p] == ["session_missed"] and "2026-11-12" in p[0]["detail"]
+    assert H.check_session_missed(root, datetime(2026, 11, 13, 15, 40, tzinfo=IST))                 # now it is 13 Nov itself (no ticks)
+
+
+def test_session_missed_weekend_and_monday_look_at_friday(tmp_path):
+    root = _day_root(tmp_path, "2026-11-12", 375)
+    (root / "logs" / "ticks-2026-11-13.csv").write_text("time,value,floor,cash,liquidbees\n" + "09:15,1,1,0,0\n" * 375)
+    for now in (datetime(2026, 11, 14, 11, 0, tzinfo=IST), datetime(2026, 11, 16, 3, 0, tzinfo=IST)):
+        assert H.check_session_missed(root, now) == []
+    (root / "logs" / "ticks-2026-11-13.csv").unlink()
+    assert H.check_session_missed(root, datetime(2026, 11, 15, 11, 0, tzinfo=IST))
+    assert H.check_session_missed(root, datetime(2026, 11, 10, 16, 9, tzinfo=IST)) == []            # 10 Nov: prev trading day 9 Nov has no older log
+
+
+def test_session_missed_previous_day_check_needs_earlier_history(tmp_path):
+    """A fresh checkout (no older ticks file) must not alarm in the morning."""
+    root = _day_root(tmp_path, "2026-11-13", 5)
+    assert H.check_session_missed(root, datetime(2026, 11, 13, 9, 0, tzinfo=IST)) == []
+
+
+def test_relay_check_unknown_is_low_and_safe_mode_exempt():
+    from simgold import alerts
+    assert "relay_check_unknown" in alerts.SAFE_MODE_EXEMPT and alerts.severity_of("relay_check_unknown") == "low"
+    def boom(args): raise RuntimeError("503")
+    p = H.check_relay(datetime(2026, 11, 13, 8, 30, tzinfo=IST), boom, "o/r")
+    assert [x["category"] for x in p] == ["relay_check_unknown"] and H.clean_for_safe_mode(p)
+
+
+def test_relay_check_ignores_test_runs_and_names_the_last_conclusion():
+    night = datetime(2026, 11, 12, 21, 0, tzinfo=IST)
+    gh = lambda a: json.dumps({"workflow_runs": [
+        {"status": "in_progress", "display_title": "engine-relay TEST"}, {"status": "completed", "conclusion": "failure", "display_title": "engine-relay"}]})
+    p = H.check_relay(night, gh, "o/r")
+    assert [x["check"] for x in p] == ["relay_missing"] and "ended 'failure'" in p[0]["detail"] or "failure" in p[0]["detail"]

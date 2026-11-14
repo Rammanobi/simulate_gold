@@ -53,6 +53,7 @@ SEVERITY = {
     "invariant_warning": MEDIUM,      # e.g. LIQUIDBEES share below 30% without a tripwire
     "allocation_stuck": MEDIUM,       # strategy v2: metals weight > 10 points off target at 2 daily checks in a row (never safe mode)
     # LOW
+    "relay_check_unknown": LOW,       # the engine-relay run list could not be fetched (an API blip): never safe mode, never counted
     "transient_fetch": LOW,           # a single transient fetch error
     "slow_run": LOW,
     "warning": LOW,
@@ -71,7 +72,7 @@ NO_SAFE_MODE = ("system_unstable", "allocation_stuck")      # alerts that never 
 # 30 Oct 2026: with the hourly routine cut to 12:15/14:15 and the weekly usage limit reached, routines_silent (HIGH) turned
 # safe mode on at 12:47 and blocked the 15:10 floor buy, although the engine itself was healthy.
 SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance", "routines_silent",
-                             "session_missed", "relay_missing"})
+                             "session_missed", "relay_missing", "relay_check_unknown"})
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
     "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,

@@ -59,6 +59,17 @@ jobs:
           fi
           exit 0
 
+      - name: Missed session, Claude-free alarm email (once per day)
+        if: always()
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+        run: |
+          set +e
+          [ -s "$RUNNER_TEMP/problems.txt" ] && python tools/alert_email.py --problems "$RUNNER_TEMP/problems.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Record acknowledgements and find reminders that are due
         id: due
         run: |

@@ -7,7 +7,8 @@ Sleeps (at most 5h45m per run) until 08:55 IST of the next trading day, dispatch
 queued or in progress, re-checks at ~09:30 and ~12:20 IST, then ends. When the next event is further away than one run can sleep,
 it dispatches the next relay run (never when another relay run, other than this one, is pending) and ends.
 --dry-run: no sleeping (virtual clock) and nothing is dispatched; every would-be dispatch is printed.
---until: ISO time (IST if no zone) replacing the next 08:55 start; the re-checks keep their offsets (for tests).
+--until: ISO time (IST if no zone; not more than 5 min in the past or 7 days ahead, else exit 2) replacing the next 08:55 start; the
+re-checks keep their offsets. A run with --dry-run or --until is a TEST run: it never hands over to a successor relay.
 Needs GH_TOKEN, GITHUB_REPOSITORY and (optionally) GITHUB_RUN_ID. Never trades, never commits.
 """
 from __future__ import annotations
@@ -27,7 +28,7 @@ def main(argv=None) -> int:
     ap.add_argument("--until", default="")
     a = ap.parse_args(argv)
     try:
-        until = relay.parse_until(a.until)
+        until = relay.parse_until(a.until, relay.Clock().now())
     except ValueError as e:
         print(f"bad --until value: {e}")
         return 2
