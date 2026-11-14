@@ -15,9 +15,11 @@ Paper money only. Nothing here can trade or change state.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from pathlib import Path
 
+log = logging.getLogger(__name__)
 START_CAPITAL = 100_000.0
 BOOK_KEYS = ("ts", "asset", "side", "qty", "price")
 FUNDS = (("GOLDBEES", "Gold ETF"), ("SILVERBEES", "Silver ETF"), ("HINDCOPPER", "Copper share"))
@@ -38,6 +40,48 @@ def _p(x) -> int:
 
 def _r(paise: int) -> float:
     return round(paise / 100, 2) + 0.0
+
+
+SETTLE_TOL = 10.0       # rupees: the most a close value may differ from cash + valued holdings before we stop trusting the state
+
+
+def settle(nets_x: dict, cash_x: float | None, total_x: float | None = None) -> tuple[dict, int, int]:
+    """Whole-paise values that add up exactly: returns ({symbol: value in paise}, cash in paise, total in paise).
+
+    nets_x     {symbol: exact value of the position after the estimated cost of selling, in rupees}
+    cash_x     the real cash balance (hard number from the portfolio), or None when unknown
+    total_x    the day's close value (state/equity.csv, 2 decimals) when one is given; else the exact cash + holdings
+
+    The total is the close (or the exact total rounded once). Cash stays the real cash to the paisa; the few paise by which
+    separately rounded parts would miss the total go to the positions (largest remainder), so total = cash + sum(values)
+    EXACTLY and every surface that uses these numbers agrees to the paisa. Prices on old tick files have only 2 decimals, so
+    a position can be off its qty x price by a rupee or two: the close value wins over the price.
+    When the cash is unknown, or the close is further than SETTLE_TOL from cash + holdings (a state that is not that day's),
+    the holdings are plainly rounded and the cash is what is left."""
+    exact = sum(nets_x.values())
+    base = (cash_x or 0.0) + exact
+    total_p = _p(total_x) if total_x is not None else _p(base)
+    if cash_x is None or abs(base - (total_x if total_x is not None else base)) > SETTLE_TOL:
+        vals = {s: _p(v) for s, v in nets_x.items()}
+        return vals, total_p - sum(vals.values()), total_p
+    if not nets_x:
+        return {}, total_p, total_p
+    cash_p = _p(cash_x)
+    target = total_p - cash_p
+    scale = (target / 100.0) / exact if exact else 1.0
+    want = {s: v * scale * 100.0 for s, v in nets_x.items()}                  # exact paise, adding up to `target`
+    vals = {s: int(math.floor(v)) for s, v in want.items()}
+    rem = target - sum(vals.values())
+    order = sorted(want, key=lambda s: want[s] - vals[s], reverse=True)         # largest remainder first
+    i = 0
+    while rem > 0 and order:
+        vals[order[i % len(order)]] += 1
+        rem, i = rem - 1, i + 1
+    i = 0
+    while rem < 0 and order:
+        vals[order[-1 - i % len(order)]] -= 1
+        rem, i = rem + 1, i + 1
+    return vals, cash_p, total_p
 
 
 def read_archive(path) -> list[dict]:
@@ -181,7 +225,8 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     equity_rows  [(date, value)] from state/equity.csv; yesterday's close = the last row dated before `day`
     params       config/params.yaml dict (for the per-instrument cost); missing cost counts as 0
     archive      older trades moved out of portfolio.json (logs/trades-archive.jsonl), for 'since start' totals
-    total        override for the portfolio value (a finished day's close); cash is then what is left after the metals
+    total        override for the portfolio value (a finished day's close). Cash stays the real cash; the rounding paise go to the
+                 holdings (see settle()). Only a state that is not that day's (off by more than SETTLE_TOL) makes cash the plug.
     idle_cash    False: LIQUIDBEES is still a separate balance; it is added to the idle money line either way
     """
     pf = portfolio or {}
@@ -190,14 +235,20 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     trades = merge_trades(archive, pf.get("trades"))
     trades = [t for t in trades if str(t.get("ts", ""))[:10] <= day]
 
-    metals, gross_p, net_p, open_p, held_buy_costs_p = [], 0, 0, 0, 0
+    held = []
     for sym, pos in (pf.get("positions") or {}).items():
         qty = int(_n(pos.get("qty")))
         if qty <= 0:
             continue
         px = _price(sym, pos, prices)
         cost = _n((inst.get(sym) or {}).get("cost"))
-        g, v = _p(qty * px), _p(qty * px * (1 - cost / 2))
+        held.append((sym, pos, qty, px, qty * px * (1 - cost / 2)))
+    cash_x = _n(pf.get("cash")) + _n(pf.get("liquidbees"))
+    values_p, idle_p, total_p = settle({h[0]: h[4] for h in held}, cash_x if (pf.get("cash") is not None or pf.get("liquidbees") is not None) else None,
+                                       _n(total) if total is not None else None)
+    metals, gross_p, net_p, open_p, held_buy_costs_p = [], 0, 0, 0, 0
+    for sym, pos, qty, px, _x in held:
+        g, v = _p(qty * px), values_p[sym]
         invested = _p(qty * _n(pos.get("avg_cost")) + _n(pos.get("buy_costs")))
         gross_p, net_p, open_p = gross_p + g, net_p + v, open_p + (v - invested)
         held_buy_costs_p += _p(pos.get("buy_costs"))
@@ -205,11 +256,6 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
                        "value": _r(v), "gross_value": _r(g),
                        "invested": _r(invested), "open_gain": _r(v - invested)})
     exit_p = gross_p - net_p
-
-    idle_p = _p(pf.get("cash")) + _p(pf.get("liquidbees"))
-    total_p = _p(total) if total is not None else idle_p + net_p
-    if total is not None:
-        idle_p = total_p - net_p
     start_p = _p(start_capital)
 
     prev_date, prev_p = None, start_p
@@ -230,6 +276,15 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
     booked_p = _p(sum(_n(t.get("pnl")) for t in trades if t.get("side") == "SELL"))      # sum exact, round once
     closed_costs_p = max(0, _p(sum(_n(t.get("costs")) for t in trades)) - held_buy_costs_p)   # information only: already inside booked
     interest_p = overall_p - open_p - booked_p
+    breakdown_extra = {}
+    realised = pf.get("realised_pnl")
+    if isinstance(realised, (int, float)) and not isinstance(realised, bool) and math.isfinite(realised) \
+            and not any(str(t.get("ts", ""))[:10] > day for t in merge_trades(archive, pf.get("trades"))):
+        gap_p = _p(realised) - booked_p              # the engine's own running total of realised pnl vs the trade list we were given
+        if abs(gap_p) > 5:
+            log.warning("money_summary: the sells in the trade list add up to %s but the engine's realised_pnl is %s; "
+                        "an older trades archive may be missing, so 'past interest' is off by about that much", _r(booked_p), _r(_p(realised)))
+            breakdown_extra["ledger_gap"] = _r(gap_p)
 
     def tot(rows):
         return _r(sum(_p(r["amount"]) for r in rows))
@@ -249,5 +304,5 @@ def money_summary(portfolio: dict, prices: dict, equity_rows, day: str, params: 
         "overall_profit": _r(overall_p), "overall_pct": round(overall_p / start_p * 100, 3) if start_p else None,
         "live_profit": _r(open_p), "held": bool(metals), "funds": funds,
         "breakdown": {"booked": _r(booked_p), "open": _r(open_p), "interest": _r(interest_p),
-                      "sum": _r(booked_p + open_p + interest_p), "costs_in_booked": _r(-closed_costs_p)},
+                      "sum": _r(booked_p + open_p + interest_p), "costs_in_booked": _r(-closed_costs_p), **breakdown_extra},
     }

@@ -730,6 +730,7 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         pass
     try:
         day["money_summary"] = _money_summary(date, root, day)
+        _settle_values(date, root, day)
     except Exception:          # the report must never fail over this extra block
         pass
     try:
@@ -747,15 +748,19 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     return day
 
 
-def _holdings_view(date: str, root: Path, day: dict) -> dict:
-    """Holdings rows and the trade ledger (newest 60) for the "Your holdings" / "Every purchase so far" sections."""
+def _holdings_view(date: str, root: Path, day: dict, values: dict | None = None) -> dict:
+    """Holdings rows and the trade ledger (newest 60) for the "Your holdings" / "Every purchase so far" sections.
+    `values` {symbol: rupees} are the money summary's settled values (same numbers on every surface)."""
+    pf = _read_json(Path(root) / "state" / "portfolio.json", {}) or {}
     prices = {h["symbol"]: h["close"] for h in day.get("holdings_close", []) if h.get("close")}
+    for sym, px in holdings_mod.held_prices(pf).items():      # a closed day carries the last price of what is held (never its cost)
+        prices.setdefault(sym, px)
     p = day["portfolio"]
     if day.get("closed"):
-        liquid = max(0.0, (_num(p.get("close"), 0.0) or 0.0) - sum(h.get("value", 0) or 0 for h in day.get("holdings_close", [])))
+        liquid = (_num(pf.get("cash"), 0.0) or 0.0) + (_num(pf.get("liquidbees"), 0.0) or 0.0)      # the real cash, not close minus a guess
     else:
         liquid = _num(p.get("cash_in_liquidbees"), 0.0) or 0.0
-    return holdings_mod.view(date, root, prices, liquid, cap=holdings_mod.EMAIL_LEDGER_CAP)
+    return holdings_mod.view(date, root, prices, liquid, portfolio=pf or None, cap=holdings_mod.EMAIL_LEDGER_CAP, values=values)
 
 
 THRIFT_LINE = "\U0001F4A1 Thrift mode: running on plan limits"
@@ -809,12 +814,27 @@ def _ops_text(day: dict) -> list[str]:
     return L
 
 
+def _settle_values(date: str, root: Path, day: dict) -> None:
+    """Make every holdings number of the day the money summary's own (settled to the paisa, see summary.settle): the holdings
+    rows of the day and holdings_close. Nothing is recomputed from prices here."""
+    metals = {m["symbol"]: m for m in (day.get("money_summary") or {}).get("metals", [])}
+    if not metals:
+        return
+    for h in day.get("holdings_close", []):
+        m = metals.get(h.get("symbol"))
+        if m:
+            h["value"], h["unrealized"] = m["value"], m["open_gain"]
+    day["holdings_view"] = _holdings_view(date, root, day, values={s: m["value"] for s, m in metals.items()})
+
+
 def _money_summary(date: str, root: Path, day: dict) -> dict:
     """The 'money at a glance' numbers for that day: holdings and trades from state/portfolio.json (+ the trade archive),
     prices and total from the day's close, yesterday's close from state/equity.csv."""
     root = Path(root)
     pf = _read_json(root / "state" / "portfolio.json", {}) or {}
     prices = {h["symbol"]: h["close"] for h in day.get("holdings_close", []) if h.get("close")}
+    for sym, px in holdings_mod.held_prices(pf).items():             # closed day: the carried-over price of what is held
+        prices.setdefault(sym, px)
     for r in (day.get("holdings_view") or {}).get("rows", []):       # price of funds not held (for "Where your money is")
         if r.get("symbol") in holdings_mod.SYMS and r.get("price") and not prices.get(r["symbol"]):
             prices[r["symbol"]] = r["price"]
@@ -947,11 +967,13 @@ def _build_day(date: str, root: Path, holiday: str | None = None) -> dict:
         avg = _num(p.get("avg"), None)
         if avg is None:
             avg = _num(p.get("avg_cost"), 0.0)
-        px = tick_px.get(s) or _num(p.get("last_price")) or _num(p.get("last")) or last_price.get(s) or avg
+        held_px = _num(p.get("last_price")) or _num(p.get("last"))
+        # on the portfolio's own day its last price is the engine's exact close (full precision); a tick file only has 2 decimals
+        px = (held_px if holdings_mod.portfolio_day(portfolio) == date else None) or tick_px.get(s) or held_px or last_price.get(s) or avg
         # value after the estimated cost of selling; unrealized = that value - (units x avg + buy costs): the money summary's "open gain"
         net = qty * px * (1 - holdings_mod.sell_cost(s) / 2)
         invested = qty * avg + (_num(p.get("buy_costs"), 0.0) or 0.0)
-        h = {"symbol": s, "qty": qty, "avg": avg, "close": px, "value": round(net, 2), "gross_value": round(qty * px, 2),
+        h = {"symbol": s, "qty": qty, "avg": avg, "close": round(px, 4), "value": round(net, 2), "gross_value": round(qty * px, 2),
              "unrealized": round(net - invested, 2)}
         stop = _num(p.get("ai_stop")) if v2 else _num(p.get("stop"))      # v2: only a real (AI / inherited) stop is a stop
         h["stop"] = stop if stop is not None else 0.0
@@ -1516,7 +1538,8 @@ def _card(r: dict) -> str:
             f'<td valign="top" style="font-family:{FONT};"><div style="font-size:15px;line-height:20px;font-weight:800;color:{INK};">{_fund_dot(m, 11)}&nbsp; {esc(r["symbol"])}</div>'
             f'<div style="font-size:12px;line-height:16px;color:#6b7280;">{esc(r["label"])}</div></td>'
             f'<td valign="top" align="right" style="font-family:{FONT};">{_profit_html(r["profit"], r["profit_pct"])}</td></tr></table>'
-            f'<div style="font-size:14px;line-height:20px;color:{INK};padding-top:8px;"><b>{_shares(r["units"])} shares × {inr(r["price"], 2)} = {inr(r["value"])}</b></div>'
+            f'<div style="font-size:14px;line-height:20px;color:{INK};padding-top:8px;"><b>{_shares(r["units"])} shares × {inr(r["price"], 2)} = {inr(r.get("gross_value", r["value"]))}</b>'
+            f'<span style="font-weight:400;color:#6b7280;"> · {inr(r["value"])} after selling cost</span></div>'
             f'<div style="font-size:12px;line-height:17px;color:#6b7280;padding-top:2px;">You paid {inr(r["invested"])} incl. costs '
             f'({each} each; {inr(r["avg_price"], 2)} before costs)</div></td></tr></table>')
 
