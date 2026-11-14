@@ -1,20 +1,20 @@
 {
  "GOLD": {
-  "stance": "neutral",
-  "written": "2026-11-07",
-  "review_by": "2026-11-21",
+  "stance": "cautious",
+  "written": "2026-11-14",
+  "review_by": "2026-11-28",
   "invalidation": {
-   "kind": "close_below",
+   "kind": "close_above",
    "symbol": "GOLDBEES",
-   "value": 112.0
+   "value": 118.0
   },
   "invalidated": false,
   "invalidated_on": null
  },
  "SILVER": {
   "stance": "cautious",
-  "written": "2026-11-07",
-  "review_by": "2026-11-21",
+  "written": "2026-11-14",
+  "review_by": "2026-11-28",
   "invalidation": {
    "kind": "close_above",
    "symbol": "SILVERBEES",
@@ -25,8 +25,8 @@
  },
  "COPPER": {
   "stance": "cautious",
-  "written": "2026-11-07",
-  "review_by": "2026-11-21",
+  "written": "2026-11-14",
+  "review_by": "2026-11-28",
   "invalidation": {
    "kind": "close_above",
    "symbol": "HINDCOPPER",

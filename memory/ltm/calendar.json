@@ -1,35 +1,6 @@
 {
- "updated": "2026-11-06T08:51:31+05:30",
+ "updated": "2026-11-14T09:52:20+05:30",
  "events": [
-  {
-   "date": "2026-10-30",
-   "type": "MONTH_END",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 2,
-   "expect": "last trading day of the month; green month-end matters",
-   "source": "nse",
-   "confirmed": true,
-   "by": "code",
-   "added": "2026-10-19"
-  },
-  {
-   "date": "2026-11-06",
-   "type": "JOBS",
-   "metals": [
-    "GOLD",
-    "SILVER",
-    "COPPER"
-   ],
-   "impact": 3,
-   "confirmed": true,
-   "added": "2026-10-19",
-   "by": "migration",
-   "time": "19:00"
-  },
   {
    "date": "2026-11-09",
    "type": "CPI",
@@ -107,6 +78,21 @@
    "source": "rbi.org.in"
   },
   {
+   "date": "2026-12-04",
+   "type": "JOBS",
+   "metals": [
+    "GOLD",
+    "SILVER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-11-14",
+   "by": "weekly",
+   "time": "19:00",
+   "expect": "November payrolls, 08:30 ET",
+   "source": "bls.gov"
+  },
+  {
    "date": "2026-12-09",
    "type": "FOMC",
    "metals": [
@@ -120,6 +106,21 @@
    "by": "weekly",
    "expect": "FOMC 8-9 Dec with projections; decision 9 Dec 14:00 ET = 00:30 IST 10 Dec; third-party calendars",
    "source": "fedratecalc.com"
+  },
+  {
+   "date": "2026-12-10",
+   "type": "CPI",
+   "metals": [
+    "GOLD",
+    "SILVER"
+   ],
+   "impact": 3,
+   "confirmed": true,
+   "added": "2026-11-14",
+   "by": "weekly",
+   "time": "19:00",
+   "expect": "November CPI, 08:30 ET",
+   "source": "bls.gov"
   },
   {
    "date": "2026-12-25",

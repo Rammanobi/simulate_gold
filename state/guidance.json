@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-11T14:17:50+05:30",
+ "updated": "2026-11-13T14:17:20+05:30",
  "bias": {
   "GOLD": "block",
-  "SILVER": "neutral",
+  "SILVER": "block",
   "COPPER": "neutral"
  },
- "note": "[fallback: DeepSeek] Gold blocked due to earlier price-shock trigger; silver and copper neutral given mixed signals.",
+ "note": "[fallback: DeepSeek] Gold and silver are down sharply from yesterday's close, so blocking new long positions; copper's move is smaller and remains neutral.",
  "prices_at_update": {
-  "GOLDBEES": 115.42,
-  "SILVERBEES": 176.7,
-  "HINDCOPPER": 438.95
+  "GOLDBEES": 111.85,
+  "SILVERBEES": 168.53,
+  "HINDCOPPER": 440.25
  },
  "alignment": {
-  "GOLD": "RANGE",
-  "SILVER": "DOWNTREND",
+  "GOLD": "WEAKENING",
+  "SILVER": "DEFENSIVE",
   "COPPER": "COUNTER_TREND"
  }
 }

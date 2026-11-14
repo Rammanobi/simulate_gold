@@ -1,0 +1,110 @@
+GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
+Friday 13 Nov 2026
+
+You vs simply holding gold: account −1.5% vs GOLDBEES buy-and-hold −7.5% since 13 Oct start (5.9 pts ahead)
+Action for you: check the open alert (routines_silent) and acknowledge it
+
+YOUR MONEY AT A GLANCE
+
+1. Total money now: ₹98,467.64
+   (What you'd have selling everything now)
+2. Today's profit: −₹1,454.48 (−1.46%)
+   (Gain or loss since yesterday's close)
+3. Overall profit: −₹1,532.36 (−1.53%)
+   (Gain or loss since ₹1,00,000 start)
+4. Live profit right now: −₹508.67
+   (Gain on what you hold now)
+5. Today's investment
+   (Money spent and received today)
+   - Spent on buys today: ₹0.00
+   - Received from sells today: ₹0.00
+6. Overall investment so far
+   (Total bought and sold since start)
+   - Bought in total: ₹99,373.43
+   - Sold in total: ₹48,874.35
+
+Overall profit −₹1,532.36 = booked profit −₹1,119.63 + open gain −₹508.67 + costs paid −₹46.52 + past interest on idle money +₹142.46 (before the 22 Oct switch to cash; booked is −₹1,166.15 after costs).
+
+This week: live account -1.85% · rules alone (backtest of the same rules on the same days, no AI blocks/pauses) -1.87% · GOLDBEES buy-and-hold -3.69%
+
+WHERE YOUR MONEY IS
+
+GOLDBEES (Gold ETF): 437 shares, avg buy price ₹113.00, money put in ₹49,406.36, price now ₹111.95, value now ₹48,922.15, profit −₹508.67 (−1.03%), 49.7% of the total
+SILVERBEES (Silver ETF): not held; price now ₹168.95; value ₹0.00; profit ₹0.00; 0.0%
+HINDCOPPER (Copper share): not held; price now ₹438.75; value ₹0.00; profit ₹0.00; 0.0%
+Cash (idle money): ₹49,569.95, 50.3% of the total
+Total: money put in ₹49,406.36, value now ₹98,467.64, profit −₹508.67 (−1.03%)
+
+₹48,922 (50%) is in gold, ₹0 in silver, ₹0 in copper, ₹49,570 (50%) is cash. Overall −₹1,532 since start.
+
+EVERY TRADE SO FAR
+
+2026-11-02 GOLDBEES Buy: 437 units × ₹112.9965 = ₹49,379.46, costs ₹26.90
+2026-10-23 GOLDBEES Sell: 423 units × ₹115.5422 = ₹48,874.35, costs ₹19.29, profit on that sale −₹1,166.15
+2026-10-21 GOLDBEES Buy: 423 units × ₹118.1891 = ₹49,993.97, costs ₹27.23
+
+DETAILS
+
+HEADLINE
+Today's loss: −₹1,454.48
+Today's −₹1,454: −₹1,454 from open positions; no trades were made.
+
+Today's profit:   −₹1,454.48 (−1.46%; vs yesterday's close ₹99,922.12, 2026-11-11)
+Portfolio value:  ₹98,468
+
+PORTFOLIO AND RISK BRAKES
+Account stop:       ₹75,000 (hard stop: sells everything, halts buys)
+Above the stop:     ₹23,468
+Drawdown from peak: -2.7% (peak ₹1,01,198); brake level 0
+Brakes:             Brake level 0: full size. Value is 2.7% below its peak ₹1,01,198. At -15% every target is halved, at -25% everything is sold, and at ₹75,000 the hard account stop sells everything and halts buys.
+Cash (idle money): ₹49,574.31 (earns nothing)
+Costs paid today:   ₹0
+
+TREND TARGETS (state, sigma60, target, actual)
+GOLDBEES    OFF  sigma 0.2123  target 50.0%  actual 49.7%
+SILVERBEES  OFF  sigma 0.3429  target 0.0%  actual 0.0%
+HINDCOPPER  OFF  sigma 0.3895  target 0.0%  actual 0.0%
+
+DAY AT A GLANCE
+Engine: Ran 09:15–15:29 IST · 370 minute checks
+Decisions: Allowed 0 (buys 0, sells 0) · Blocked 2 (price shock 2) · Skipped 0 · Held 2
+GOLDBEES: ₹112.31 → ₹111.94 · −0.33% · low ₹111.54 – high ₹112.38
+SILVERBEES: ₹170.00 → ₹168.95 · −0.62% · low ₹167.70 – high ₹170.03
+HINDCOPPER: ₹440.95 → ₹438.75 · −0.50% · low ₹438.75 – high ₹446.80
+Money: Value ₹98,467.64 · day −₹1,454.48 · 50% GOLDBEES, 50% Cash
+Why no trades: No trades today. The system waited because GOLDBEES is -2.60% from yesterday's close (trigger is 1.5%). New buys in GOLDBEES are paused for 30 minutes while the AI reviews it; more reasons under What I did.
+
+MARKET TODAY
+Gold (COMEX)      0.0%  n/a, no reliable overnight quote found
+Silver (COMEX)    0.0%  n/a, no reliable overnight quote found
+Copper            0.0%  n/a, no reliable overnight quote found
+
+DECISIONS
+No trades today. The system waited because GOLDBEES is -2.60% from yesterday's close (trigger is 1.5%). New buys in GOLDBEES are paused for 30 minutes while the AI reviews it; SILVERBEES is -3.87% from yesterday's close (trigger is 2.7%). New buys in SILVERBEES are paused for 30 minutes while the AI reviews it.
+09:15  BLOCK GOLDBEES     -- @ ₹112.31  GOLDBEES is -2.60% from yesterday's close (trigger is 1.5%). New buys in GOLDBEES are paused for 30 minutes while the AI reviews it.
+09:15  BLOCK SILVERBEES   -- @ ₹170.00  SILVERBEES is -3.87% from yesterday's close (trigger is 2.7%). New buys in SILVERBEES are paused for 30 minutes while the AI reviews it.
+09:16  HOLD  GOLDBEES    437 @ ₹112.38  GOLDBEES price ₹112.38 is at or under the AI stop ₹115.00, but all 437 units are the GOLDBEES floor (438 units): floor protected, nothing sold.
+09:20  HOLD  GOLDBEES    437 @ ₹112.29  The AI fast lane asked to tighten the GOLDBEES stop to ₹111.00, but all 437 units are the GOLDBEES floor (439 units); only the drawdown brake and the account stop sell the floor, so the stop was refused.
+15:10  TARGET GOLDBEES      0 @ ₹111.95  GOLDBEES floor: metals 0% < min_invested 50% → target 50% gold (trend OFF, floor holding; close 111.95 < SMA200 123.80); sigma60 0.212; target 50%, actual 50%
+15:10  TARGET SILVERBEES    0 @ ₹168.81  SILVERBEES trend OFF (close 168.81 is not above the 55-day high 234.28); sigma60 0.343; target 0%, actual 0%
+15:10  TARGET HINDCOPPER    0 @ ₹441.60  HINDCOPPER trend OFF (close 441.60 is not above the 55-day high 584.53); sigma60 0.390; target 0%, actual 0%
+
+HOLDINGS AT CLOSE
+GOLDBEES: 437 units, avg ₹113.00, close ₹111.95, value ₹48,922, unrealised −₹457
+
+WHERE TODAY'S P&L CAME FROM
+Trades closed (realized): ₹0
+Open positions (unrealised): −₹1,454
+Total: −₹1,454
+(Costs of ₹0 are already included above.)
+
+TOMORROW
+HINDCOPPER results are due tomorrow (23 Oct), so expect a wider copper move at the open. FOMC follows on 28 Oct at 23:30 IST.
+
+💡 Thrift mode: running on plan limits
+
+Fallback was used on 2026-11-04, 2026-11-05, 2026-11-06, 2026-11-11, 2026-11-13 (Claude routines were not running).
+
+Watchdog: 14 checks today, 3 problems, see incidents
+
+This is a paper simulation. No real money or orders were placed.
