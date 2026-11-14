@@ -1,6 +1,6 @@
 """Backtest the strategy on daily data.
 
-  python run_backtest.py                       # v1: the old score brain -> reports/backtest.md (the weekly workflow)
+  python run_backtest.py                       # v1: the old score brain -> reports/backtest.md
   python run_backtest.py --strategy v2         # v2 trend core on Yahoo daily data (network)
   python run_backtest.py --strategy v2 --data-dir DIR   # v2 on the cleaned research CSVs (nse_daily_ohlcv.csv + nse_close_wide.csv)
 Options for v2: --start 2010-06-01  --set vol_target=0.10 --set symbols.SILVERBEES.cap=0.6  --out reports/backtest_v2.md
@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-ap.add_argument("--strategy", choices=["v1", "v2"], default="v1")
+ap.add_argument("--strategy", choices=["v1", "v2"], default="v1")  # CLI default stays v1; the weekly workflow passes --strategy v2
 ap.add_argument("--start", default=None, help="first trading day (v1 default 2019-01-01, v2 default 2010-06-01)")
 ap.add_argument("--data-dir", default=None, help="v2: read the cleaned research CSVs from this folder instead of Yahoo")
 ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
@@ -77,4 +77,12 @@ def run_v2():
         Path(args.out).write_text(text + "\n", encoding="utf-8")
 
 
-run_v2() if args.strategy == "v2" else run_v1()
+def main():
+    from simgold.data import HistoryUnavailable
+    try:
+        run_v2() if args.strategy == "v2" else run_v1()
+    except HistoryUnavailable as e:
+        raise SystemExit(f"backtest aborted: {e}")
+
+
+main()
