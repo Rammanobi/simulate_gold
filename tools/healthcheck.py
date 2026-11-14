@@ -114,6 +114,53 @@ def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
     return out
 
 
+MISSED_AFTER = dtime(15, 40)
+MISSED_MIN_ROWS = 100            # a full session is ~375 one-minute rows (09:15-15:30)
+RELAY_WORKFLOW = "engine-relay.yml"
+RELAY_FROM, RELAY_UNTIL = dtime(16, 30), dtime(8, 50)
+
+
+def check_session_missed(root: Path, now: datetime) -> list[dict]:
+    """HIGH: a trading day, after 15:40 IST, and logs/ticks-TODAY.csv is missing or has fewer than ~100 rows.
+    12 Nov 2026: the engine never ran in market hours and every check that could see it was gated to the window."""
+    now = now.astimezone(IST)
+    if not is_trading_day(now.date()) or now.time() < MISSED_AFTER:
+        return []
+    f = root / "logs" / f"ticks-{now.date().isoformat()}.csv"
+    if not f.exists():
+        return [problem("session_missed", "session_missed", f"{f.name} does not exist: the engine did not run today's session")]
+    try:
+        rows = max(0, sum(1 for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()) - 1)
+    except OSError:
+        rows = 0
+    if rows < MISSED_MIN_ROWS:
+        return [problem("session_missed", "session_missed", f"{f.name} has only {rows} rows (a full session has ~375): most of today's session was missed")]
+    return []
+
+
+def relay_should_exist(now: datetime) -> bool:
+    """Between 16:30 IST and the next trading-day 08:50 IST (weekends and holidays included) a relay run must be queued or in progress."""
+    now = now.astimezone(IST)
+    return not (is_trading_day(now.date()) and RELAY_UNTIL <= now.time() < RELAY_FROM)
+
+
+def check_relay(now: datetime, gh, repo: str) -> list[dict]:
+    if not relay_should_exist(now):
+        return []
+    try:
+        data = json.loads(gh(["api", f"repos/{repo}/actions/workflows/{RELAY_WORKFLOW}/runs?per_page=10"]))
+    except Exception as e:  # noqa: BLE001
+        return [problem("relay_check_unknown", "warning", f"could not query engine-relay runs: {e}")]
+    runs = data.get("workflow_runs")
+    if not isinstance(runs, list):
+        return []                       # no run list in the answer: cannot judge
+    if any(r.get("status") != "completed" for r in runs if isinstance(r, dict)):
+        return []
+    return [problem("relay_missing", "relay_missing",
+                    "no engine-relay run is queued or in progress between 16:30 IST and the next trading-day 08:50 IST: "
+                    "nothing is waiting to start tomorrow's engine session")]
+
+
 def check_state_files(root: Path) -> tuple[list[dict], dict]:
     out, loaded = [], {}
     spec = {"portfolio.json": ("cash", "positions", "floor", "liquidbees"), "guidance.json": ("updated",),
@@ -342,6 +389,8 @@ def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "", git=real_g
     probs += _guarded("incident_limits", check_incident_limits, root, now, cfg)
     probs += _guarded("calendar", check_calendar, now)
     probs += _guarded("routines_silent", check_routines_silent, root, loaded.get("guidance.json"), now)
+    probs += _guarded("session_missed", check_session_missed, root, now)
+    probs += _guarded("relay", check_relay, now, gh, repo)
     if in_market_window(now):
         probs += _guarded("watchdog", check_watchdog, root, now, cfg)
         probs += _guarded("engine", check_engine, root, now, gh, repo)

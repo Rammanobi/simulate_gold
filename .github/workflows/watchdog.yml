@@ -49,6 +49,7 @@ jobs:
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           { echo '### Watchdog'; echo '```'; cat "$RUNNER_TEMP/problems.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "missing=$(grep -c 'engine_run_missing\|ticks_missing\|ticks_stale' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
+          echo "relay_missing=$(grep -c '"check": *"relay_missing"' "$RUNNER_TEMP/problems.txt")" >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: Claude routines silent? (issue = free email to the owner, no AI needed)
@@ -87,6 +88,20 @@ jobs:
               && echo "Re-dispatched market-hours.yml (session=auto)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "market-hours.yml has ${active:-an unknown number of} active run(s); not re-dispatching" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Self-heal, dispatch the engine relay (relay_missing)
+        if: steps.hc.outputs.rc == '4' && steps.hc.outputs.relay_missing != '0'
+        run: |
+          set +e
+          # same guard as market-hours.yml's hand-over: any engine-relay run that is not completed owns the overnight wait
+          active=$(gh api "repos/$GH_REPO/actions/workflows/engine-relay.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null)
+          if [ "${active:-x}" = "0" ]; then
+            gh api -X POST "repos/$GH_REPO/actions/workflows/engine-relay.yml/dispatches" -f ref=main \
+              && echo "Dispatched engine-relay.yml (relay_missing)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "engine-relay.yml has ${active:-an unknown number of} active run(s); not dispatching" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit 0
 

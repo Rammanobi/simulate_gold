@@ -1,0 +1,59 @@
+name: engine-relay
+
+# Starts the engine without Claude routines and without GitHub 'schedule' timers (12 Nov 2026: both failed, no session ran).
+# A chain of long-sleeping runs carries the clock over nights, weekends and holidays; at 08:55 IST of a trading day it dispatches
+# market-hours.yml (session=auto) if none is queued or running, re-checks at ~09:30 and ~12:20 IST, then ends. market-hours.yml
+# dispatches the next relay after 15:25 IST. workflow_dispatch made with GITHUB_TOKEN starts within seconds (proven by run 41983125457).
+# The crons below are only restart sources in case a hop is lost; each run exits at once when another relay run is in progress.
+# Never trades, never commits, never runs run_live.py. Own concurrency group: it must never sit in (or cancel a run of) `paper-trader`.
+# Dry run: gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/engine-relay.yml/dispatches -f ref=main -f 'inputs[dry_run]=true'
+on:
+  schedule:
+    - cron: "30 15 * * *"      # 21:00 IST
+    - cron: "30 17 * * *"      # 23:00 IST
+    - cron: "30 21 * * *"      # 03:00 IST
+    - cron: "30 1 * * *"       # 07:00 IST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log what would be dispatched, dispatch nothing (no real sleeping)"
+        type: boolean
+        default: false
+      until:
+        description: "Optional ISO time (IST if no zone) replacing the next 08:55 start, for tests"
+        required: false
+        default: ""
+
+permissions:
+  actions: write      # list runs and dispatch market-hours.yml / engine-relay.yml / morning-email.yml
+  contents: read
+
+concurrency:
+  group: engine-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      TZ: Asia/Kolkata
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      UNTIL: ${{ inputs.until }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml tzdata
+      - name: Relay (sleep, dispatch the engine, hand over)
+        run: |
+          ARGS=()
+          [ "$DRY_RUN" = "true" ] && ARGS+=(--dry-run)
+          [ -n "$UNTIL" ] && ARGS+=(--until "$UNTIL")
+          python tools/engine_relay.py "${ARGS[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

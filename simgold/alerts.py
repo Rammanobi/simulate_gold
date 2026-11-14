@@ -42,11 +42,13 @@ SEVERITY = {
     "git_push_failing": HIGH,         # git push failing for more than 15 min
     "system_unstable": HIGH,          # safe mode switched on
     "routines_silent": HIGH,          # the Claude routines have stopped (usage limit or credits?)
+    "session_missed": HIGH,           # a trading day ended (after 15:40 IST) with no or a tiny ticks file: the whole session was missed (12 Nov 2026)
     # MEDIUM
     "data_source_down": MEDIUM,       # a data source down for more than 10 min
     "workflow_failed": MEDIUM,        # a failed workflow run
     "stale_guidance": MEDIUM,         # guidance older than 3 h in market hours
     "memory_cap": MEDIUM,             # a memory / log size cap exceeded
+    "relay_missing": MEDIUM,          # no engine-relay run queued or in progress overnight (16:30 to the next trading-day 08:50 IST): nothing will start the engine
     "watchdog_stale": MEDIUM,         # the watchdog ran late (GitHub schedule lateness): reported, but never safe mode
     "invariant_warning": MEDIUM,      # e.g. LIQUIDBEES share below 30% without a tripwire
     "allocation_stuck": MEDIUM,       # strategy v2: metals weight > 10 points off target at 2 daily checks in a row (never safe mode)
@@ -62,11 +64,14 @@ NO_SAFE_MODE = ("system_unstable", "allocation_stuck")      # alerts that never 
 #   transient_fetch  one failed price fetch that the next tick retries (LOW, already "recorded only")
 #   stale_guidance   a MEDIUM echo of routines_silent: the engine treats stale guidance as neutral, which is its safe default
 #   routines_silent  the Claude routines did not run (usage limit, schedule): same safe default, the engine trades on alone
+#   session_missed   a day with no engine session is reported loudly, but is a monitoring/scheduling fault, not a trading risk
+#   relay_missing    the engine-relay chain has a gap: reported and emailed, never a reason to stop buying
 # 23 Oct 2026: one 148 min GitHub schedule gap made the watchdog raise 5 incidents at once; with a morning price-feed blip
 # and a transient fetch error that was "7 distinct incidents" and safe mode went on. Real engine and data checks still count.
 # 30 Oct 2026: with the hourly routine cut to 12:15/14:15 and the weekly usage limit reached, routines_silent (HIGH) turned
 # safe mode on at 12:47 and blocked the 15:10 floor buy, although the engine itself was healthy.
-SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance", "routines_silent"})
+SAFE_MODE_EXEMPT = frozenset({"watchdog_stale", "transient_fetch", "stale_guidance", "routines_silent",
+                             "session_missed", "relay_missing"})
 DEFAULTS = {
     "max_fires_per_day": 6, "group_window_min": 15, "medium_reminder_hours": [1, 4], "medium_reminder_daily_hours": 24,
     "high_reminder_min": 60, "high_reminder_due_min": 55, "max_reminders_per_incident": 24, "max_medium_reminders": 10, "tick_exceptions": 3,

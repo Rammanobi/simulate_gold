@@ -32,6 +32,7 @@ on:
 
 permissions:
   contents: write     # commits state/report_retry.json
+  actions: write      # tools/ensure_engine.py may dispatch market-hours.yml / engine-relay.yml
 
 concurrency:
   group: report-retry
@@ -57,6 +58,12 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -q -r requirements.txt
+      - name: Ensure the engine (restart source, tools/ensure_engine.py)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python tools/ensure_engine.py | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Decide
         id: decide

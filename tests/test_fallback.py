@@ -365,5 +365,5 @@ def test_fallback_workflow_shape():
     on = doc.get("on", doc.get(True))
     assert [c["cron"] for c in on["schedule"]] == ["20 11 * * 1-5"] and "workflow_dispatch" in on          # 16:50 IST
     assert "secrets.DEEPSEEK_API_KEY" in text and "secrets.SMTP_PASS" in text and "git pull --rebase --autostash" in text
-    assert doc["permissions"] == {"contents": "write", "issues": "write"}
+    assert doc["permissions"] == {"contents": "write", "issues": "write", "actions": "write"}   # actions: tools/ensure_engine.py restart source
     assert "DEEPSEEK_API_KEY=" not in text.replace("DEEPSEEK_API_KEY: ${{", "")
