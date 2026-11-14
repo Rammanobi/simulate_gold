@@ -185,7 +185,10 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
     prices, prev_close, price_ts = prices or {}, prev_close or {}, price_ts or {}
     if market_open is None:
         market_open = is_market_open(now)
-    total = total_value(pf, prices, params)
+    # ONE set of numbers (simgold/summary.py): the total is the summary's whole-paise total (cash + holdings add up to it exactly)
+    summary = money_summary(pf, prices, equity_rows, sd, params, start_capital=start_capital,
+                            archive=archive_trades, idle_cash=idle_is_cash(params))
+    total = summary["total_now"]
     pc_date, pc_val = prev_close_from_equity(equity_rows, sd, start_capital)
 
     positions, parts_pos, inv_sum, open_sum = [], 0.0, 0.0, 0.0
@@ -258,6 +261,11 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
     pts = add_point(series, hhmm, total) if market_open or not series else [list(r[:2]) for r in series]
     rows = [[t, _num(v), _num(v - pc_val)] for t, v in pts]
 
+    open_total = summary["live_profit"]               # ONE definition (simgold/summary.py): the card and the email show the same open gain
+    for row in positions:                              # per-fund figures are the summary's whole-paise ones, not a second rounding
+        m = next((x for x in summary["metals"] if x["symbol"] == row["symbol"]), None)
+        if m:
+            row["value"], row["invested"], row["open_pnl"] = m["value"], m["invested"], m["open_gain"]
     d = {
         "v": SCHEMA, "ts": now.isoformat(timespec="seconds"), "session_date": sd,
         "market_open": bool(market_open), "feed_ok": bool(feed_ok),
@@ -266,17 +274,15 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
         "today": {"pnl": _num(today_pnl), "pct": _num(today_pnl / pc_val * 100 if pc_val else None, 3),
                   "parts": {"positions": _num(parts_pos), "liquidbees": _num(lb_income), "realised": _num(realised),
                             "costs": _num(-day_costs), "other": _num(other)}},
-        "open": {"pnl": _num(open_sum), "pct": _num(open_sum / inv_sum * 100 if inv_sum else None, 3),
+        "open": {"pnl": _num(open_total), "pct": _num(open_total / inv_sum * 100 if inv_sum else None, 3),
                  "invested": _num(inv_sum)},
-        "total": {"pnl": _num(total - start_capital),
-                  "pct": _num((total - start_capital) / start_capital * 100 if start_capital else None, 3)},
+        "total": {"pnl": _num(summary["overall_profit"]), "pct": _num(summary["overall_pct"], 3)},
         "prices": price_rows,
         "positions": positions,
         "liquidbees": {"value": _num(lb_v), "accrued_today": _num(lb_income)},
         "cash": _num(cash_v),
         "series": decimate(rows),
-        "summary": money_summary(pf, prices, equity_rows, sd, params, start_capital=start_capital,
-                                 archive=archive_trades, idle_cash=idle_is_cash(params)),   # additive: schema stays v:1
+        "summary": summary,                                   # additive: schema stays v:1
     }
     return _clean(d)
 
