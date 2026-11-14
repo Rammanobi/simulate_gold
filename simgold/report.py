@@ -739,6 +739,7 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
                 day["weekly_line"] = weekly.week_line(root, dt.date.fromisoformat(day["date"]))
     except Exception:          # the weekly line is extra; never fail the report over it
         pass
+    add_compact_data(day, date, root)
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -817,6 +818,14 @@ def _money_summary(date: str, root: Path, day: dict) -> dict:
     for r in (day.get("holdings_view") or {}).get("rows", []):       # price of funds not held (for "Where your money is")
         if r.get("symbol") in holdings_mod.SYMS and r.get("price") and not prices.get(r["symbol"]):
             prices[r["symbol"]] = r["price"]
+    if day.get("closed"):          # a holiday has no ticks: value the holdings at the last session's closing prices, not at their cost
+        for f in sorted((root / "logs").glob("ticks-*.csv"), reverse=True):
+            if f.stem[6:] < day["date"]:
+                got = holdings_mod.last_prices(root, f.stem[6:])
+                if got:
+                    for sym, v in got.items():
+                        prices[sym] = v
+                    break
     return money_summary(pf, prices, load_equity(root / "state" / "equity.csv"), day["date"], config.load_params(),
                          archive=read_archive(root / "logs" / "trades-archive.jsonl"),
                          total=day["portfolio"]["close"], idle_cash=config.idle_is_cash())
@@ -1112,8 +1121,10 @@ def summarize(day: dict) -> str:
 
 
 def subject_line(day: dict) -> str:
-    d = dt.date.fromisoformat(day["date"])
+    d = dt.date.fromisoformat(day.get("morning_date") or day["date"])
     label = f"{d.strftime('%a')} {d.day} {d.strftime('%b')}"
+    if day.get("kind") == "morning":
+        return f"Metals Daybook · {label} · pre-open plan"
     if day.get("closed"):
         return f"Metals Daybook · 🏖️ {label} · Market closed"
     pnl = day["portfolio"]["day_pnl"]
@@ -1401,7 +1412,8 @@ PORTFOLIO_STYLES = ("AB", "A", "B")
 
 
 def portfolio_style_of(day: dict, style: str | None = None) -> str:
-    """The style to draw: explicit argument, else the style carried inside money_summary.funds (from report.portfolio_style)."""
+    """The AB/A/B block style: explicit argument, else the style carried inside money_summary.funds (from report.portfolio_style).
+    COMPACT has its own renderer (render_compact_email) and falls back to AB for these old blocks."""
     s = str(style or ((day.get("money_summary") or {}).get("funds") or {}).get("style") or "AB").upper()
     return s if s in PORTFOLIO_STYLES else "AB"
 
@@ -1682,8 +1694,726 @@ def _trades_text(day: dict) -> list[str]:
     return L + [""]
 
 
+# ===================================================================== COMPACT daily email (report.portfolio_style: COMPACT)
+# One picture-first email (~930 px on a phone). Every figure comes from day["money_summary"] (simgold/summary.py, the one
+# definition per metric) and the numeric trend fields of the TARGET records; nothing is recomputed from text. The HTML and
+# the plain text are both rendered from the same model (compact_model), so they cannot disagree.
+# Gmail rules: tables + inline styles only; every coloured cell has bgcolor + background-color + a solid linear-gradient;
+# no svg/img/emoji/script/position; numbers >= 14 px, labels >= 13 px; every P&L figure carries an arrow or a sign.
+COMPACT = "COMPACT"
+NAVY, NAVY_LINE = "#16213e", "#2c3b66"
+ON_DARK = {"up": "#5be58f", "down": "#ff8f86", "flat": "#ffffff", "mute": "#b4bdd6"}
+ON_LIGHT = {"up": "#14663b", "down": "#b4302a", "flat": "#1f2937", "mute": "#6b7280"}
+METAL_BAR = {"gold": "#c9a227", "silver": "#8e959e", "copper": "#b87333", "cash": "#4a7fc1"}
+TRACK = "#ece9e0"
+CHIP = {"green": ("#e3f4ea", "#14663b"), "red": ("#fbe6e3", "#b4302a"), "amber": ("#fdf0cf", "#7a5200"), "grey": ("#eeece6", "#374151")}
+BIAS_TONE = {"favour": "green", "block": "red", "neutral": "grey"}
+
+
+def _bg(c: str) -> str:
+    """The three background declarations Gmail (incl. iOS dark mode) needs on every coloured cell."""
+    return f"background-color:{c};background-image:linear-gradient({c},{c});"
+
+
+def _ctd(bg: str, style: str, inner: str, attrs: str = "") -> str:
+    return f'<td{(" " + attrs) if attrs else ""} bgcolor="{bg}" style="{_bg(bg)}font-family:{FONT};{style}">{inner}</td>'
+
+
+def _wrapt(inner: str, extra: str = "") -> str:
+    return f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"{extra}>{inner}</table>'
+
+
+def _tone_of(v: float, places: int = 0) -> str:
+    r = _round(v, places)
+    return "up" if r > 0 else "down" if r < 0 else "flat"
+
+
+def _arrow_of(v: float, places: int = 0) -> str:
+    """The arrow follows the figure as displayed (rounded to `places`), so +0.3% never shows a flat arrow."""
+    r = _round(v, places)
+    return "↑" if r > 0 else "↓" if r < 0 else "→"
+
+
+def _fig(v: float, pct: float | None = None, places: int = 0) -> dict:
+    """A P&L figure: arrow + signed rupees (+ percent). Never colour alone."""
+    txt = f"{_arrow_of(v, places)} {sg(v, places)}" + (f" ({pc(pct, 2)})" if pct is not None else "")
+    return {"text": txt, "tone": _tone_of(v, places)}
+
+
+def _pfig(pct: float, places: int = 2) -> dict:
+    return {"text": f"{_arrow_of(pct, places)} {pc(pct, places)}", "tone": _tone_of(pct, places)}
+
+
+def _dlabel(d: str) -> str:
+    x = dt.date.fromisoformat(d)
+    return f"{x.strftime('%a')} {x.day} {x.strftime('%b')}"
+
+
+def _is_compact(day: dict, style: str | None = None) -> bool:
+    s = str(style or ((day.get("money_summary") or {}).get("funds") or {}).get("style") or "").upper()
+    return s == COMPACT and bool(day.get("money_summary"))
+
+
+def _vs_gold(date: str, root: Path, day: dict) -> dict | None:
+    """You vs buy-and-hold gold since the engine's first day: {since, you, gold, diff} (percent), None when no gold price."""
+    ms = day.get("money_summary") or {}
+    start = _start_day(root)
+    g0 = _first_gold_price(root, start)
+    g1 = next((m["price"] for m in ms.get("metals", []) if m.get("symbol") == START_GOLD_SYMBOL), None)
+    if not g1:
+        g1 = next((r.get("price") for r in (ms.get("funds") or {}).get("rows", []) if r.get("symbol") == START_GOLD_SYMBOL), None)
+    g1 = g1 or _latest_gold_price(root, date)
+    you = ms.get("overall_pct")
+    if not (g0 and g1 and you is not None):
+        return None
+    d0 = dt.date.fromisoformat(start)
+    gold = (g1 / g0 - 1) * 100
+    return {"since": f"{d0.day} {d0.strftime('%b')}", "you": round(you, 3), "gold": round(gold, 3), "diff": round(round(you, 1) - round(gold, 1), 1)}
+
+
+def _safety(root: Path, p: dict) -> dict:
+    """Account stop, brake levels and peak for the safety meter (numbers only; the brake state is the engine's)."""
+    pf = (_read_json(Path(root) / "state" / "portfolio.json", {}) or {}) if root else {}
+    brake = (((pf.get("runtime") or {}).get("v2") or {}).get("brake") or {}) if isinstance(pf, dict) else {}
+    close = _num(p.get("close"), START_CAPITAL) or START_CAPITAL
+    peak = max(_num(p.get("peak")) or _num(brake.get("peak")) or START_CAPITAL, close)
+    try:
+        b = (config.load_params().get("strategy") or {}).get("brake") or {}
+    except Exception:  # noqa: BLE001
+        b = {}
+    return {"stop": _num(p.get("floor"), INITIAL_FLOOR), "peak": round(peak, 2), "level": int(_num(brake.get("level"), p.get("brake_level", 0)) or 0),
+            "dd1": float(b.get("level1_dd", 0.15)), "dd2": float(b.get("level2_dd", 0.25))}
+
+
+def _prev_closes(date: str, root: Path) -> dict:
+    """{symbol: previous close} from state/last_prices.json, only when that file is the report day's own (else no 'today %')."""
+    lp = _read_json(Path(root) / "state" / "last_prices.json", {}) or {}
+    out = {}
+    if isinstance(lp, dict):
+        for sym, v in lp.items():
+            if isinstance(v, dict) and str(v.get("ts", ""))[:10] == date and _num(v.get("prev_close")):
+                out[sym] = _num(v.get("prev_close"))
+    return out
+
+
+def _events(root: Path) -> list[dict]:
+    ev = _read_json(Path(root) / "state" / "events.json", []) or []
+    rows = [e for e in ev if isinstance(e, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(e.get("date", "")))]
+    rows.sort(key=lambda e: (e["date"], str(e.get("time") or "")))
+    return rows
+
+
+def _event_label(e: dict) -> str:
+    kind = str(e.get("type") or "event").replace("_", " ")
+    return f"{kind} {_dlabel(e['date'])}" + (f" {e['time']}" if e.get("time") else "")
+
+
+def _next_event(root: Path, after: str, inclusive: bool = False) -> str | None:
+    for e in _events(root):
+        if e["date"] > after or (inclusive and e["date"] == after):
+            return _event_label(e)
+    return None
+
+
+def _last_targets(root: Path, date: str) -> tuple[list[dict], str | None]:
+    """Latest TARGET records (the 15:10 trend check) before `date`, for a holiday or morning email."""
+    files = sorted(f for f in (Path(root) / "logs").glob("decisions-*.jsonl") if f.stem[10:] <= date)
+    st = (config.load_params().get("strategy") or {})
+    for f in reversed(files):
+        last: dict[str, dict] = {}
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and str(r.get("action", "")).upper() == "TARGET":
+                sym = _norm_symbol(r.get("symbol"))
+                last[sym] = {k: r.get(k) for k in ("state", "sigma", "target_pct", "actual_pct", "reason")}
+                try:
+                    last[sym].update(trend.level_numbers_from_record(r, st))
+                except Exception:  # noqa: BLE001
+                    pass
+        if last:
+            return [{"symbol": k, **v} for k, v in last.items()], f.stem[10:]
+    return [], None
+
+
+def previous_session(date: str, root: Path) -> str:
+    """The trading day before `date` (skips weekends and NSE holidays)."""
+    d = dt.date.fromisoformat(date)
+    for _ in range(15):
+        d -= dt.timedelta(days=1)
+        if not market_closed_reason(d.isoformat(), root):
+            break
+    return d.isoformat()
+
+
+def add_compact_data(day: dict, date: str, root: Path) -> None:
+    """Numbers only the compact email needs; each step is optional and never fails the report."""
+    root = Path(root)
+    for key, fn in (("vs_gold", lambda: _vs_gold(date, root, day)),
+                    ("safety", lambda: _safety(root, day.get("portfolio") or {})),
+                    ("prev_closes", lambda: _prev_closes(date, root)),
+                    ("next_event", lambda: _next_event(root, date)),
+                    ("engine_checks", lambda: (_glance_engine(date, root) or {}).get("count"))):
+        try:
+            v = fn()
+        except Exception:  # noqa: BLE001
+            v = None
+        if v:
+            day[key] = v
+    if day.get("closed") or not day.get("targets"):
+        try:
+            tg, tdate = _last_targets(root, date)
+            if tg and not day.get("targets"):
+                day["targets"], day["targets_date"] = tg, tdate
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def build_morning(date: str, root: Path) -> dict:
+    """The pre-open email for session `date`: last close's numbers (previous session) plus today's plan (events, biases)."""
+    root = Path(root)
+    prev = previous_session(date, root)
+    day = build_day(prev, root)
+    day["kind"], day["morning_date"] = "morning", date
+    ne = _next_event(root, date, inclusive=True)
+    if ne:
+        day["next_event"] = ne
+    elif "next_event" in day:
+        del day["next_event"]
+    g = _read_json(root / "state" / "guidance.json", {}) or {}
+    bias = g.get("bias") if isinstance(g, dict) and isinstance(g.get("bias"), dict) else {}
+    day["plan"] = {"date": date, "events": [_event_label(e) for e in _events(root) if e["date"] == date],
+                   "bias": {k: str(bias.get(k, "neutral")).lower() for k in ("GOLD", "SILVER", "COPPER")}}
+    day["subject"] = subject_line(day)
+    return day
+
+
+# ---------------------------------------------------------------- the model (strings shared by HTML and text)
+def _split(rows: list[dict]) -> list[tuple[str, int]]:
+    cells = split_cells(rows)
+    return [(r["metal"], c) for r, c in zip(rows, cells) if c > 0]
+
+
+def _rule_chips(st: dict) -> list[str]:
+    out = []
+    try:
+        mi = float(st.get("min_invested") or 0)
+        sym = st.get("floor_symbol", "GOLDBEES")
+        if mi > 0:
+            out.append(f"min {mi * 100:.0f}% in {ETF_NAMES.get(sym, sym.lower())}")
+        vt = st.get("vol_target")
+        if vt:
+            out.append(f"gold if ON = min(1, {float(vt):g}/σ60)")
+        for s, label in (("SILVERBEES", "silver"), ("HINDCOPPER", "copper")):
+            cap = ((st.get("symbols") or {}).get(s) or {}).get("cap")
+            if cap is not None:
+                out.append(f"{label} cap {float(cap) * 100:.0f}%")
+        if st.get("rebalance_threshold") is not None:
+            out.append(f"trades only if gap > {float(st['rebalance_threshold']) * 100:.0f} pts")
+    except (TypeError, ValueError):
+        return []
+    return out
+
+
+def _why_sentence(targets: list[dict], st: dict) -> str:
+    bits, wait = [], []
+    nd = st.get("donchian_entry_days", 55)
+    for t in targets:
+        name = ETF_NAMES.get(t["symbol"], t["symbol"].title())
+        on, tp = str(t.get("state")).upper() == "ON", _num(t.get("target_pct"), 0) or 0
+        if on:
+            bits.append(f"{name.title()} is ON, target {tp:.0f}%")
+        elif t["symbol"] == START_GOLD_SYMBOL and tp > 0:
+            bits.append(f"{name.title()} is held at the {tp:.0f}% floor")
+        elif t["symbol"] == START_GOLD_SYMBOL:
+            wait.append(f"{name} waits for the {st.get('sma_days', 200)}-day average")
+        else:
+            wait.append(name)
+    out = "; ".join(bits)
+    if wait:
+        plain = [w for w in wait if " waits " not in w]
+        extra = [w for w in wait if " waits " in w]
+        if plain:
+            names = " and ".join(plain)
+            out += ("; " if out else "") + f"{names} wait for a {nd}-day breakout"
+        if extra:
+            out += ("; " if out else "") + "; ".join(extra)
+    return (out[:1].upper() + out[1:] + ".") if out else ""
+
+
+def _short_reason(d: dict) -> str:
+    trig = str(d.get("trigger") or "").strip().lower()
+    reason = str(d.get("reason") or "")
+    m = re.search(r"([+\-−]?\d+(?:\.\d+)?)\s*%", reason)
+    if trig == "price shock" and m:
+        v = float(m.group(1).replace("−", "-"))
+        return f"price shock {pc(v, 2)}"
+    return _short_note(reason or trig, 70)
+
+
+def compact_model(day: dict, report_url: str | None = None, inbox_url: str | None = None, sample: bool = False) -> dict:
+    ms = day["money_summary"]
+    p = day["portfolio"]
+    funds = ms["funds"]
+    rows = funds["rows"]
+    held = [r for r in rows if r["kind"] == "fund" and r.get("held")]
+    cash_row = next(r for r in rows if r["kind"] == "cash")
+    morning = day.get("kind") == "morning"
+    closed = bool(day.get("closed"))
+    d_data = day["date"]
+    d_show = day.get("morning_date") or d_data
+    bd = ms["breakdown"]
+    m: dict = {"kind": "morning" if morning else "closed" if closed else "evening"}
+    m["header_left"] = "Metals Daybook"
+    m["header_right"] = f"{_dlabel(d_show)} · " + ("pre-open" if morning else "market closed" if closed else "close")
+    m["holiday"] = day.get("holiday_name") if closed else None
+    top = day.get("owner_top") or {}
+    act = str(top.get("action", ""))
+    m["alert"] = ("Action: " + act.split(": ", 1)[1]) if act and not act.endswith(": none") and ": " in act else None
+
+    # ---- A: broker card
+    prev = day.get("prev_closes") or {}
+    ov, td = ms["overall_profit"], ms["today_profit"]
+    m["total"] = inr(ms["total_now"])
+    m["overall"] = {"label": "Overall gain" if _round(ov) >= 0 else "Overall loss", **_fig(ov, ms.get("overall_pct"))}
+    if closed:
+        m["today"] = {"label": "Today", "text": "market closed", "tone": "mute"}
+    else:
+        if morning:
+            word = "Gain" if _round(td) >= 0 else "Loss"
+            lab = f"{word} on {_dlabel(d_data)}"
+        else:
+            lab = "Today's gain" if _round(td) >= 0 else "Today's loss"
+        m["today"] = {"label": lab, **_fig(td, ms.get("today_pct"))}
+    m["invested"], m["cash"] = inr(funds["total"]["invested"]), inr(ms["cash"])
+    bk = bd["booked"]
+    m["booked"] = _fig(bk)
+    parts = [f"open {sg(bd['open'])}", f"booked {sg(bk)}"]
+    if _round(bd["interest"]) != 0:
+        parts.append(f"interest {sg(bd['interest'])}")
+    m["recon"] = " + ".join(parts) + f" = overall {sg(ov)}"
+    split = _split(rows)
+    m["split"] = split
+    m["caption"] = " · ".join(f"{FUND_NAMES[k]} {c}%" for k, c in split)
+    when = "yesterday" if morning else "today"
+    m["holdings"] = []
+    for r in held:
+        pv = prev.get(r["symbol"])
+        today_pct = (r["price"] / pv - 1) * 100 if pv and r.get("price") else None
+        stop = next((h.get("stop") for h in day.get("holdings_close", []) if h.get("symbol") == r["symbol"] and h.get("stop")), None)
+        m["holdings"].append({"symbol": r["symbol"], "metal": r["metal"], "qty": f"{int(r['units']):,}", "atp": inr(r["avg_price"], 2),
+                              "stop": inr(stop, 2) if stop else None, "pnl": _fig(r["profit"], r.get("profit_pct")),
+                              "ltp": inr(r["price"], 2), "today": _pfig(today_pct) if today_pct is not None else None, "when": when})
+    m["cash_row"] = {"amount": inr(cash_row["value"]), "note": "idle, earns nothing" if ms.get("idle_cash", True) else "idle money"}
+
+    # ---- B: why cash?
+    try:
+        st = config.load_params().get("strategy") or {}
+    except Exception:  # noqa: BLE001
+        st = {}
+    share = {r["symbol"]: r.get("share_pct") for r in rows}
+    order = {s: i for i, s in enumerate(START_ORDER)}
+    tg = sorted([t for t in day.get("targets") or [] if t.get("symbol") in order], key=lambda t: order[t["symbol"]])
+    m["why"] = None
+    if tg:
+        wrows = []
+        for t in tg:
+            on = str(t.get("state")).upper() == "ON"
+            lvl, cl, gap, wif = t.get("level"), t.get("close"), t.get("gap_pct"), t.get("weight_if_on")
+            line = []
+            if gap is not None:
+                line.append(f"{'cushion' if on else 'needs'} {pc(abs(gap) if on else gap, 1)}")
+            if wif is not None:
+                line.append(f"if ON alone {wif:.0f}%")
+            now_w = share.get(t["symbol"])
+            if now_w is None:
+                now_w = _num(t.get("actual_pct"))
+            tp = _num(t.get("target_pct"))
+            if now_w is not None and tp is not None:
+                line.append(f"now {now_w:.0f}% / target {tp:.0f}%")
+            fill = None
+            if lvl and cl:
+                fill = max(0, min(100, round(cl / lvl * 100))) if not on else 100
+            wrows.append({"symbol": t["symbol"], "metal": ETF_NAMES.get(t["symbol"], "gold"), "state": "ON" if on else "OFF",
+                          "price": inr(cl, 2) if cl else None, "level": inr(lvl, 2) if lvl else None, "fill": fill, "line": " · ".join(line)})
+        when_t = day.get("targets_date")
+        title = "WHY CASH? TREND CHECK 15:10"
+        if morning or (when_t and when_t != d_data):
+            title = f"WHY CASH? LAST CHECK {_dlabel(when_t or d_data).split(' ')[0].upper()} 15:10"
+        m["why"] = {"title": title, "rows": wrows, "chips": _rule_chips(st), "sentence": _why_sentence(tg, st)}
+
+    # ---- C: today / plan today
+    m["today_block"] = None
+    if morning:
+        pl = day.get("plan") or {}
+        chips = [(e, "amber") for e in pl.get("events", [])] or [("no events today", "grey")]
+        chips += [(f"{k.title()}: {v}", BIAS_TONE.get(v, "grey")) for k, v in (pl.get("bias") or {}).items()]
+        m["plan"] = {"title": "PLAN TODAY", "chips": chips, "note": "Every trade comes from the 15:10 trend check."}
+    elif not closed:
+        c = day.get("counts") or {}
+        chips = [(f"{c.get('buys', 0)} {_plural(c.get('buys', 0), 'buy')}", "green"), (f"{c.get('sells', 0)} {_plural(c.get('sells', 0), 'sell')}", "red"),
+                 (f"{c.get('blocks', 0)} blocked", "amber")]
+        if c.get("skips"):
+            chips.append((f"{c['skips']} skipped", "amber"))
+        acts = [d for d in day.get("decisions", []) if d.get("action") in ("BUY", "SELL", "BLOCK", "SKIP")]
+        lines = []
+        if not any(d["action"] in ("BUY", "SELL") for d in acts):
+            gold = next((t for t in tg if t["symbol"] == START_GOLD_SYMBOL), None)
+            kept = f"check kept gold at {_num(gold.get('target_pct'), 0):.0f}%" if gold and _num(gold.get("target_pct"), 0) else "check changed nothing"
+            lines.append({"time": str(st.get("check_time", "15:10")), "tone": "grey", "text": f"No trades · {kept}"})
+        for d in acts:
+            if d["action"] in ("BUY", "SELL") and d.get("qty") and d.get("price"):
+                txt = f"{d['action']} {d['symbol']} · " + fill_text(d["qty"], d["price"], d.get("amount") or d["qty"] * d["price"])
+                if d["action"] == "SELL" and d.get("pnl") is not None:
+                    txt += f" · {_fig(d['pnl'], None, 2)['text']}"
+                tone = "green" if d["action"] == "BUY" else "red"
+            else:
+                txt = f"{'blocked' if d['action'] == 'BLOCK' else 'skipped'} {d['symbol']} · {_short_reason(d)}"
+                tone = "amber"
+            lines.append({"time": d["time"], "tone": tone, "text": txt})
+        lines.sort(key=lambda ln: _mins(_hhmm(ln["time"]) or "00:00"))
+        more = max(0, len(lines) - 5)
+        m["today_block"] = {"title": "TODAY", "chips": chips, "lines": lines[-5:], "more": more}
+
+    # ---- D: you vs gold
+    vg = None if closed else day.get("vs_gold")
+    m["vs"] = None
+    if vg:
+        diff = vg["diff"]
+        m["vs"] = {"since": vg["since"], "chip": (f"{abs(diff):.1f} pts ahead", "green") if diff > 0 else (f"{abs(diff):.1f} pts behind", "red") if diff < 0 else ("level", "grey"),
+                   "you": vg["you"], "gold": vg["gold"], "you_fig": _pfig(vg["you"], 1), "gold_fig": _pfig(vg["gold"], 1)}
+
+    # ---- E: safety
+    s = day.get("safety") or _safety(None, p)
+    close = ms["total_now"]
+    above = close - s["stop"]
+    under = max(0.0, (1 - close / s["peak"]) * 100) if s["peak"] else 0.0
+    m["safety"] = {"now": inr(close), "peak": inr(s["peak"]), "stop": s["stop"], "peak_v": s["peak"], "close": close, "dd1": s["dd1"], "dd2": s["dd2"],
+                   "line": f"{inr(abs(above))} {'above' if above >= 0 else 'below'} stop · "
+                           + (f"{under:.1f}% under peak" if under >= 0.05 else "at peak") + f" · brake {s['level']}"}
+
+    # ---- F: market chips + next event
+    def prices_row(sym):
+        return next((r for r in rows if r["symbol"] == sym), None)
+    cards = []
+    for sym, name in (("GOLDBEES", "Gold"), ("SILVERBEES", "Silver"), ("HINDCOPPER", "Copper")):
+        r = prices_row(sym)
+        px = r.get("price") if r else None
+        pv = prev.get(sym)
+        cards.append({"name": name, "price": inr(px, 2) if px else "–",
+                      "today": _pfig((px / pv - 1) * 100) if px and pv else None, "when": "yesterday" if morning else "today"})
+    m["market"] = cards
+    ne = day.get("next_event")
+    m["next_event"] = f"Next event: {ne}" if ne else "No further events listed"
+
+    # ---- G: footer
+    m["link"] = report_url
+    m["inbox"] = None if morning else inbox_link(inbox_url or (SAMPLE_INBOX_URL if sample else None), daily_item_id(d_data))
+    foot = ["Paper trading", "no real money"]
+    if day.get("engine_checks"):
+        foot.append(f"engine {int(day['engine_checks'])} checks")
+    if day.get("thrift"):
+        foot.append("thrift")
+    m["footer"] = " · ".join(foot)
+    return m
+
+
+START_ORDER = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
+
+
+# ---------------------------------------------------------------- HTML
+def _c_txt(text: str, tone: str, dark: bool, size: int = 15, bold: bool = True) -> str:
+    pal = ON_DARK if dark else ON_LIGHT
+    return f'<span style="color:{pal.get(tone, pal["flat"])};font-size:{size}px;{"font-weight:700;" if bold else ""}">{esc(text)}</span>'
+
+
+def _chip_html(text: str, tone: str) -> str:
+    bg, fg = CHIP[tone]
+    return (f'<table role="presentation" align="left" cellpadding="0" cellspacing="0" style="margin:0 6px 6px 0;"><tr>'
+            + _ctd(bg, f"padding:5px 11px;border-radius:14px;font-family:{FONT};font-size:13px;line-height:18px;color:{fg};font-weight:700;white-space:nowrap;", esc(text)) + '</tr></table>')
+
+
+def _chips_html(chips: list) -> str:
+    return "".join(_chip_html(t, tone) for t, tone in chips) + '<div style="clear:both;font-size:0;line-height:0;">&nbsp;</div>'
+
+
+def _spacer(bg: str, w: str, h: int = 10, radius: str = "") -> str:
+    return _ctd(bg, f"{radius}font-size:0;line-height:0;", "&nbsp;", f'width="{w}" height="{h}"')
+
+
+def _meter(fill: int, color: str, h: int = 10) -> str:
+    fill = max(0, min(100, int(fill)))
+    cells = ""
+    if fill > 0:
+        cells += _spacer(color, f"{fill}%", h, "border-radius:5px;" if fill == 100 else "border-radius:5px 0 0 5px;")
+    if fill < 100:
+        cells += _spacer(TRACK, f"{100 - fill}%", h, "border-radius:0 5px 5px 0;" if fill else "border-radius:5px;")
+    return _wrapt(f"<tr>{cells}</tr>")
+
+
+def _diverge(v: float, vmax: float) -> str:
+    """Half-and-half bar around zero: red grows left, green grows right (scaled to the larger absolute value)."""
+    k = 0 if not vmax else max(1, round(50 * abs(v) / vmax)) if v else 0
+    k = min(k, 50)
+    neg, pos = (k if v < 0 else 0), (k if v > 0 else 0)
+    cells = [(TRACK, 50 - neg), ("#e5484d", neg), ("#22a559", pos), (TRACK, 50 - pos)]
+    return _wrapt("<tr>" + "".join(_spacer(c, f"{w}%", 12) for c, w in cells if w > 0) + "</tr>")
+
+
+def _split_bar(split: list[tuple[str, int]]) -> str:
+    cells = ""
+    for i, (metal, w) in enumerate(split):
+        rad = ("border-radius:6px 0 0 6px;" if i == 0 else "border-radius:0 6px 6px 0;" if i == len(split) - 1 else "")
+        if len(split) == 1:
+            rad = "border-radius:6px;"
+        cells += _spacer(METAL_BAR[metal], f"{w}%", 12, rad)
+    return _wrapt(f"<tr>{cells}</tr>")
+
+
+def _section_title(t: str, right: str = "") -> str:
+    r = f'<td align="right" style="font-family:{FONT};font-size:14px;color:#6b7280;">{esc(right)}</td>' if right else ""
+    return (f'<tr><td style="padding:0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            f'<td style="font-family:{FONT};font-size:13px;letter-spacing:.8px;font-weight:700;color:#4b5563;">{esc(t)}</td>{r}</tr></table></td></tr>')
+
+
+def _block(inner: str, top_line: bool = True) -> str:
+    border = "border-top:1px solid #e7e5df;" if top_line else ""
+    return f'<tr><td style="padding:14px 16px;{border}font-family:{FONT};">{inner}</td></tr>\n'
+
+
+def _card_html(m: dict) -> str:
+    D = ON_DARK
+    def lab(t, align="left"):
+        return f'<div style="font-size:13px;line-height:18px;color:{D["mute"]};text-align:{align};">{esc(t)}</div>'
+    def val(f, align="left", size=17):
+        return f'<div style="font-size:{size}px;line-height:24px;font-weight:700;text-align:{align};color:{D[f["tone"]]};">{esc(f["text"])}</div>'
+    ov, td, bk = m["overall"], m["today"], m["booked"]
+    if m["kind"] == "closed":
+        td_cell = f'{lab(td["label"], "right")}<div style="font-size:15px;line-height:24px;font-weight:700;text-align:right;color:{D["mute"]};">{esc(td["text"])}</div>'
+    else:
+        td_cell = lab(td["label"], "right") + val(td, "right")
+    top = (f'<tr>' + _ctd(NAVY, "padding:16px 16px 0 16px;", lab("Total value") + f'<div style="font-size:34px;line-height:42px;font-weight:800;color:#ffffff;">{esc(m["total"])}</div>', 'colspan="1"') + '</tr>')
+    two = (f'<tr>' + _ctd(NAVY, "padding:10px 16px 0 16px;", _wrapt("<tr>" + _ctd(NAVY, "", lab(ov["label"]) + val(ov), 'align="left" valign="top"')
+                                                                    + _ctd(NAVY, "", td_cell, 'align="right" valign="top"') + "</tr>")) + '</tr>')
+    three = (f'<tr>' + _ctd(NAVY, "padding:10px 16px 0 16px;", _wrapt(
+        "<tr>" + _ctd(NAVY, "", lab("Invested") + f'<div style="font-size:15px;line-height:22px;font-weight:700;color:#ffffff;">{esc(m["invested"])}</div>', 'width="34%" align="left" valign="top"')
+        + _ctd(NAVY, "", lab("Cash", "center") + f'<div style="font-size:15px;line-height:22px;font-weight:700;color:#ffffff;text-align:center;">{esc(m["cash"])}</div>', 'width="32%" align="center" valign="top"')
+        + _ctd(NAVY, "", lab("Booked", "right") + val(bk, "right", 15), 'width="34%" align="right" valign="top"') + "</tr>")) + '</tr>')
+    recon = f'<tr>' + _ctd(NAVY, f"padding:10px 16px 0 16px;font-size:13px;line-height:19px;color:{D['mute']};", esc(re.sub(r"(open|booked|interest|overall) ", "\\1\u00a0", m["recon"]))) + '</tr>'
+    bar = f'<tr>' + _ctd(NAVY, "padding:10px 16px 0 16px;", _split_bar(m["split"])) + '</tr>'
+    cap = f'<tr>' + _ctd(NAVY, f"padding:6px 16px 14px 16px;font-size:13px;line-height:18px;color:{D['mute']};", esc(m["caption"])) + '</tr>'
+    rows = ""
+    for h in m["holdings"]:
+        sub = f'{h["qty"]} × {h["atp"]}' + (f' · stop {h["stop"]}' if h["stop"] else "")
+        tone = h["today"]["tone"] if h["today"] else "mute"
+        ltp_html = f'LTP {esc(h["ltp"])}' + (f' <span style="color:{D[tone]};">{esc(h["today"]["text"])}</span> {esc(h["when"])}' if h["today"] else "")
+        rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};", _wrapt(
+            "<tr>" + _ctd(NAVY, "", f'<div style="font-size:15px;line-height:22px;font-weight:800;color:#ffffff;">{esc(h["symbol"])}</div>'
+                          f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};">{esc(sub)}</div>', 'align="left" valign="top"')
+            + _ctd(NAVY, "", val(h["pnl"], "right", 15) + f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};text-align:right;">{ltp_html}</div>', 'align="right" valign="top"') + "</tr>")) + '</tr>')
+    cr = m["cash_row"]
+    rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};", _wrapt(
+        "<tr>" + _ctd(NAVY, "", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">Cash</span> <span style="font-size:13px;color:{D["mute"]};">{esc(cr["note"])}</span>', 'align="left"')
+        + _ctd(NAVY, "", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">{esc(cr["amount"])}</span>', 'align="right"') + "</tr>")) + '</tr>')
+    card = _wrapt(top + two + three + recon + bar + cap + rows)
+    return (f'<tr><td style="padding:0 8px 0 8px;">' + _wrapt("<tr>" + _ctd(NAVY, "border-radius:14px;", card) + "</tr>") + '</td></tr>\n')
+
+
+def _why_html(w: dict) -> str:
+    inner = _section_title(w["title"])
+    out = ""
+    for r in w["rows"]:
+        col = METAL_BAR[r["metal"]]
+        on = r["state"] == "ON"
+        chip = _chip_html(r["state"], "green" if on else "grey").replace("margin:0 6px 6px 0;", "margin:0 0 0 8px;")
+        left = f'<span style="font-size:15px;font-weight:800;color:#1f2937;">{esc(r["symbol"])}</span>'
+        right = (f'<span style="font-size:14px;color:#1f2937;">{esc(r["price"])} / {esc(r["level"])}</span>' if r["price"] and r["level"] else "")
+        out += _wrapt(f'<tr><td align="left" width="1%" valign="middle" style="padding:10px 0 4px 0;font-family:{FONT};white-space:nowrap;">{left}</td>'
+                      f'<td align="left" width="1%" valign="middle" style="padding:10px 0 4px 0;">{chip}</td>'
+                      f'<td align="right" valign="middle" style="padding:10px 0 4px 0;font-family:{FONT};">{right}</td></tr>')
+        if r["fill"] is not None:
+            out += _meter(r["fill"], col)
+        if r["line"]:
+            out += f'<div style="font-size:13px;line-height:19px;color:#4b5563;padding-top:4px;font-family:{FONT};">{esc(r["line"])}</div>'
+    chips = _chips_html([(c, "grey") for c in w["chips"]]) if w["chips"] else ""
+    sent = f'<div style="font-size:14px;line-height:21px;color:#374151;padding-top:4px;font-family:{FONT};">{esc(w["sentence"])}</div>' if w["sentence"] else ""
+    return _block(_wrapt(inner) + out + f'<div style="padding-top:10px;">{chips}</div>' + sent, top_line=False)
+
+
+def _today_html(t: dict) -> str:
+    out = _wrapt(_section_title(t["title"])) + f'<div style="padding-top:8px;">{_chips_html(t["chips"])}</div>'
+    for ln in t["lines"]:
+        dot = {"green": "#22a559", "red": "#e5484d", "amber": "#d99a0b", "grey": "#9aa0a6"}[ln["tone"]]
+        out += _wrapt('<tr>' + f'<td width="46" valign="top" style="padding:3px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#6b7280;">{esc(ln["time"])}</td>'
+                      + f'<td width="14" valign="top" style="padding-top:8px;">' + _wrapt("<tr>" + _spacer(dot, "8", 8, "border-radius:4px;") + "</tr>", ' width="8"') + '</td>'
+                      + f'<td valign="top" style="padding:3px 0 3px 8px;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{esc(ln["text"])}</td></tr>')
+    if t.get("more"):
+        out += f'<div style="font-size:13px;color:#6b7280;padding-top:4px;font-family:{FONT};">+{t["more"]} earlier</div>'
+    return _block(out)
+
+
+def _plan_html(pl: dict) -> str:
+    out = _wrapt(_section_title(pl["title"])) + f'<div style="padding-top:8px;">{_chips_html(pl["chips"])}</div>'
+    out += f'<div style="font-size:14px;line-height:21px;color:#374151;font-family:{FONT};">{esc(pl["note"])}</div>'
+    return _block(out)
+
+
+def _vs_html(v: dict) -> str:
+    vmax = max(abs(v["you"]), abs(v["gold"])) or 1.0
+    def row(label, val, fig):
+        col = ON_LIGHT[fig["tone"]]
+        return ('<tr>' + f'<td width="84" style="padding:4px 0;font-family:{FONT};font-size:14px;font-weight:800;color:#1f2937;white-space:nowrap;">{esc(label)}</td>'
+                + f'<td valign="middle" style="padding:4px 8px;">{_diverge(val, vmax)}</td>'
+                + f'<td width="86" align="right" style="padding:4px 0;font-family:{FONT};font-size:14px;font-weight:700;color:{col};white-space:nowrap;">{esc(fig["text"])}</td></tr>')
+    head = _wrapt("<tr>" + f'<td style="font-family:{FONT};font-size:13px;letter-spacing:.8px;font-weight:700;color:#4b5563;">YOU VS GOLD · since {esc(v["since"])}</td>'
+                  + f'<td align="right">{_chip_html(*v["chip"]).replace("margin:0 6px 6px 0;", "margin:0;")}</td></tr>')
+    return _block(head + _wrapt(row("You", v["you"], v["you_fig"]) + row("Gold B&H", v["gold"], v["gold_fig"])))
+
+
+def _safety_html(s: dict) -> str:
+    lo, hi = s["stop"], s["peak_v"]
+    span = (hi - lo) or 1.0
+    def pos(x):
+        return max(0.0, min(100.0, (x - lo) / span * 100))
+    b25, b15 = pos(hi * (1 - s["dd2"])), pos(hi * (1 - s["dd1"]))
+    mk = pos(s["close"])
+    m0, m1 = max(0.0, mk - 1.5), min(100.0, mk + 1.5)
+    cuts = sorted({0.0, b25, b15, 100.0, m0, m1})
+    segs = []
+    for a, b in zip(cuts, cuts[1:]):
+        if b - a < 0.01:
+            continue
+        mid = (a + b) / 2
+        col = "#1f2937" if m0 <= mid <= m1 else "#e5484d" if mid < b25 else "#f0b400" if mid < b15 else "#22a559"
+        segs.append([col, b - a])
+    ints = [max(1, round(w)) for _, w in segs]
+    drift = 100 - sum(ints)
+    ints[ints.index(max(ints))] += drift
+    merged: list[list] = []
+    for (col, _), w in zip(segs, ints):
+        if merged and merged[-1][0] == col:
+            merged[-1][1] += w
+        else:
+            merged.append([col, w])
+    bar = _wrapt("<tr>" + "".join(_spacer(c, f"{w}%", 12) for c, w in merged) + "</tr>")
+    head = _wrapt("<tr>" + f'<td style="font-family:{FONT};font-size:13px;letter-spacing:.8px;font-weight:700;color:#4b5563;">SAFETY · now {esc(s["now"])}</td>'
+                  + f'<td align="right" style="font-family:{FONT};font-size:14px;color:#6b7280;">peak {esc(s["peak"])}</td></tr>')
+    return _block(head + f'<div style="padding-top:8px;">{bar}</div><div style="font-size:14px;line-height:21px;color:#1f2937;padding-top:6px;font-family:{FONT};">{esc(s["line"])}</div>')
+
+
+def _market_html(m: dict) -> str:
+    cells = ""
+    for i, c in enumerate(m["market"]):
+        if i:
+            cells += '<td width="6" style="font-size:0;line-height:0;">&nbsp;</td>'
+        tone = (c["today"] or {}).get("tone", "mute")
+        fig = (f'<div style="font-size:14px;line-height:20px;font-weight:700;color:{ON_LIGHT[tone]};">{esc(c["today"]["text"])}</div>'
+               f'<div style="font-size:13px;line-height:18px;color:#6b7280;">{esc(c["when"])}</div>') if c["today"] else ""
+        cells += _ctd("#f4f2ea", f"padding:8px 10px;border-radius:8px;font-family:{FONT};",
+                      f'<div style="font-size:14px;line-height:20px;font-weight:800;color:#1f2937;">{esc(c["name"])}</div>'
+                      f'<div style="font-size:14px;line-height:20px;color:#1f2937;">{esc(c["price"])}</div>{fig}', 'width="33%" valign="top"')
+    return _block(_wrapt(f"<tr>{cells}</tr>") + f'<div style="font-size:14px;line-height:21px;color:#1f2937;padding-top:10px;font-family:{FONT};">{esc(m["next_event"])}</div>')
+
+
+def _footer_html(m: dict) -> str:
+    btn = ""
+    if m["link"]:
+        btn = (f'<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+               + _ctd(NAVY, "border-radius:8px;", f'<a href="{_html.escape(m["link"], quote=True)}" style="display:inline-block;padding:12px 22px;font-family:{FONT};font-size:15px;'
+                      f'font-weight:700;color:#ffffff;text-decoration:none;">Open dashboard</a>', 'align="center"') + '</tr></table>')
+    ib = (f'<div style="padding-top:12px;font-family:{FONT};font-size:14px;line-height:21px;"><a href="{_html.escape(m["inbox"], quote=True)}" '
+          f'style="color:#1f2937;font-weight:700;">{INBOX_LABEL}</a></div>') if m.get("inbox") else ""
+    return _block(btn + ib + f'<div style="font-size:13px;line-height:19px;color:#6b7280;padding-top:10px;font-family:{FONT};">{esc(m["footer"])}</div>')
+
+
+def render_compact_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
+    m = compact_model(day, report_url, inbox_url, sample)
+    badge = ""
+    if sample:
+        badge = (f'<span style="display:inline-block;border:1px solid #c9a227;color:#8a6d12;font-size:13px;font-weight:700;letter-spacing:1px;'
+                 f'border-radius:4px;padding:1px 6px;margin-left:8px;">SAMPLE</span>')
+    head = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>Metals Daybook</title>'
+            '<style>:root{color-scheme:light only}</style></head>\n'
+            f'<body bgcolor="#f1f0ec" style="margin:0;padding:0;{_bg("#f1f0ec")}">\n'
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f1f0ec" style="{_bg("#f1f0ec")}"><tr>'
+            f'<td align="center" bgcolor="#f1f0ec" style="{_bg("#f1f0ec")}padding:8px 6px;">\n'
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="max-width:600px;{_bg("#ffffff")}border-radius:12px;">\n')
+    hd = (f'<tr><td style="padding:14px 16px 10px 16px;">' + _wrapt(
+        f'<tr><td align="left" style="font-family:{FONT};font-size:14px;font-weight:800;color:#1f2937;">{esc(m["header_left"])}{badge}</td>'
+        f'<td align="right" style="font-family:{FONT};font-size:14px;color:#6b7280;">{esc(m["header_right"])}</td></tr>')
+          + (f'<div style="font-family:{FONT};font-size:13px;line-height:19px;color:#6b7280;padding-top:4px;">NSE closed: {esc(m["holiday"])}</div>' if m.get("holiday") else "")
+          + '</td></tr>\n')
+    if m["alert"]:
+        hd += ('<tr><td style="padding:0 8px 10px 8px;">' + _wrapt("<tr>" + _ctd("#fbe6e3", f"padding:9px 12px;border-radius:8px;font-family:{FONT};font-size:14px;line-height:20px;font-weight:700;color:#8a1f17;", esc(m["alert"])) + "</tr>") + '</td></tr>\n')
+    body = _card_html(m)
+    if m["why"]:
+        body += _why_html(m["why"])
+    if m.get("plan"):
+        body += _plan_html(m["plan"])
+    if m.get("today_block"):
+        body += _today_html(m["today_block"])
+    if m.get("vs"):
+        body += _vs_html(m["vs"])
+    body += _safety_html(m["safety"]) + _market_html(m) + _footer_html(m)
+    return head + hd + body + '</table></td></tr></table></body></html>\n'
+
+
+# ---------------------------------------------------------------- plain text
+def render_compact_text(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
+    m = compact_model(day, report_url, inbox_url, sample)
+    L = [f"{m['header_left'].upper()} · {m['header_right']}" + (" (sample data, not a real trading day)" if sample else "")]
+    if m.get("holiday"):
+        L.append(f"NSE closed: {m['holiday']}")
+    if m["alert"]:
+        L.append(m["alert"])
+    L += ["", f"Total value {m['total']}", f"{m['overall']['label']} {m['overall']['text']}   |   {m['today']['label']} {m['today']['text']}",
+          f"Invested {m['invested']}   Cash {m['cash']}   Booked {m['booked']['text']}", m["recon"], m["caption"]]
+    for h in m["holdings"]:
+        extra = f" · stop {h['stop']}" if h["stop"] else ""
+        t = f" {h['today']['text']} {h['when']}" if h["today"] else ""
+        L.append(f"{h['symbol']} {h['qty']} × {h['atp']}{extra}: {h['pnl']['text']} · LTP {h['ltp']}{t}")
+    L.append(f"Cash {m['cash_row']['amount']} ({m['cash_row']['note']})")
+    if m["why"]:
+        w = m["why"]
+        L += ["", w["title"]]
+        for r in w["rows"]:
+            px = f" {r['price']} / {r['level']}" if r["price"] and r["level"] else ""
+            L.append(f"{r['symbol']} {r['state']}{px} · {r['line']}" if r["line"] else f"{r['symbol']} {r['state']}{px}")
+        if w["chips"]:
+            L.append("Rules: " + " · ".join(w["chips"]))
+        if w["sentence"]:
+            L.append(w["sentence"])
+    if m.get("plan"):
+        pl = m["plan"]
+        L += ["", pl["title"], " · ".join(t for t, _ in pl["chips"]), pl["note"]]
+    if m.get("today_block"):
+        t = m["today_block"]
+        L += ["", t["title"] + ": " + " · ".join(c for c, _ in t["chips"])]
+        L += [f"{ln['time']}  {ln['text']}" for ln in t["lines"]]
+        if t["more"]:
+            L.append(f"+{t['more']} earlier")
+    if m.get("vs"):
+        v = m["vs"]
+        L += ["", f"YOU VS GOLD · since {v['since']}: {v['chip'][0]}", f"You {v['you_fig']['text']}   Gold B&H {v['gold_fig']['text']}"]
+    s = m["safety"]
+    L += ["", f"SAFETY · now {s['now']} · peak {s['peak']}", s["line"], ""]
+    L.append("   ".join(f"{c['name']} {c['price']}" + (f" {c['today']['text']} {c['when']}" if c["today"] else "") for c in m["market"]))
+    L.append(m["next_event"])
+    if m["link"]:
+        L += ["", f"Open dashboard: {m['link']}"]
+    if m.get("inbox"):
+        L += [f"{INBOX_LABEL}: {m['inbox']}"]
+    L += ["", m["footer"]]
+    return "\n".join(L)
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
+    if _is_compact(day):
+        return render_compact_email(day, report_url, sample, inbox_url)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     date_line = f"{d0.strftime('%A')}, {d0.day} {d0.strftime('%B %Y')}"       # weekday from the date itself, never from a stored field
@@ -1826,6 +2556,8 @@ def _inbox_text(day: dict, inbox_url: str | None, sample: bool) -> list[str]:
 
 def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, report_url: str | None = None) -> str:
     day = prepare(day)
+    if _is_compact(day):
+        return render_compact_text(day, report_url, sample, inbox_url)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     when = f"{d0.strftime('%A')} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")

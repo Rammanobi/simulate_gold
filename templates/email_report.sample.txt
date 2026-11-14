@@ -1,85 +1,34 @@
-GOLDBEES / SILVERBEES / HINDCOPPER - Daily report
-Monday 12 Oct 2026 (sample data, not a real trading day)
+METALS DAYBOOK · Mon 12 Oct · close (sample data, not a real trading day)
 
-YOUR MONEY AT A GLANCE
+Total value ₹1,00,676
+Overall gain ↑ +₹676 (+0.68%)   |   Today's gain ↑ +₹676 (+0.68%)
+Invested ₹77,764   Cash ₹22,236   Booked → ₹0
+open +₹676 + booked ₹0 = overall +₹676
+Gold 29% · Silver 22% · Copper 27% · Cash 22%
+GOLDBEES 250 × ₹116.50: ↑ +₹146 (+0.50%) · LTP ₹117.20 ↑ +0.26% today
+SILVERBEES 120 × ₹180.00: ↑ +₹442 (+2.05%) · LTP ₹183.87 ↓ −1.59% today
+HINDCOPPER 90 × ₹300.00: ↑ +₹87 (+0.32%) · LTP ₹301.50 ↑ +0.50% today
+Cash ₹22,236 (idle, earns nothing)
 
-1. Total money now: ₹1,00,244.44
-   (What you'd have selling everything now)
-2. Invested in metals now: ₹49,575.60
-   (Metals held, valued at today's prices)
-   - GOLDBEES: 423 units × ₹117.20: ₹49,575.60
-   - Less: estimated cost of selling: −₹24.79
-   - Cash (idle money): ₹50,693.63
-3. Today's investment
-   (Money spent and received today)
-   - Spent on buys today: ₹49,279.50
-   - GOLDBEES: 423 units × ₹116.50 = ₹49,279.50
-   - Received from sells today: ₹0.00
-4. Overall investment so far
-   (Total bought and sold since start)
-   - Bought in total: ₹49,279.50
-   - Sold in total: ₹0.00
-5. Today's profit: +₹244.44 (+0.24%)
-   (Gain or loss since yesterday's close)
-6. Overall profit: +₹244.44 (+0.24%)
-   (Gain or loss since ₹1,00,000 start)
-7. Live profit right now: +₹244.44
-   (Gain on what you hold now)
+WHY CASH? TREND CHECK 15:10
+GOLDBEES ON ₹117.20 / ₹108.65 · cushion +7.3% · if ON alone 71% · now 29% / target 29%
+SILVERBEES ON ₹183.87 / ₹168.20 · cushion +8.5% · if ON alone 42% · now 22% / target 22%
+HINDCOPPER ON ₹301.50 / ₹281.00 · cushion +6.8% · if ON alone 35% · now 27% / target 27%
+Rules: min 50% in gold · gold if ON = min(1, 0.14/σ60) · silver cap 70% · copper cap 35% · trades only if gap > 5 pts
+Gold is ON, target 29%; Silver is ON, target 22%; Copper is ON, target 27%.
 
-Overall profit +₹244.44 = open gain +₹244.44 (after the cost of selling) + booked profit ₹0.00 (sells, after costs) + past interest on idle money ₹0.00 (earned before the 22 Oct switch to cash).
+TODAY: 1 buy · 0 sells · 1 blocked
+15:10  BUY HINDCOPPER · 90 units × ₹300.00 = ₹27,000.00
+15:26  blocked SILVERBEES · price shock −1.60%
 
-DETAILS
+YOU VS GOLD · since 6 Oct: 0.1 pts ahead
+You ↑ +0.7%   Gold B&H ↑ +0.6%
 
-HEADLINE
-Today's profit: +₹147.00
-Today's +₹147: +₹42 from closed trades, +₹89 from open positions, +₹17 LIQUIDBEES interest.
+SAFETY · now ₹1,00,676 · peak ₹1,00,676
+₹25,676 above stop · at peak · brake 0
 
-Today's profit:   +₹147.00 (+0.15%; vs yesterday's close ₹1,00,000.00)
-Portfolio value:  ₹1,00,147
-
-PORTFOLIO AND FLOOR
-Floor:              ₹99,500
-Distance to floor:  ₹647
-Next step:          floor moves to ₹1,00,000 once profit reaches ₹500
-Cash in LIQUIDBEES: ₹90,134 (LIQUIDBEES income today: ₹17)
-Costs paid today:   ₹26
-
-DAY AT A GLANCE
-Engine: Ran 09:15–15:29 IST · 375 minute checks
-Decisions: Allowed 4 (buys 2, sells 2) · Blocked 0 · Skipped 1 · Held 1
-GOLDBEES: ₹104.05 → ₹105.40 · +1.30% · low ₹103.90 – high ₹105.45
-SILVERBEES: ₹142.20 → ₹141.60 · −0.42% · low ₹141.10 – high ₹143.00
-HINDCOPPER: ₹312.40 → ₹313.35 · +0.30% · low ₹311.20 – high ₹314.10
-Money: Value ₹1,00,147.00 · day +₹147.00 · 10% GOLDBEES, 90% LIQUIDBEES (cash)
-
-MARKET TODAY
-Gold (global)     +0.8%  Weaker dollar after soft US jobs data
-Silver (global)   −0.4%  Rose midday, faded when the dollar bounced
-Copper (LME)      +0.3%  Steady; China demand unchanged
-Dollar index      −0.2%  Lower dollar usually helps gold
-USD/INR           +0.1%  Rupee slightly weaker
-
-DECISIONS
-09:52  BUY   GOLDBEES   190 units × ₹104.20 = ₹19,798.00  Dollar fell overnight and gold rose in Asia; price is above its 20-day average.
-11:05  SKIP  SILVERBEES   -- @ ₹141.90  Signal not strong enough (0.55, needs 0.65), and only ₹101 of today's risk budget was left.
-12:40  SELL  GOLDBEES   95 units × ₹105.10 = ₹9,984.50  Hit first target (+0.9%); sold half to lock profit and moved stop on the rest to the buy price. P&L +₹85.50.
-13:18  BUY   SILVERBEES 40 units × ₹142.50 = ₹5,700.00  Fast lane: US jobless claims jumped, rate-cut odds rose; Opus approved a small silver position.
-14:46  SELL  SILVERBEES 40 units × ₹141.40 = ₹5,656.00  Rally faded as the dollar bounced; Opus exited early instead of holding overnight. P&L −₹44.00.
-15:20  HOLD  GOLDBEES     95 @ ₹105.30  Overnight check passed: stop is at the buy price, so a gap down cannot touch the floor.
-
-HOLDINGS AT CLOSE
-GOLDBEES: 95 units, avg ₹104.20, close ₹105.40, value ₹10,013, unrealised +₹114
-
-WHERE TODAY'S P&L CAME FROM
-Trades closed (realized): +₹42
-Open positions (unrealised): +₹89
-LIQUIDBEES income: +₹17
-Total: +₹147
-(Costs of ₹26 are already included above.)
-
-TOMORROW
-US inflation data comes out at 18:00 IST tomorrow, after NSE closes. The 15:20 overnight check will keep positions small before it.
-
+Gold ₹117.20 ↑ +0.26% today   Silver ₹183.87 ↓ −1.59% today   Copper ₹301.50 ↑ +0.50% today
+Next event: CPI Wed 14 Oct 18:00
 Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-10-12
 
-This is a paper simulation. No real money or orders were placed.
+Paper trading · no real money · engine 372 checks
