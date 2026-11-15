@@ -42,18 +42,44 @@ def switch_on(root: Path) -> bool:
     return bool((params.get("report") or {}).get("morning_email"))
 
 
-def already_sent(root: Path, date: str) -> bool:
+CLAIM_TTL = dt.timedelta(minutes=15)
+
+
+def marker_blocks(text: str | None, date: str, now: dt.datetime) -> bool:
+    """True when this marker text means 'the email for `date` is sent or being sent'. A claim older than CLAIM_TTL
+    (run killed between claim and send) or one with an unreadable timestamp counts as released."""
     try:
-        d = json.loads((Path(root) / MARKER).read_text(encoding="utf-8"))
-        return isinstance(d, dict) and d.get("date") == date
-    except (OSError, ValueError):
+        d = json.loads(text or "")
+    except ValueError:
         return False
+    if not isinstance(d, dict) or d.get("date") != date:
+        return False
+    if d.get("status", "sent") != "claimed":
+        return True
+    try:
+        t = dt.datetime.fromisoformat(str(d["claimed_utc"]))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=dt.timezone.utc)
+    except (KeyError, ValueError):
+        return False
+    return (now.astimezone(dt.timezone.utc) - t) < CLAIM_TTL
+
+
+def already_sent(root: Path, date: str, now: dt.datetime | None = None) -> bool:
+    try:
+        text = (Path(root) / MARKER).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return marker_blocks(text, date, now or dt.datetime.now(dt.timezone.utc))
 
 
 def write_marker(root: Path, date: str, now: dt.datetime, status: str = "sent") -> None:
     p = Path(root) / MARKER
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"date": date, "sent_at": now.isoformat(timespec="seconds"), "status": status}, indent=1) + "\n", encoding="utf-8")
+    d = {"date": date, "sent_at": now.isoformat(timespec="seconds"), "status": status}
+    if status == "claimed":
+        d["claimed_utc"] = now.astimezone(dt.timezone.utc).isoformat(timespec="seconds")
+    p.write_text(json.dumps(d, indent=1) + "\n", encoding="utf-8")
 
 
 def renderer_available(root: Path, runner=subprocess.run) -> bool:
@@ -86,27 +112,49 @@ def subject_problem(subject: str) -> str | None:
     if not subject.startswith(BE.SUBJECT_PREFIX):
         return "the generated subject does not start with 'Metals Daybook'"
     for ch in subject:
-        if ch != "\u00b7" and (unicodedata.category(ch) in ("So", "Sk", "Cf", "Cs", "Cn", "Co", "Cc") or ord(ch) >= 0x1F000):
+        if ch != "\u00b7" and (unicodedata.category(ch) in ("So", "Sk", "Cf", "Cs", "Cn", "Co", "Cc", "Mn", "Me", "Mc")
+                                or 0xFE00 <= ord(ch) <= 0xFE0F or ord(ch) >= 0x1F000):
             return "the generated subject contains an emoji or symbol character"
     return None
 
 
-def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep) -> bool:
-    """Commit state/morning_sent.json and push it to main (pull --rebase first). True only when a push succeeded."""
+def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep, claim: bool = False, date: str = "",
+                now: dt.datetime | None = None) -> bool:
+    """Commit state/morning_sent.json and push it to main. True only when a push succeeded.
+
+    claim=True is the race-safe path: no `-X theirs`; before every push the marker on origin is re-read and if another run
+    already claimed or sent `date` we give up. On any failure the local claim commit is dropped (reset --hard to upstream),
+    so nothing leaves a stray 'claimed' marker behind for a later push."""
     def git(*a):
-        return subprocess.run(["git", *a], cwd=str(root), capture_output=True, text=True).returncode
+        return subprocess.run(["git", *a], cwd=str(root), capture_output=True, text=True)
+
+    def drop():
+        if git("reset", "--hard", "@{u}").returncode != 0:
+            git("reset", "--hard", "origin/main")
+
     git("config", "user.name", "simgold-morning-email")
     git("config", "user.email", "actions@users.noreply.github.com")
     git("add", "-A", "--", str(MARKER))
-    if git("diff", "--cached", "--quiet") != 0:
-        if git("commit", "-q", "-m", message) != 0:
+    if git("diff", "--cached", "--quiet").returncode != 0:
+        if git("commit", "-q", "-m", message).returncode != 0:
             return False
     for i in range(retries):
-        if git("pull", "--rebase", "--autostash", "-X", "theirs", "-q") != 0:
+        if claim:
+            git("fetch", "-q")
+            up = git("show", f"@{{u}}:{MARKER.as_posix()}")
+            if up.returncode == 0 and marker_blocks(up.stdout, date, now or dt.datetime.now(dt.timezone.utc)):
+                break                                                    # someone else claimed or sent: we lost
+            if git("pull", "--rebase", "--autostash", "-q").returncode != 0:
+                git("rebase", "--abort")
+                sleep(1)
+                continue
+        elif git("pull", "--rebase", "--autostash", "-X", "theirs", "-q").returncode != 0:
             git("rebase", "--abort")
-        if git("push", "-q") == 0:
+        if git("push", "-q").returncode == 0:
             return True
         sleep(5)
+    if claim:
+        drop()
     return False
 
 
@@ -124,26 +172,26 @@ def build_message(subject: str, sender: str, recipient: str, text: str, html: st
 
 def run(root: Path, date: str | None, environ, force=False, dry_run=False, now=None, smtp_factory=None,
         runner=subprocess.run, out=print, publish=None, clock=None) -> int:
-    """publish(message) -> bool commits+pushes the marker (None: no git, e.g. tests/local runs). clock() -> now, re-read before sending."""
+    """publish(message, claim=False) -> bool commits+pushes the marker (None: no git, e.g. tests/local runs). clock() -> now, re-read before sending."""
     root = Path(root)
     now = (now or parse_now(None)).astimezone(IST)
     today = now.date()
     date = date or today.isoformat()
-    if not force and not switch_on(root):
-        out("morning email switch is off (report.morning_email: false); nothing to do")
-        return 0
     try:
         day = dt.date.fromisoformat(date)
     except ValueError:
         out("REFUSED: date must look like 2026-10-13")
         return 2
+    if not force and not switch_on(root):
+        out("morning email switch is off (report.morning_email: false); nothing to do")
+        return 0
     if not is_trading_day(day):
         out(f"{date} is not an NSE trading day; skipped")
         return 0
     if day != today or now.time() >= CUTOFF:
         out("too late, skipped (the morning email is only sent on the day, before 11:00 IST)")
         return 0
-    if already_sent(root, date):
+    if already_sent(root, date, now):
         out(f"already sent for {date}; skipped")
         return 0
     if not renderer_available(root, runner):
@@ -183,16 +231,21 @@ def run(root: Path, date: str | None, environ, force=False, dry_run=False, now=N
         return 0
     # claim BEFORE sending: the marker must be on main first, so a failed push can never lead to a second email
     write_marker(root, date, later, "claimed")
-    if publish and not publish(f"morning-email: {date} claim"):
-        (root / MARKER).unlink(missing_ok=True)
-        out("could not push the claim marker; nothing sent")
+    mine = (root / MARKER).read_text(encoding="utf-8")
+    if publish and not publish(f"morning-email: {date} claim", claim=True):
+        try:                                   # drop our own stray marker, never one a git reset restored from another run
+            if (root / MARKER).read_text(encoding="utf-8") == mine:
+                (root / MARKER).unlink()
+        except OSError:
+            pass
+        out("could not push the claim marker (or another run already claimed it); nothing sent")
         return 1
     try:
         BE.send(msg, sender, password, recipient, smtp_factory)
     except Exception as e:  # noqa: BLE001 - never echo the exception text (it can hold addresses)
         (root / MARKER).unlink(missing_ok=True)
         if publish:
-            publish(f"morning-email: {date} claim released (send failed)")
+            publish(f"morning-email: {date} claim released (send failed)", claim=False)
         out(f"SMTP failed: {type(e).__name__}")
         return 1
     write_marker(root, date, later, "sent")
@@ -215,7 +268,7 @@ def main(argv=None) -> int:
     root = Path(a.root)
     return run(root, a.date or None, os.environ, a.force, a.dry_run, parse_now(a.now),
                out=lambda s: print(s, flush=True),
-               publish=(lambda m: git_publish(root, m)) if a.git else None,
+               publish=(lambda m, claim=False: git_publish(root, m, claim=claim, date=a.date or parse_now(a.now).date().isoformat())) if a.git else None,
                clock=None if a.now else (lambda: parse_now(None)))
 
 

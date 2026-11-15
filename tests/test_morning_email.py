@@ -200,7 +200,7 @@ def test_workflow_secrets_only_in_the_send_step_and_inputs_not_inlined():
     assert all("github.event.inputs" not in s.get("run", "") for s in steps)          # no script injection
     assert any("morning_email.py" in s.get("run", "") for s in steps)
     assert any("state/morning_sent.json" in s.get("run", "") for s in steps)
-    assert "rebase --abort || true" in WF_TEXT and 'exit 1; fi' in WF_TEXT         # abort never kills the step; a failed push is visible
+    assert "rebase --abort || true" in WF_TEXT and 'if: success()' in WF_TEXT and '"status": "sent"' in WF_TEXT and 'exit 1; fi' in WF_TEXT         # abort never kills the step; a failed push is visible
     send = next(s for s in steps if s.get("name") == "Send the morning email")["run"]
     assert "--git" in send and "date input must look like" in send                 # claim-before-send; bad date fails the run
 
@@ -216,7 +216,7 @@ def test_claim_is_published_before_the_smtp_send_and_sent_update_after(root):
     set_switch(root, True)
     events = []
 
-    def publish(msg):
+    def publish(msg, claim=False):
         events.append(("publish", msg, json.loads((root / ME.MARKER).read_text())["status"], len(FakeSMTP.instances)))
         return True
     assert go(root, publish=publish)[0] == 0
@@ -226,7 +226,7 @@ def test_claim_is_published_before_the_smtp_send_and_sent_update_after(root):
 
 def test_failed_claim_push_sends_nothing(root):
     set_switch(root, True)
-    code, out = go(root, publish=lambda m: False)
+    code, out = go(root, publish=lambda m, claim=False: False)
     assert code == 1 and not FakeSMTP.instances and not (root / ME.MARKER).exists() and "nothing sent" in out
 
 
@@ -234,11 +234,11 @@ def test_smtp_failure_releases_the_claim(root):
     set_switch(root, True)
     FakeSMTP.fail = RuntimeError("x")
     msgs = []
-    code, _ = go(root, publish=lambda m: msgs.append(m) or True)
+    code, _ = go(root, publish=lambda m, claim=False: msgs.append(m) or True)
     assert code == 1 and not (root / ME.MARKER).exists() and "released" in msgs[-1]
 
 
-@pytest.mark.parametrize("subj", ["Metals Daybook \U0001F4C8 Thu", "Metals Daybook \u2705 ok", "Metals Daybook \u200d x"])
+@pytest.mark.parametrize("subj", ["Metals Daybook \U0001F4C8 Thu", "Metals Daybook \u2705 ok", "Metals Daybook \u200d x", "Metals Daybook 1\ufe0f\u20e3", "Metals Daybook \u2764\ufe0f"])
 def test_emoji_subject_refused(root, subj):
     set_switch(root, True)
     assert go(root, runner=make_runner(root, subject=subj))[0] == 2 and not FakeSMTP.instances
@@ -264,3 +264,72 @@ def test_git_publish_fails_visibly_when_no_push_succeeds(root, monkeypatch):
     monkeypatch.setattr(ME.subprocess, "run", fake_run)
     assert ME.git_publish(root, "m", sleep=lambda s: None) is False
     assert calls.count("push") == 3 and "rebase" in calls
+
+
+def test_bad_date_fails_even_when_switch_is_off(root):
+    set_switch(root, False)
+    code, out = go(root, date="2026-13-45")
+    assert code == 2 and "REFUSED" in out and not FakeSMTP.instances
+
+
+def test_fresh_claim_blocks_but_stale_claim_is_released(root):
+    set_switch(root, True)
+    ME.write_marker(root, DAY, at(hm="08:50"), "claimed")
+    assert "already sent" in go(root, now=at(hm="08:56"))[1] and not FakeSMTP.instances
+    code, out = go(root, now=at(hm="09:10"))                                  # 20 min later: the claimer died
+    assert code == 0 and len(FakeSMTP.instances) == 1
+    assert json.loads((root / ME.MARKER).read_text())["status"] == "sent"
+
+
+def test_sent_marker_never_expires(root):
+    ME.write_marker(root, DAY, at(hm="08:00"), "sent")
+    assert ME.already_sent(root, DAY, at(hm="10:50"))
+
+
+def _git(cwd, *a):
+    return subprocess.run(["git", *a], cwd=str(cwd), capture_output=True, text=True, check=True).stdout
+
+
+def _clone_pair(tmp_path):
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    seed = tmp_path / "seed"
+    _git(tmp_path, "clone", "-q", str(origin), str(seed))
+    _git(seed, "config", "user.email", "a@b.c"); _git(seed, "config", "user.name", "s")
+    (seed / "README").write_text("x")
+    _git(seed, "add", "-A"); _git(seed, "commit", "-qm", "init"); _git(seed, "push", "-q", "origin", "HEAD:main")
+    clones = []
+    for n in ("a", "b"):                                   # both check out BEFORE either claims
+        c = tmp_path / n
+        _git(tmp_path, "clone", "-q", str(origin), str(c))
+        clones.append(c)
+    return origin, clones
+
+
+def _run_clone(c, runner_root, smtp):
+    publish = lambda m, claim=False: ME.git_publish(c, m, claim=claim, date=DAY, now=at(), sleep=lambda s: None)  # noqa: E731
+    said = []
+    code = ME.run(c, None, dict(ENV), force=True, now=at(), smtp_factory=smtp, runner=make_runner(c), out=said.append, publish=publish)
+    return code, "\n".join(said)
+
+
+def test_two_clones_race_exactly_one_send(tmp_path):
+    origin, (a, b) = _clone_pair(tmp_path)
+    assert _run_clone(a, a, FakeSMTP)[0] == 0 and len(FakeSMTP.instances) == 1
+    code, out = _run_clone(b, b, FakeSMTP)                  # b's checkout predates a's claim and shows no marker
+    assert code == 1 and len(FakeSMTP.instances) == 1 and "nothing sent" in out
+    assert _git(b, "status", "--porcelain", "--untracked-files=no").strip() == ""          # no stray local claim commit/changes
+    assert _git(b, "rev-parse", "HEAD") == _git(b, "rev-parse", "origin/main")
+    main_marker = _git(tmp_path, "--git-dir", str(origin), "show", f"main:{ME.MARKER.as_posix()}")
+    assert json.loads(main_marker)["status"] == "sent"
+
+
+def test_failed_claim_push_drops_the_local_commit(tmp_path):
+    origin, (a, b) = _clone_pair(tmp_path)
+    _git(origin.parent, "--git-dir", str(origin), "config", "receive.denyCurrentBranch", "ignore")
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n"); hook.chmod(0o755)                              # every push is rejected
+    code, out = _run_clone(a, a, FakeSMTP)
+    assert code == 1 and not FakeSMTP.instances
+    assert _git(a, "rev-parse", "HEAD") == _git(a, "rev-parse", "origin/main")
+    assert not (a / ME.MARKER).exists()

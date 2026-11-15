@@ -66,10 +66,10 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       - name: Commit the sent marker
-        if: always()
+        if: success()          # never after a failed send step: the tool already cleaned up its own claim
         run: |
           git config user.name "simgold-morning-email"; git config user.email "actions@users.noreply.github.com"
-          for p in state/morning_sent.json; do [ -e "$p" ] && git add -A -- "$p"; done
+          if grep -q '"status": "sent"' state/morning_sent.json 2>/dev/null; then git add -A -- state/morning_sent.json; fi   # never a bare claim
           git diff --cached --quiet || git commit -qm "morning-email: $(date +%F) sent"
           ok=0
           for i in 1 2 3; do
