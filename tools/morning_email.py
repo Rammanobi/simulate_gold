@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import time
+import uuid
 import unicodedata
 import sys
 from email.message import EmailMessage
@@ -78,6 +79,7 @@ def write_marker(root: Path, date: str, now: dt.datetime, status: str = "sent") 
     p.parent.mkdir(parents=True, exist_ok=True)
     d = {"date": date, "sent_at": now.isoformat(timespec="seconds"), "status": status}
     if status == "claimed":
+        d["nonce"] = f"{os.environ.get('GITHUB_RUN_ID', '')}-{uuid.uuid4().hex}"      # two runs never write identical claims
         d["claimed_utc"] = now.astimezone(dt.timezone.utc).isoformat(timespec="seconds")
     p.write_text(json.dumps(d, indent=1) + "\n", encoding="utf-8")
 
@@ -113,9 +115,18 @@ def subject_problem(subject: str) -> str | None:
         return "the generated subject does not start with 'Metals Daybook'"
     for ch in subject:
         if ch != "\u00b7" and (unicodedata.category(ch) in ("So", "Sk", "Cf", "Cs", "Cn", "Co", "Cc", "Mn", "Me", "Mc")
-                                or 0xFE00 <= ord(ch) <= 0xFE0F or ord(ch) >= 0x1F000):
+                                or 0xFE00 <= ord(ch) <= 0xFE0F or ord(ch) >= 0x1F000
+                                or (ord(ch) > 127 and unicodedata.category(ch) == "Sm")):
             return "the generated subject contains an emoji or symbol character"
     return None
+
+
+def marker_nonce(text: str | None) -> str | None:
+    try:
+        d = json.loads(text or "")
+        return str(d["nonce"]) if isinstance(d, dict) and "nonce" in d else None
+    except ValueError:
+        return None
 
 
 def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep, claim: bool = False, date: str = "",
@@ -123,7 +134,8 @@ def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep, cl
     """Commit state/morning_sent.json and push it to main. True only when a push succeeded.
 
     claim=True is the race-safe path: no `-X theirs`; before every push the marker on origin is re-read and if another run
-    already claimed or sent `date` we give up. On any failure the local claim commit is dropped (reset --hard to upstream),
+    already claimed or sent `date` we give up, and after a push the marker on origin must carry OUR nonce (a no-op push of a
+    dropped identical commit would otherwise look like success). On any failure the local claim commit is dropped (reset --hard to upstream),
     so nothing leaves a stray 'claimed' marker behind for a later push."""
     def git(*a):
         return subprocess.run(["git", *a], cwd=str(root), capture_output=True, text=True)
@@ -138,6 +150,7 @@ def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep, cl
     if git("diff", "--cached", "--quiet").returncode != 0:
         if git("commit", "-q", "-m", message).returncode != 0:
             return False
+    own = marker_nonce((Path(root) / MARKER).read_text(encoding="utf-8")) if claim and (Path(root) / MARKER).exists() else None
     for i in range(retries):
         if claim:
             git("fetch", "-q")
@@ -151,7 +164,13 @@ def git_publish(root: Path, message: str, retries: int = 3, sleep=time.sleep, cl
         elif git("pull", "--rebase", "--autostash", "-X", "theirs", "-q").returncode != 0:
             git("rebase", "--abort")
         if git("push", "-q").returncode == 0:
-            return True
+            if not claim:
+                return True
+            git("fetch", "-q")
+            up = git("show", f"@{{u}}:{MARKER.as_posix()}")
+            if up.returncode == 0 and own is not None and marker_nonce(up.stdout) == own:
+                return True
+            break                                                        # pushed nothing of ours: someone else holds the claim
         sleep(5)
     if claim:
         drop()

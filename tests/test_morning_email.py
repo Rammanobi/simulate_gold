@@ -333,3 +333,43 @@ def test_failed_claim_push_drops_the_local_commit(tmp_path):
     assert code == 1 and not FakeSMTP.instances
     assert _git(a, "rev-parse", "HEAD") == _git(a, "rev-parse", "origin/main")
     assert not (a / ME.MARKER).exists()
+
+
+def test_same_second_claims_have_different_nonces(root):
+    ME.write_marker(root, DAY, at(), "claimed"); a = (root / ME.MARKER).read_text()
+    ME.write_marker(root, DAY, at(), "claimed"); b = (root / ME.MARKER).read_text()
+    assert a != b and ME.marker_nonce(a) != ME.marker_nonce(b)
+
+
+def test_same_second_race_with_precheck_blind_exactly_one_send(tmp_path, monkeypatch):
+    """Both clones claim in the same second and the pre-push 'someone else claimed' check sees nothing (the race window)."""
+    origin, (a, b) = _clone_pair(tmp_path)
+    monkeypatch.setattr(ME, "marker_blocks", lambda *x, **k: False)
+    assert _run_clone(a, a, FakeSMTP)[0] == 0
+    code, out = _run_clone(b, b, FakeSMTP)
+    assert code == 1 and len(FakeSMTP.instances) == 1 and "nothing sent" in out
+    assert _git(b, "rev-parse", "HEAD") == _git(b, "rev-parse", "origin/main")
+
+
+def test_threaded_race_exactly_one_send(tmp_path):
+    import threading
+    origin, clones = _clone_pair(tmp_path)
+    bar = threading.Barrier(2)
+    codes = []
+
+    def worker(c):
+        def publish(m, claim=False):
+            if claim:
+                bar.wait(timeout=30)
+            return ME.git_publish(c, m, claim=claim, date=DAY, now=at(), sleep=lambda s: None)
+        codes.append(ME.run(c, None, dict(ENV), force=True, now=at(), smtp_factory=FakeSMTP, runner=make_runner(c),
+                            out=lambda s: None, publish=publish))
+    ts = [threading.Thread(target=worker, args=(c,)) for c in clones]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert len(FakeSMTP.instances) == 1 and sorted(codes) == [0, 1]
+
+
+def test_non_ascii_arrow_in_subject_refused_but_plus_allowed(root):
+    set_switch(root, True)
+    assert go(root, runner=make_runner(root, subject="Metals Daybook \u00b7 \u2191 up"))[0] == 2
+    assert go(root, runner=make_runner(root, subject="Metals Daybook \u00b7 +\u20b9100"))[0] == 0
