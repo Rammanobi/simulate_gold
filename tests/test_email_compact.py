@@ -554,3 +554,94 @@ def test_examples_are_internally_consistent(examples):
         if d.get("vs_gold"):
             assert abs(d["vs_gold"]["you"] - (ms["total_now"] / 100000 - 1) * 100) < 0.01, name
         assert c["day"].get("next_event", "") >= "" and "14 Oct" not in d.get("next_event", ""), name
+
+
+# ------------------------------------------------------------------ holding rows and the Cash row, each against its own value
+def _rows_html(c):
+    v = visible(c["html"])
+    out = {"holdings": {}, "cash": None}
+    for m in re.finditer(r"([A-Z]{6,10}) ([\d,]+) × (₹[\d,.]+)(?: · stop ₹[\d,.]+)? ([↑↓→] [+−]?₹[\d,]+ \([^)]*\)) LTP (₹[\d,.]+)", v):
+        out["holdings"][m.group(1)] = {"qty": m.group(2), "atp": m.group(3), "pnl": m.group(4), "ltp": m.group(5)}
+    for m in re.finditer(r"([\d,]+) shares × (₹[\d,.]+) = (₹[\d,]+) · (₹[\d,]+) after selling cost", v):
+        for h in out["holdings"].values():
+            if h["qty"] == m.group(1) and "worth" not in h:
+                h["worth"] = m.groups()
+                break
+    m = re.search(r"Cash (idle[^₹]*?) (₹[\d,]+) (?:WHY|PLAN|TODAY|YOU|SAFETY)", v)
+    out["cash"] = (m.group(2), m.group(1)) if m else None
+    return out
+
+
+def _rows_text(c):
+    t = c["text"]
+    out = {"holdings": {}, "cash": None}
+    for m in re.finditer(r"^([A-Z]{6,10}) ([\d,]+) × (₹[\d,.]+)(?: · stop ₹[\d,.]+)?: ([↑↓→] [+−]?₹[\d,]+ \([^)]*\)) · LTP (₹[\d,.]+).*\n  ([\d,]+) shares × (₹[\d,.]+) = (₹[\d,]+) · (₹[\d,]+) after selling cost$", t, re.M):
+        out["holdings"][m.group(1)] = {"qty": m.group(2), "atp": m.group(3), "pnl": m.group(4), "ltp": m.group(5), "worth": m.groups()[5:]}
+    m = re.search(r"^Cash (₹[\d,]+) \((idle[^)]*)\)$", t, re.M)
+    out["cash"] = (m.group(1), m.group(2)) if m else None
+    return out
+
+
+def test_holding_rows_and_cash_row_match_their_own_values(real, morning, examples):
+    for name, c in all_cases(real, morning, examples):
+        ms = c["day"]["money_summary"]
+        held = [r for r in ms["funds"]["rows"] if r["kind"] == "fund" and r.get("held")]
+        h, t = _rows_html(c), _rows_text(c)
+        assert set(h["holdings"]) == set(t["holdings"]) == {r["symbol"] for r in held}, name
+        for r in held:
+            for src in (h, t):
+                row = src["holdings"][r["symbol"]]
+                assert row["qty"] == f"{int(r['units']):,}" and row["atp"] == report.inr(r["avg_price"], 2) and row["ltp"] == report.inr(r["price"], 2), (name, r["symbol"])
+                assert row["pnl"].replace(" ", "").startswith(("↑" if round(r["profit"]) > 0 else "↓" if round(r["profit"]) < 0 else "→") + report.sg(r["profit"])), (name, row["pnl"])
+                assert tuple(row["worth"])[-3:] == (report.inr(r["price"], 2), report.inr(r.get("gross_value", r["value"])), report.inr(r["value"])), (name, row["worth"])
+                assert row["worth"][-4] == f"{int(r['units']):,}"
+            assert h["holdings"][r["symbol"]]["pnl"] == t["holdings"][r["symbol"]]["pnl"]
+        cash = next(r for r in ms["funds"]["rows"] if r["kind"] == "cash")
+        assert h["cash"] and t["cash"], name
+        assert h["cash"][0] == t["cash"][0] == report.inr(cash["value"]) == report.inr(ms["cash"]), name
+        assert h["cash"][1].startswith("idle") and t["cash"][1].startswith("idle"), name
+
+
+def test_text_cash_row_printing_the_invested_amount_fails(real):
+    ms = real["day"]["money_summary"]
+    inv, cash = report.inr(ms["funds"]["total"]["invested"]), report.inr(ms["cash"])
+    assert inv != cash
+    bad = {**real, "text": real["text"].replace(f"Cash {cash} (idle", f"Cash {inv} (idle")}
+    assert bad["text"] != real["text"]
+    assert _rows_text(bad)["cash"][0] == inv != _rows_html(real)["cash"][0]
+
+
+def test_wrong_holding_value_in_text_fails(real):
+    t = real["text"].replace("₹50,754 after selling cost", "₹50,779 after selling cost")
+    assert t != real["text"]
+    assert _rows_text({"text": t})["holdings"]["GOLDBEES"]["worth"][-1] != _rows_html(real)["holdings"]["GOLDBEES"]["worth"][-1]
+
+
+# ------------------------------------------------------------------ exact .05 gap: one figure everywhere (13 Nov style rounding)
+def test_pts_gap_exact_half_is_the_same_figure_on_every_surface(real, root, monkeypatch):
+    monkeypatch.setattr(report, "_first_gold_price", lambda *a, **k: 100.0)
+    monkeypatch.setattr(report, "_latest_gold_price", lambda *a, **k: 100.09)      # gold +0.09%
+    day = copy.deepcopy(real["day"])
+    day["portfolio"]["close"] = 106040.0                                          # account +6.04% -> exact gap 5.95
+    day["vs_gold"] = report._vs_gold(DAY, root, day)
+    day["owner_top"] = report.owner_top(DAY, root, day)
+    assert day["vs_gold"]["diff"] == 6.0
+    assert round(round(6.04, 1) - round(0.09, 1), 1) == 5.9           # the old double rounding said 5.9 here
+    h, t = visible(report.render_email(day, LINK)), report.render_text(day, report_url=LINK)
+    assert "6.0 pts ahead" in h and "6.0 pts ahead" in t and "5.9 pts" not in h + t
+    assert "(6.0 pts ahead)" in day["owner_top"]["vs_hold"]
+    # and a behind case, half away from zero
+    day["portfolio"]["close"] = 93960.0
+    monkeypatch.setattr(report, "_latest_gold_price", lambda *a, **k: 99.91)
+    day["vs_gold"], day["owner_top"] = report._vs_gold(DAY, root, day), report.owner_top(DAY, root, day)
+    assert "6.0 pts behind" in visible(report.render_email(day, LINK)) and "(6.0 pts behind)" in day["owner_top"]["vs_hold"]
+
+
+# ------------------------------------------------------------------ morning fallback is labelled
+def test_morning_fallback_body_says_it_is_the_last_close(morning, monkeypatch):
+    monkeypatch.setattr(report, "compact_model", lambda *a, **k: (_ for _ in ()).throw(ValueError("boom")))
+    day = morning["day"]
+    h, t = visible(report.render_email(day, LINK)), report.render_text(day, report_url=LINK)
+    for x in (h, t):
+        assert "Pre-open plan for Mon 9 Nov" in x and "last close, Fri 6 Nov" in x and "CPI Mon 9 Nov 19:00" in x and "Silver: favour" in x
+    assert day["subject"] == "Metals Daybook · Mon 9 Nov · pre-open plan"

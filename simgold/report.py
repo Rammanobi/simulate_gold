@@ -2506,6 +2506,15 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
     return "\n".join(L)
 
 
+def _morning_fallback_note(day: dict) -> list[str]:
+    """Lines placed above the AB fallback body of a morning email, so a 'pre-open plan' subject never sits over an unlabelled last-evening report."""
+    pl = day.get("plan") or {}
+    ev = ", ".join(pl.get("events") or []) or "no events today"
+    bias = " · ".join(f"{k.title()}: {v}" for k, v in (pl.get("bias") or {}).items())
+    return [f"Pre-open plan for {_dlabel(day.get('morning_date') or day['date'])} (simplified layout). The report below is the last close, {_dlabel(day['date'])}.",
+            f"Plan today: {ev}. Biases: {bias}."]
+
+
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     if _is_compact(day):
@@ -2513,6 +2522,14 @@ def render_email(day: dict, report_url: str | None = None, sample: bool = False,
             return render_compact_email(day, report_url, sample, inbox_url)
         except Exception as e:  # noqa: BLE001 - an email must always go out: fall back to the AB renderer below
             _compact_failed("html", day, e)
+            if day.get("kind") == "morning":
+                body = _render_email_ab(day, report_url, sample, inbox_url)
+                note = "".join(f'<div style="font-family:{FONT};font-size:14px;line-height:21px;color:#1f2937;padding:10px 12px;">{esc(x)}</div>' for x in _morning_fallback_note(day))
+                return re.sub(r"(<body[^>]*>)", lambda m: m.group(1) + note, body, count=1)
+    return _render_email_ab(day, report_url, sample, inbox_url)
+
+
+def _render_email_ab(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     date_line = f"{d0.strftime('%A')}, {d0.day} {d0.strftime('%B %Y')}"       # weekday from the date itself, never from a stored field
@@ -2660,6 +2677,12 @@ def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, r
             return render_compact_text(day, report_url, sample, inbox_url)
         except Exception as e:  # noqa: BLE001 - fall back to the AB text below
             _compact_failed("text", day, e)
+            if day.get("kind") == "morning":
+                return "\n".join(_morning_fallback_note(day)) + "\n\n" + _render_text_ab(day, sample, inbox_url, report_url)
+    return _render_text_ab(day, sample, inbox_url, report_url)
+
+
+def _render_text_ab(day: dict, sample: bool = False, inbox_url: str | None = None, report_url: str | None = None) -> str:
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     when = f"{d0.strftime('%A')} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")
