@@ -27,6 +27,10 @@ def make_day(positions: dict, trades: list, prices: dict, style: str = "A", date
     params["report"] = {"portfolio_style": style}
     eq = equity or [("2026-10-28", START)]
     ms = summary.money_summary(pf, prices, eq, date, params)
+    if equity is None:      # yesterday's close consistent with the positions: today's change is the price move (+ costs), not a jump from 100,000
+        prev_total = _prev_total(ms, positions, trades, prices, date)
+        eq = [("2026-10-28", prev_total)]
+        ms = summary.money_summary(pf, prices, eq, date, params)
     norm = holdings.merge_trades([holdings.normalize_trade(t) for t in trades])
     px = {**{s: 0 for s in holdings.SYMS}, **prices}
     px = {k: v for k, v in px.items() if v}
@@ -38,7 +42,69 @@ def make_day(positions: dict, trades: list, prices: dict, style: str = "A", date
     day["money_summary"] = ms
     day["holdings_view"] = {"date": date, "rows": rows, "ledger": ledger, "ledger_total": total, "ledger_shown": len(ledger),
                             "total_value": round(sum(r["value"] for r in rows), 2)}
+    _make_consistent(day, ms, positions, trades, prices, date, eq)
     return day
+
+
+PREV_PX = {"GOLDBEES": 116.9, "SILVERBEES": 186.85, "HINDCOPPER": 300.0}
+QUOTES = {"GOLDBEES": 117.2, "SILVERBEES": 183.87, "HINDCOPPER": 301.5}
+
+
+def _prev_total(ms: dict, positions: dict, trades: list, prices: dict, date: str) -> float:
+    """Yesterday's close: today's total minus today's price moves on what was held and on what was bought today."""
+    move = 0.0
+    for s, (q, avg, _c) in positions.items():
+        px = prices.get(s)
+        if not px:
+            continue
+        bought = sum(t["qty"] for t in trades if t["asset"] == s and t["side"] == "BUY" and t["ts"][:10] == date)
+        move += (q - bought) * (px - PREV_PX.get(s, avg))
+        for t in trades:
+            if t["asset"] == s and t["side"] == "BUY" and t["ts"][:10] == date:
+                move += t["qty"] * (px - t["price"]) - t["costs"]
+    return round(ms["total_now"] - move, 2)
+
+
+def _make_consistent(day: dict, ms: dict, positions: dict, trades: list, prices: dict, date: str, eq: list) -> None:
+    """The sample day carries another day's portfolio/safety/targets/decisions; rewrite them from this scenario's own numbers
+    so the compact email shows one consistent story (total = cash + holdings, targets = holdings, trades = today's fills)."""
+    from simgold import report
+    tot, prev = ms["total_now"], eq[-1][1]
+    peak = max(START, prev, tot)
+    day["portfolio"].update({"open": prev, "prev_close_date": eq[-1][0], "close": tot, "day_pnl": round(tot - prev, 2),
+                             "day_pnl_pct": round((tot / prev - 1) * 100, 2), "month_pnl": round(tot - START, 2),
+                             "month_pnl_pct": round((tot / START - 1) * 100, 2), "next_value": tot, "distance_to_floor": round(tot - 75000, 2),
+                             "cash_in_liquidbees": 0.0, "peak": peak, "drawdown_from_peak": round(max(0.0, 1 - tot / peak), 4)})
+    day["safety"] = {"stop": 75000, "peak": peak, "level": 0, "dd1": 0.15, "dd2": 0.25}
+    gold = prices.get("GOLDBEES")
+    g0 = 116.0
+    you = (tot / START - 1) * 100
+    day["vs_gold"] = ({"since": "13 Oct", "you": round(you, 3), "gold": round((gold / g0 - 1) * 100, 3), "diff": report.pts_gap(you, (gold / g0 - 1) * 100)}
+                      if gold else None)
+    if not day["vs_gold"]:
+        day.pop("vs_gold")
+    day["prev_closes"] = {k: v for k, v in PREV_PX.items() if k in prices}
+    day["next_event"] = "JOBS Fri 6 Nov 19:00"
+    rows = {r["symbol"]: r for r in ms["funds"]["rows"] if r.get("kind") == "fund"}
+    targets = []
+    for t in day["targets"]:
+        sym, held = t["symbol"], bool(positions.get(t["symbol"], (0,))[0])
+        close = prices.get(sym) or QUOTES[sym]
+        level = round(close * (0.93 if held else 1.07), 2)
+        share = (rows.get(sym) or {}).get("share_pct") or 0.0
+        targets.append({**t, "state": "ON" if held else "OFF", "close": close, "level": level, "level_raw": level,
+                        "gap_pct": round((level / close - 1) * 100, 2), "target_pct": round(share) if held else 0.0,
+                        "actual_pct": round(share) if held else 0.0})
+    day["targets"] = targets
+    todays = [t for t in trades if t["ts"][:10] == date]
+    decs = [{"time": t["ts"][11:16], "action": t["side"], "symbol": t["asset"], "qty": t["qty"], "price": t["price"], "amount": round(t["qty"] * t["price"], 2),
+             "pnl": t.get("pnl") if t["side"] == "SELL" else None, "reason": "test", "trigger": "Trend check", "stop": 0, "risk": 0} for t in todays]
+    day["decisions"] = decs
+    day["counts"] = {"buys": sum(t["side"] == "BUY" for t in todays), "sells": sum(t["side"] == "SELL" for t in todays), "skips": 0, "blocks": 0,
+                     "holds": 0, "fast_lane_runs": 0}
+    day["holdings_close"] = [{"symbol": r["symbol"], "qty": r["units"], "avg": r["avg_price"], "close": r["price"], "value": r["value"],
+                              "gross_value": r.get("gross_value", r["value"]), "unrealized": r["profit"], "stop": 0.0}
+                             for r in rows.values() if r.get("held")]
 
 
 PRICES3 = {"GOLDBEES": 117.20, "SILVERBEES": 183.87, "HINDCOPPER": 301.50}

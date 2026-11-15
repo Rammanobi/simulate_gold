@@ -676,6 +676,13 @@ def _owner_action(date: str, root: Path, day: dict) -> str:
     return "none"
 
 
+def pts_gap(you: float, gold: float) -> float:
+    """You minus gold buy-and-hold in percentage points, rounded ONCE to one decimal, half away from zero, from the unrounded
+    values. Every surface (owner_top line, compact email chip, day JSON) uses this, so they can never say 6.0 and 5.9."""
+    from decimal import Decimal, ROUND_HALF_UP
+    return float(Decimal(repr(round(you - gold, 6))).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+
+
 def owner_top(date: str, root: Path, day: dict) -> dict:
     """{"vs_hold": line 1, "action": line 2} for the top of the email."""
     root = Path(root)
@@ -689,7 +696,7 @@ def owner_top(date: str, root: Path, day: dict) -> dict:
         line1 = "You vs simply holding gold: not available yet."
     elif g0 and g1:
         gold = (g1 / g0 - 1) * 100
-        diff = round(acct - gold, 1)
+        diff = pts_gap(acct, gold)
         verdict = "level" if diff == 0 else f"{abs(diff):.1f} pts {'ahead' if diff > 0 else 'behind'}"
         line1 = (f"You vs simply holding gold: account {pc(acct)} vs GOLDBEES buy-and-hold {pc(gold)} since {since} start ({verdict})")
     else:
@@ -741,6 +748,14 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     except Exception:          # the weekly line is extra; never fail the report over it
         pass
     add_compact_data(day, date, root)
+    try:
+        gap = _unrecorded_gap(date, root, day)
+        if gap:
+            day["today_gap"] = gap
+            if day.get("kind") != "morning" and day.get("subject"):
+                day["subject"] = subject_line(day)
+    except Exception:          # the wording is extra; never fail the report over it
+        pass
     day["fixed_today"] = fixed_today(date, root)
     day["system_health"] = system_health(date, root)
     day["thrift"] = budget.is_thrift(Path(root) / "state")
@@ -1151,11 +1166,14 @@ def subject_line(day: dict) -> str:
         return f"Metals Daybook · 🏖️ {label} · Market closed"
     pnl = day["portfolio"]["day_pnl"]
     r = _round(pnl)
+    since = ""
+    if (day.get("today_gap") or {}).get("since"):      # a session was not recorded: this is the change since the older close
+        since = f" since {_dlabel(day['today_gap']['since'])}"
     if r > 0:
-        return f"Metals Daybook · 📈 {label} · {sg(pnl)} (green)"
+        return f"Metals Daybook · 📈 {label} · {sg(pnl)}{since} (green)"
     if r < 0:
-        return f"Metals Daybook · 📉 {label} · {sg(pnl)} (red)"
-    return f"Metals Daybook · 📊 {label} · ₹0 (flat)"
+        return f"Metals Daybook · 📉 {label} · {sg(pnl)}{since} (red)"
+    return f"Metals Daybook · 📊 {label} · ₹0{since} (flat)"
 
 
 # ---------------------------------------------------------------- P&L story
@@ -1772,6 +1790,12 @@ def _dlabel(d: str) -> str:
     return f"{x.strftime('%a')} {x.day} {x.strftime('%b')}"
 
 
+def _compact_failed(kind: str, day: dict, err: Exception) -> None:
+    """Log why the compact render fell back to the AB renderer (stderr; the report must still go out)."""
+    import sys
+    print(f"report: compact {kind} render failed for {day.get('date')} ({type(err).__name__}: {err}); using the AB renderer", file=sys.stderr)
+
+
 def _is_compact(day: dict, style: str | None = None) -> bool:
     s = str(style or ((day.get("money_summary") or {}).get("funds") or {}).get("style") or "").upper()
     return s == COMPACT and bool(day.get("money_summary"))
@@ -1782,16 +1806,18 @@ def _vs_gold(date: str, root: Path, day: dict) -> dict | None:
     ms = day.get("money_summary") or {}
     start = _start_day(root)
     g0 = _first_gold_price(root, start)
-    g1 = next((m["price"] for m in ms.get("metals", []) if m.get("symbol") == START_GOLD_SYMBOL), None)
+    g1 = _latest_gold_price(root, date)          # the same gold price as owner_top, so both lines use one number
+    if not g1:
+        g1 = next((m["price"] for m in ms.get("metals", []) if m.get("symbol") == START_GOLD_SYMBOL), None)
     if not g1:
         g1 = next((r.get("price") for r in (ms.get("funds") or {}).get("rows", []) if r.get("symbol") == START_GOLD_SYMBOL), None)
-    g1 = g1 or _latest_gold_price(root, date)
-    you = ms.get("overall_pct")
+    close = _num((day.get("portfolio") or {}).get("close")) or _num(ms.get("total_now"))
+    you = (close / START_CAPITAL - 1) * 100 if close else ms.get("overall_pct")      # the same unrounded account % as owner_top
     if not (g0 and g1 and you is not None):
         return None
     d0 = dt.date.fromisoformat(start)
     gold = (g1 / g0 - 1) * 100
-    return {"since": f"{d0.day} {d0.strftime('%b')}", "you": round(you, 3), "gold": round(gold, 3), "diff": round(round(you, 1) - round(gold, 1), 1)}
+    return {"since": f"{d0.day} {d0.strftime('%b')}", "you": round(you, 3), "gold": round(gold, 3), "diff": pts_gap(you, gold)}
 
 
 def _safety(root: Path, p: dict) -> dict:
@@ -1871,6 +1897,30 @@ def previous_session(date: str, root: Path) -> str:
     return d.isoformat()
 
 
+def _unrecorded_gap(date: str, root: Path, day: dict) -> dict | None:
+    """When the money summary's previous close is NOT the previous trading session of `date` (a session was never recorded),
+    "today" is really the change since that older close: {"since": ISO date, "missing": [ISO dates of the unrecorded sessions]}."""
+    ms = day.get("money_summary") or {}
+    pcd = ms.get("prev_close_date")
+    if not pcd or day.get("closed") or str(pcd) >= date:
+        return None
+    root = Path(root)
+    missing, d = [], dt.date.fromisoformat(date) - dt.timedelta(days=1)
+    stop = dt.date.fromisoformat(str(pcd))
+    while d > stop:
+        if not market_closed_reason(d.isoformat(), root):
+            missing.append(d.isoformat())
+        d -= dt.timedelta(days=1)
+    if not missing:
+        return None
+    return {"since": str(pcd), "missing": sorted(missing)}
+
+
+def _gap_note(gap: dict) -> str:
+    miss = ", ".join(f"{dt.date.fromisoformat(x).day} {dt.date.fromisoformat(x).strftime('%b')}" for x in gap["missing"])
+    return f"{len(gap['missing']) + 1} sessions · {miss} not recorded"
+
+
 def add_compact_data(day: dict, date: str, root: Path) -> None:
     """Numbers only the compact email needs; each step is optional and never fails the report."""
     root = Path(root)
@@ -1907,8 +1957,10 @@ def build_morning(date: str, root: Path) -> dict:
         del day["next_event"]
     g = _read_json(root / "state" / "guidance.json", {}) or {}
     bias = g.get("bias") if isinstance(g, dict) and isinstance(g.get("bias"), dict) else {}
+    upd = str((g.get("updated") if isinstance(g, dict) else "") or "")[:10]
+    stale = not (len(upd) == 10 and upd >= prev)      # older than the last trading day: the engine ignores it (neutral), so say so
     day["plan"] = {"date": date, "events": [_event_label(e) for e in _events(root) if e["date"] == date],
-                   "bias": {k: str(bias.get(k, "neutral")).lower() for k in ("GOLD", "SILVER", "COPPER")}}
+                   "bias": {k: "neutral (stale)" if stale else str(bias.get(k, "neutral")).lower() for k in ("GOLD", "SILVER", "COPPER")}}
     day["subject"] = subject_line(day)
     return day
 
@@ -2004,8 +2056,12 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
     if closed:
         m["today"] = {"label": "Today", "text": "market closed", "tone": "mute"}
     else:
-        if morning:
-            word = "Gain" if _round(td) >= 0 else "Loss"
+        gap = day.get("today_gap")
+        word = "Gain" if _round(td) >= 0 else "Loss"
+        if gap:
+            lab = f"{word} since {_dlabel(gap['since'])}"
+            m["today_note"] = _gap_note(gap)
+        elif morning:
             lab = f"{word} on {_dlabel(d_data)}"
         else:
             lab = "Today's gain" if _round(td) >= 0 else "Today's loss"
@@ -2020,7 +2076,9 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
     split = _split(rows)
     m["split"] = split
     m["caption"] = " · ".join(f"{FUND_NAMES[k]} {c}%" for k, c in split)
-    when = "yesterday" if morning else "today"
+    when = "today"
+    if morning:      # 'yesterday' only when the data day really is the day before; else the weekday (Monday morning: 'Fri')
+        when = "yesterday" if (dt.date.fromisoformat(d_show) - dt.date.fromisoformat(d_data)).days == 1 else dt.date.fromisoformat(d_data).strftime("%a")
     m["holdings"] = []
     for r in held:
         pv = prev.get(r["symbol"])
@@ -2046,7 +2104,7 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
         wrows = []
         for t in tg:
             on = str(t.get("state")).upper() == "ON"
-            lvl, cl, gap, wif = t.get("level"), t.get("close"), t.get("gap_pct"), t.get("weight_if_on")
+            lvl, cl, gap, wif = (_num(t.get(k)) for k in ("level", "close", "gap_pct", "weight_if_on"))     # a malformed log value is just missing
             line = []
             if gap is not None:
                 line.append(f"{'cushion' if on else 'needs'} {pc(abs(gap) if on else gap, 1)}")
@@ -2097,7 +2155,7 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
             else:
                 txt = f"{'blocked' if d['action'] == 'BLOCK' else 'skipped'} {d['symbol']} · {_short_reason(d)}"
                 tone = "amber"
-            lines.append({"time": d["time"], "tone": tone, "text": txt})
+            lines.append({"time": d["time"], "tone": tone, "text": txt, "lead": txt.split(" ", 1)[0]})
         lines.sort(key=lambda ln: _mins(_hhmm(ln["time"]) or "00:00"))
         more = max(0, len(lines) - 5)
         m["today_block"] = {"title": "TODAY", "chips": chips, "lines": lines[-5:], "more": more}
@@ -2128,7 +2186,7 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
         px = r.get("price") if r else None
         pv = prev.get(sym)
         cards.append({"name": name, "price": inr(px, 2) if px else "–",
-                      "today": _pfig((px / pv - 1) * 100) if px and pv else None, "when": "yesterday" if morning else "today"})
+                      "today": _pfig((px / pv - 1) * 100) if px and pv else None, "when": when})
     m["market"] = cards
     ne = day.get("next_event")
     m["next_event"] = f"Next event: {ne}" if ne else "No further events listed"
@@ -2219,9 +2277,11 @@ def _card_html(m: dict) -> str:
         td_cell = f'{lab(td["label"], "right")}<div style="font-size:15px;line-height:24px;font-weight:700;text-align:right;color:{D["mute"]};">{esc(td["text"])}</div>'
     else:
         td_cell = lab(td["label"], "right") + val(td, "right")
-    top = (f'<tr>' + _ctd(NAVY, "padding:16px 16px 0 16px;", lab("Total value") + f'<div style="font-size:34px;line-height:42px;font-weight:800;color:#ffffff;">{esc(m["total"])}</div>', 'colspan="1"') + '</tr>')
+    top = (f'<tr>' + _ctd(NAVY, "padding:16px 16px 0 16px;border-radius:14px 14px 0 0;", lab("Total value") + f'<div style="font-size:34px;line-height:42px;font-weight:800;color:#ffffff;">{esc(m["total"])}</div>', 'colspan="1"') + '</tr>')
     two = (f'<tr>' + _ctd(NAVY, "padding:10px 16px 0 16px;", _wrapt("<tr>" + _ctd(NAVY, "", lab(ov["label"]) + val(ov), 'align="left" valign="top"')
                                                                     + _ctd(NAVY, "", td_cell, 'align="right" valign="top"') + "</tr>")) + '</tr>')
+    if m.get("today_note"):
+        two += f'<tr>' + _ctd(NAVY, f"padding:2px 16px 0 16px;font-size:13px;line-height:18px;color:{D['mute']};text-align:right;", esc(m["today_note"])) + '</tr>'
     three = (f'<tr>' + _ctd(NAVY, "padding:10px 16px 0 16px;", _wrapt(
         "<tr>" + _ctd(NAVY, "", lab("Invested") + f'<div style="font-size:15px;line-height:22px;font-weight:700;color:#ffffff;">{esc(m["invested"])}</div>', 'width="34%" align="left" valign="top"')
         + _ctd(NAVY, "", lab("Cash", "center") + f'<div style="font-size:15px;line-height:22px;font-weight:700;color:#ffffff;text-align:center;">{esc(m["cash"])}</div>', 'width="32%" align="center" valign="top"')
@@ -2240,11 +2300,11 @@ def _card_html(m: dict) -> str:
             + _ctd(NAVY, "", val(h["pnl"], "right", 15) + f'<div style="font-size:13px;line-height:19px;color:{D["mute"]};text-align:right;">{ltp_html}</div>', 'align="right" valign="top"') + "</tr>"
             + f'<tr><td colspan="2" style="font-family:{FONT};font-size:13px;line-height:19px;color:{D["mute"]};padding-top:4px;">{esc(h["worth"])}</td></tr>')) + '</tr>')
     cr = m["cash_row"]
-    rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};", _wrapt(
-        "<tr>" + _ctd(NAVY, "", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">Cash</span> <span style="font-size:13px;color:{D["mute"]};">{esc(cr["note"])}</span>', 'align="left"')
-        + _ctd(NAVY, "", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">{esc(cr["amount"])}</span>', 'align="right"') + "</tr>")) + '</tr>')
+    rows += ('<tr>' + _ctd(NAVY, f"padding:12px 16px;border-top:1px solid {NAVY_LINE};border-radius:0 0 14px 14px;", _wrapt(
+        "<tr>" + _ctd(NAVY, "border-radius:0 0 0 14px;", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">Cash</span> <span style="font-size:13px;color:{D["mute"]};">{esc(cr["note"])}</span>', 'align="left"')
+        + _ctd(NAVY, "border-radius:0 0 14px 0;", f'<span style="font-size:15px;font-weight:800;color:#ffffff;">{esc(cr["amount"])}</span>', 'align="right"') + "</tr>")) + '</tr>')
     card = _wrapt(top + two + three + recon + bar + cap + rows)
-    return (f'<tr><td style="padding:0 8px 0 8px;">' + _wrapt("<tr>" + _ctd(NAVY, "border-radius:14px;", card) + "</tr>") + '</td></tr>\n')
+    return (f'<tr><td style="padding:0 8px 0 8px;">' + _wrapt("<tr>" + _ctd(NAVY, "border-radius:14px;overflow:hidden;", card) + "</tr>") + '</td></tr>\n')
 
 
 def _why_html(w: dict) -> str:
@@ -2272,9 +2332,16 @@ def _today_html(t: dict) -> str:
     out = _wrapt(_section_title(t["title"])) + f'<div style="padding-top:8px;">{_chips_html(t["chips"])}</div>'
     for ln in t["lines"]:
         dot = {"green": "#22a559", "red": "#e5484d", "amber": "#d99a0b", "grey": "#9aa0a6"}[ln["tone"]]
+        txt = esc(ln["text"])
+        lead = ln.get("lead")
+        if lead and ln["text"].startswith(lead + " "):      # the verb (blocked / skipped / BUY / SELL) is bold in the tone's dark colour
+            col = {"green": "#15803d", "red": "#b42318", "amber": "#a85a00", "grey": "#374151"}[ln["tone"]]
+            txt = f'<b style="color:{col};">{esc(lead)}</b>' + txt[len(esc(lead)):]
+        dot_tbl = (f'<table role="presentation" width="8" cellpadding="0" cellspacing="0" style="width:8px;"><tr>'
+                   + _spacer(dot, "8", 8, "border-radius:4px;") + "</tr></table>")      # a real 8 px round dot, not a full-width pill
         out += _wrapt('<tr>' + f'<td width="46" valign="top" style="padding:3px 0;font-family:{FONT};font-size:14px;line-height:20px;color:#6b7280;">{esc(ln["time"])}</td>'
-                      + f'<td width="14" valign="top" style="padding-top:8px;">' + _wrapt("<tr>" + _spacer(dot, "8", 8, "border-radius:4px;") + "</tr>", ' width="8"') + '</td>'
-                      + f'<td valign="top" style="padding:3px 0 3px 8px;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{esc(ln["text"])}</td></tr>')
+                      + f'<td width="14" valign="top" style="padding-top:8px;">' + dot_tbl + '</td>'
+                      + f'<td valign="top" style="padding:3px 0 3px 8px;font-family:{FONT};font-size:14px;line-height:20px;color:#1f2937;">{txt}</td></tr>')
     if t.get("more"):
         out += f'<div style="font-size:13px;color:#6b7280;padding-top:4px;font-family:{FONT};">+{t["more"]} earlier</div>'
     return _block(out)
@@ -2395,8 +2462,10 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
         L.append(f"NSE closed: {m['holiday']}")
     if m["alert"]:
         L.append(m["alert"])
-    L += ["", f"Total value {m['total']}", f"{m['overall']['label']} {m['overall']['text']}   |   {m['today']['label']} {m['today']['text']}",
-          f"Invested {m['invested']}   Cash {m['cash']}   Booked {m['booked']['text']}", m["recon"], m["caption"]]
+    L += ["", f"Total value {m['total']}", f"{m['overall']['label']} {m['overall']['text']}   |   {m['today']['label']} {m['today']['text']}"]
+    if m.get("today_note"):
+        L.append(m["today_note"])
+    L += [f"Invested {m['invested']}   Cash {m['cash']}   Booked {m['booked']['text']}", m["recon"], m["caption"]]
     for h in m["holdings"]:
         extra = f" · stop {h['stop']}" if h["stop"] else ""
         t = f" {h['today']['text']} {h['when']}" if h["today"] else ""
@@ -2440,7 +2509,10 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
 def render_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     day = prepare(day)
     if _is_compact(day):
-        return render_compact_email(day, report_url, sample, inbox_url)
+        try:
+            return render_compact_email(day, report_url, sample, inbox_url)
+        except Exception as e:  # noqa: BLE001 - an email must always go out: fall back to the AB renderer below
+            _compact_failed("html", day, e)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     date_line = f"{d0.strftime('%A')}, {d0.day} {d0.strftime('%B %Y')}"       # weekday from the date itself, never from a stored field
@@ -2584,7 +2656,10 @@ def _inbox_text(day: dict, inbox_url: str | None, sample: bool) -> list[str]:
 def render_text(day: dict, sample: bool = False, inbox_url: str | None = None, report_url: str | None = None) -> str:
     day = prepare(day)
     if _is_compact(day):
-        return render_compact_text(day, report_url, sample, inbox_url)
+        try:
+            return render_compact_text(day, report_url, sample, inbox_url)
+        except Exception as e:  # noqa: BLE001 - fall back to the AB text below
+            _compact_failed("text", day, e)
     p = day["portfolio"]
     d0 = dt.date.fromisoformat(day["date"])
     when = f"{d0.strftime('%A')} {d0.day} {d0.strftime('%b %Y')}" + (" (sample data, not a real trading day)" if sample else "")

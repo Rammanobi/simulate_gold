@@ -50,7 +50,7 @@ def root(tmp_path_factory, shipped_config):
         "HINDCOPPER": {"price": 424.0, "ts": "2026-11-06T15:29:00+05:30", "prev_close": 427.33}}), encoding="utf-8")
     (r / "state" / "events.json").write_text(json.dumps([
         {"date": "2026-11-06", "type": "JOBS", "time": "19:00"}, {"date": "2026-11-09", "type": "CPI", "time": "19:00"}]), encoding="utf-8")
-    (r / "state" / "guidance.json").write_text(json.dumps({"bias": {"GOLD": "neutral", "SILVER": "favour", "COPPER": "block"}}), encoding="utf-8")
+    (r / "state" / "guidance.json").write_text(json.dumps({"updated": "2026-11-06T14:00:00+05:30", "bias": {"GOLD": "neutral", "SILVER": "favour", "COPPER": "block"}}), encoding="utf-8")
     (r / "state" / "budget.json").write_text(json.dumps({"mode": "THRIFT"}), encoding="utf-8")
     return r
 
@@ -256,7 +256,7 @@ def test_morning_variant(morning):
     v, t = visible(morning["html"]), morning["text"]
     assert "Mon 9 Nov · pre-open" in v and "PLAN TODAY" in v and "Loss on Fri 6 Nov" in v and "LAST CHECK FRI 15:10" in v
     assert "CPI Mon 9 Nov 19:00" in v and "Copper: block" in v and "Silver: favour" in v
-    assert "yesterday" in v and ">TODAY<" not in morning["html"] and "No trades ·" not in v
+    assert "−1.63% Fri" in v and ">TODAY<" not in morning["html"] and "No trades ·" not in v
     assert "PLAN TODAY" in t and morning["day"]["subject"] == "Metals Daybook · Mon 9 Nov · pre-open plan"
     assert "₹1,00,328" in v
 
@@ -358,3 +358,199 @@ def test_no_horizontal_overflow_at_390px(real, morning, examples, tmp_path):
     finally:
         b.close()
         pw.stop()
+
+
+# ------------------------------------------------------------------ crash safety: an email always goes out
+BAD = {"level_kind": "sma200", "level": "n/a", "close": "x", "gap_pct": "?", "weight_if_on": "n/a"}
+
+
+def test_malformed_target_record_still_gives_an_email(root, tmp_path, shipped_config):
+    r = tmp_path / "bad"
+    shutil.copytree(root, r)
+    f = r / "logs" / "decisions-2026-11-06.jsonl"
+    rec = {"ts": "2026-11-06T15:11:00+05:30", "time": "15:11", "action": "TARGET", "symbol": "GOLDBEES", "qty": 0, "price": 116.13, "amount": 0.0,
+           "pnl": None, "reason": "x", "trigger": "Trend check", "state": "OFF", "target_pct": 50.0, "actual_pct": 50.6, **BAD}
+    f.write_text(f.read_text(encoding="utf-8") + json.dumps(rec) + "\n", encoding="utf-8")
+    day = report.build_day(DAY, r)
+    h, t = report.render_email(day, LINK), report.render_text(day, report_url=LINK)
+    assert "WHY CASH" in h and "₹1,00,328" in visible(h) and "₹1,00,328" in t        # still the compact email, the bad numbers are just missing
+    mday = report.build_morning("2026-11-09", r)
+    assert "PLAN TODAY" in visible(report.render_email(mday, LINK))
+
+
+def test_malformed_target_dicts_in_the_day(real, morning):
+    for base in (real, morning):
+        day = copy.deepcopy(base["day"])
+        day["targets"] = [{**t, **BAD} for t in day["targets"]] + [{"symbol": "GOLDBEES", "state": None}, {"symbol": "SILVERBEES", "level": object()}]
+        assert "₹1,00,328" in visible(report.render_email(day, LINK))
+        assert "₹1,00,328" in report.render_text(day, report_url=LINK)
+
+
+def test_compact_failure_falls_back_to_ab(real, morning, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise ValueError("could not convert string to float: 'n/a'")
+    monkeypatch.setattr(report, "compact_model", boom)
+    for base, expect in ((real, "₹1,00,328"), (morning, "₹1,00,328")):
+        h, t = report.render_email(base["day"], LINK), report.render_text(base["day"], report_url=LINK)
+        assert report.FUNDS_TITLE in h and "WHY CASH" not in h and expect in h and expect in t, base["day"]["date"]
+    assert "compact html render failed" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ unrecorded session: "since" wording
+GAP_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module")
+def gap13(shipped_config):
+    if not any(ln.startswith("2026-11-13") for ln in (GAP_ROOT / "state" / "equity.csv").read_text(encoding="utf-8").splitlines()):
+        pytest.skip("13 Nov is not in this checkout's equity.csv")
+    day = report.build_day("2026-11-13", GAP_ROOT)
+    return {"day": day, "html": report.render_email(day, LINK), "text": report.render_text(day, report_url=LINK)}
+
+
+def test_unrecorded_session_relabels_today(gap13):
+    day, h, t = gap13["day"], visible(gap13["html"]), gap13["text"]
+    assert day["money_summary"]["prev_close_date"] == "2026-11-11"
+    assert day["today_gap"] == {"since": "2026-11-11", "missing": ["2026-11-12"]}
+    for x in (h, t):
+        assert "since Wed 11 Nov" in x and "2 sessions · 12 Nov not recorded" in x
+        assert "Today's loss" not in x and "Today's gain" not in x
+    assert "since Wed 11 Nov" in day["subject"] and "Thu 12" not in day["subject"]
+    assert day["subject"].startswith("Metals Daybook · ") and "Fri 13 Nov" in day["subject"]
+
+
+def test_normal_day_keeps_today_wording(real):
+    assert "Today's loss" in visible(real["html"]) and "not recorded" not in visible(real["html"]) and "since" not in real["day"]["subject"]
+    assert "today_gap" not in real["day"]
+
+
+def test_gap_in_the_morning_cell(gap13):
+    mday = report.build_morning("2026-11-16", GAP_ROOT)
+    assert mday["today_gap"]["since"] == "2026-11-11"
+    v = visible(report.render_email(mday, LINK))
+    assert "since Wed 11 Nov" in v and "not recorded" in v and "on Fri 13 Nov" not in v
+
+
+# ------------------------------------------------------------------ one rounding rule for "pts ahead"
+def test_pts_gap_rounds_once_half_away_from_zero():
+    assert report.pts_gap(6.0, 0.05) == 6.0          # exactly 5.95 -> 6.0, not the double-rounded 5.9 / 6.0 split
+    assert report.pts_gap(0.05, 6.0) == -6.0
+    assert report.pts_gap(1.04, 0.0) == 1.0 and report.pts_gap(1.26, 0.0) == 1.3
+    # the old double rounding disagrees: round(6.04,1) - round(0.09,1) = 5.9 vs the exact 5.95
+    assert round(round(6.04, 1) - round(0.09, 1), 1) == 6.0 - 0.1 and report.pts_gap(6.04, 0.09) == 6.0
+
+
+def test_vs_gold_and_owner_top_say_the_same_number(real, root):
+    chip = real["day"]["vs_gold"]["diff"]
+    line = real["day"]["owner_top"]["vs_hold"]
+    m = re.search(r"\(([\d.]+) pts (ahead|behind)\)", line)
+    assert m and (float(m.group(1)) * (1 if m.group(2) == "ahead" else -1)) == chip
+    assert f"{abs(chip):.1f} pts" in visible(real["html"])
+
+
+# ------------------------------------------------------------------ cosmetics of the approved image
+def test_navy_card_keeps_its_rounded_corners(real):
+    h = real["html"]
+    assert "border-radius:14px;overflow:hidden" in h
+    assert "border-radius:14px 14px 0 0" in h and "border-radius:0 0 14px 14px" in h      # first and last inner cells carry the radius too
+
+
+def test_timeline_dots_are_round_8px_and_verb_is_bold(real):
+    h = real["html"]
+    assert '<table role="presentation" width="8" cellpadding="0" cellspacing="0" style="width:8px;">' in h
+    assert re.search(r'<b style="color:#a85a00;">blocked</b> GOLDBEES', h)
+
+
+# ------------------------------------------------------------------ morning variant
+def test_monday_morning_uses_the_weekday_not_yesterday(morning):
+    v = visible(morning["html"])
+    assert "Fri" in morning["day"]["date"] or morning["day"]["date"] == "2026-11-06"
+    assert "yesterday" not in v and "yesterday" not in morning["text"]
+    assert "−1.63% Fri" in v and "−1.63% Fri" in morning["text"]
+
+
+def test_tuesday_morning_still_says_yesterday(root, shipped_config):
+    day = report.build_morning("2026-11-09", root)
+    day["morning_date"] = "2026-11-07"        # data day 6 Nov, shown on 7 Nov: the day before
+    assert "yesterday" in visible(report.render_email(day, LINK))
+
+
+def test_stale_guidance_biases_show_as_stale(root, tmp_path, shipped_config):
+    r = tmp_path / "stale"
+    shutil.copytree(root, r)
+    g = {"updated": "2026-11-05T14:00:00+05:30", "bias": {"GOLD": "block", "SILVER": "block", "COPPER": "favour"}}
+    (r / "state" / "guidance.json").write_text(json.dumps(g), encoding="utf-8")
+    day = report.build_morning("2026-11-09", r)
+    v = visible(report.render_email(day, LINK))
+    assert "Gold: neutral (stale)" in v and "Copper: neutral (stale)" in v and "block" not in v.split("PLAN TODAY")[1].split("Every trade")[0]
+    g["updated"] = "2026-11-06T14:00:00+05:30"
+    (r / "state" / "guidance.json").write_text(json.dumps(g), encoding="utf-8")
+    v = visible(report.render_email(report.build_morning("2026-11-09", r), LINK))
+    assert "Gold: block" in v and "Copper: favour" in v and "stale" not in v
+
+
+# ------------------------------------------------------------------ HTML vs text, field by field
+def _labelled_html(m):
+    """Each labelled value of the broker card, read back from the HTML (label cell, then the value in the same cell)."""
+    out = {}
+    for label in ("Total value", "Invested", "Cash", "Booked"):
+        mm = re.search(rf">{label}</div><div[^>]*>(.*?)</div>", m["html"])
+        out[label] = re.sub(r"<[^>]+>", "", htmllib.unescape(mm.group(1))).strip() if mm else None
+    for key, label in (("Overall", "Overall (?:gain|loss)"), ("Today", r"(?:Today's (?:gain|loss)|(?:Gain|Loss) (?:on|since) [^<]+)")):
+        mm = re.search(rf">{label}</div><div[^>]*>(.*?)</div>", m["html"])
+        if mm:
+            out[key] = re.sub(r"<[^>]+>", "", htmllib.unescape(mm.group(1))).strip()
+    return out
+
+
+def _labelled_text(t):
+    out = {}
+    out["Total value"] = re.search(r"^Total value (\S+)", t, re.M).group(1)
+    mo = re.search(r"^Overall (?:gain|loss) (.+?)   \|   (?:Today's (?:gain|loss)|Gain on|Loss on|Gain since|Loss since)[^\n]*? ([↑↓→] [+−]?₹[\d,]+ \([^)]*\))$", t, re.M)
+    mi = re.search(r"^Invested (\S+)   Cash (\S+)   Booked ([^\n]+)$", t, re.M)
+    out["Invested"], out["Cash"], out["Booked"] = mi.groups()
+    out["Overall"], out["Today"] = mo.groups() if mo else (None, None)
+    return out
+
+
+def test_each_labelled_field_matches_its_own_value(real, morning, examples):
+    for name, c in all_cases(real, morning, examples):
+        h, t = _labelled_html(c), _labelled_text(c["text"])
+        h = {k: re.sub(r"\s+", "", v or "") for k, v in h.items()}
+        t = {k: re.sub(r"\s+", "", v or "") for k, v in t.items()}
+        for k in ("Total value", "Invested", "Cash", "Booked", "Overall", "Today"):
+            assert h[k] and h[k] == t[k], (name, k, h[k], t[k])
+        # and the values are the right ones, not merely equal to each other
+        ms = c["day"]["money_summary"]
+        assert t["Total value"] == report.inr(ms["total_now"]).replace(" ", "")
+        assert t["Cash"] == report.inr(ms["cash"]) and t["Invested"] == report.inr(ms["funds"]["total"]["invested"])
+        assert t["Cash"] != t["Invested"] or ms["cash"] == ms["funds"]["total"]["invested"]
+
+
+def test_swapped_cash_and_invested_in_text_is_caught(real):
+    t = real["text"].replace("Invested ₹49,406   Cash ₹49,574", "Invested ₹49,406   Cash ₹49,406")
+    assert t != real["text"] and _labelled_text(t)["Cash"] != _labelled_html(real)["Cash"]
+
+
+# ------------------------------------------------------------------ fixture examples are internally consistent
+def test_examples_are_internally_consistent(examples):
+    for name, c in examples.items():
+        d, ms = c["day"], c["day"]["money_summary"]
+        bd, p = ms["breakdown"], d["portfolio"]
+        assert abs(ms["total_now"] - (sum(m["value"] for m in ms["metals"]) + ms["cash"])) <= 1.0, name
+        assert abs(ms["overall_profit"] - (bd["open"] + bd["booked"] + bd["interest"])) <= 0.01, name
+        assert abs(p["close"] - ms["total_now"]) < 0.01 and abs(p["day_pnl"] - ms["today_profit"]) <= 0.02, name
+        assert abs(d["safety"]["peak"] - max(100000, ms["total_now"], p["open"])) < 0.01, name
+        held = {r["symbol"] for r in ms["funds"]["rows"] if r["kind"] == "fund" and r.get("held")}
+        for t in d["targets"]:
+            assert (t["state"] == "ON") == (t["symbol"] in held), (name, t["symbol"])
+            if t["symbol"] in held:
+                assert abs(t["close"] - next(r["price"] for r in ms["funds"]["rows"] if r["symbol"] == t["symbol"])) < 0.01, name
+        todays = [x for x in d["decisions"] if x["action"] in ("BUY", "SELL")]
+        assert d["counts"]["buys"] == sum(x["action"] == "BUY" for x in todays) and d["counts"]["sells"] == sum(x["action"] == "SELL" for x in todays), name
+        if name == "all_cash":
+            assert not held and not todays and ms["funds"]["total"]["invested"] == 0
+            assert not any(t["state"] == "ON" for t in d["targets"])
+        if d.get("vs_gold"):
+            assert abs(d["vs_gold"]["you"] - (ms["total_now"] / 100000 - 1) * 100) < 0.01, name
+        assert c["day"].get("next_event", "") >= "" and "14 Oct" not in d.get("next_event", ""), name
