@@ -49,6 +49,7 @@ def run_(status="in_progress", id_=1):
 def make(api, now, **kw):
     out: list[str] = []
     kw.setdefault("root", ROOT)
+    kw.setdefault("params", {"report": {"morning_email": False}})   # independent of the real switch in config/params.yaml
     r = relay.Relay(api, "o/r", kw.pop("run_id", "100"), relay.VirtualClock(now), kw.pop("dry_run", False), out=out.append, **kw)
     r.lines = out
     return r

@@ -82,8 +82,9 @@ def go(root, env=None, now=None, runner=None, **kw):
     return code, "\n".join(said)
 
 
-def test_real_params_switch_is_off_by_default():
-    assert ME.switch_on(ROOT) is False
+def test_real_params_switch_is_on_by_owner_decision():
+    # Owner switched report.morning_email on 17 Nov 2026; setting it back to false is the one-line rollback.
+    assert ME.switch_on(ROOT) is True
 
 
 def test_switch_off_sends_nothing(root):

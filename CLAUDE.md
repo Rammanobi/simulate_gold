@@ -43,6 +43,7 @@ The active strategy is **v2 trend core** (`strategy.mode: v2_trend` in `config/p
 | Routines (via tools) | `memory/ltm/*.json` (`regime`, `calendar`, `theses`, `lesson_ledger`, `performance`) and `memory/ltm/theses.md` (`tools/memory_ltm.py`); `memory/stm/days/D.json`, `memory/stm/window.json`, `memory/stm/today.jsonl` (`tools/memory_stm.py`); `archive/memory/lessons-retired.md`, `archive/memory/theses-YYYY.md` (written by those tools) |
 | Routines (direct writes) | the prose under `memory/` (`daily/`, `weekly/`, `monthly/`, `lessons.md` via `lint`), `reports/daily/**`, `reports/weekly/**` (weekly review only) |
 | Weekly routine / owner | `reports/monthly/**` (`python tools/evaluate.py --month YYYY-MM --write`; scorecard vs buy-and-hold benchmarks, read-only on engine files) |
+| Morning-email workflow (`morning-email.yml`, `tools/morning_email.py`, GitHub only, no Claude; switch `report.morning_email`) | `state/morning_sent.json` |
 | Retry workflow (`report-retry.yml`; after 8 failed retries it may send the backup email via `tools/backup_email.py`, optional DeepSeek summary, see `docs/BACKUP_EMAIL.md`) | `state/report_retry.json` |
 | Fallback workflow (`fallback.yml`, DeepSeek, only when Claude is silent) | `state/guidance.json` (via `tools/guidance.py set` only), `state/fallback.json`, `reports/daily/**` of a fallback report |
 | Owner only | everything else, incl. `config/`, `docs/`, code, `tools/`, `routines/`, this file |
