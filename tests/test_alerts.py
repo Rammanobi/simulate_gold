@@ -286,3 +286,15 @@ def test_engine_makes_no_buys_in_safe_mode(tmp_path):
     recs = S.read_log(env)
     assert not any(r["action"] == "BUY" for r in recs) and not pf.positions
     assert any(r["trigger"] == "Safe mode" for r in recs)
+
+
+def test_session_missed_and_relay_missing_are_reported_but_never_switch_safe_mode_on(tmp_path):
+    """12 Nov 2026 follow-up: a missed session (HIGH) and a gap in the engine relay (MEDIUM) are monitoring faults, not trading risks."""
+    for cat in ("session_missed", "relay_missing"):
+        assert cat in A.SAFE_MODE_EXEMPT
+    assert A.severity_of("session_missed") == "high" and A.severity_of("relay_missing") == "medium"
+    for i in range(8):
+        raise_(tmp_path, "watchdog", f"x{chr(97 + i)}", "session_missed" if i % 2 else "relay_missing", now=T0 + i * 20 * MIN)
+    assert not A.evaluate_safe_mode(tmp_path, T0 + 300 * MIN, CFG)     # neither as an open HIGH nor in the distinct count
+    assert not A.safe_mode_on(tmp_path)
+    assert len(A.load_state(tmp_path)["alerts"]) == 8                   # still reported

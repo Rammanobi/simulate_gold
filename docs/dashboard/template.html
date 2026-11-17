@@ -239,14 +239,17 @@ function view() { /* the "now" the top of the page shows: stored last day, or th
   const n = D.now; if (!LIVE || LIVE.session_date < D.days[D.days.length - 1].date) return n;
   const L = LIVE, LP = L.prices || {}, prices = Object.assign({}, n.prices), hold = [];
   FUNDS.forEach(f => { const p = LP[f.sym]; if (p && num(p.price) != null) prices[f.sym] = p.price; });
-  (L.positions || []).forEach(p => { const px = num((LP[p.symbol] || {}).price) != null ? LP[p.symbol].price : p.price, value = p.qty * px;
-    hold.push({symbol: p.symbol, units: p.qty, avg: p.avg_cost, invested: p.invested, price: px, value: value, gain: value - p.invested, gainPct: p.invested ? (value - p.invested) / p.invested * 100 : 0}); });
+  /* ONE definition (simgold/summary.py): the feed's own value (after the estimated sell cost), open_pnl and cash are shown as they
+     are; nothing is recomputed here. Only an old feed without those fields falls back to qty x price. */
+  (L.positions || []).forEach(p => { const px = num((LP[p.symbol] || {}).price) != null ? LP[p.symbol].price : p.price,
+    value = num(p.value) != null ? p.value : p.qty * px, gain = num(p.open_pnl) != null ? p.open_pnl : value - p.invested;
+    hold.push({symbol: p.symbol, units: p.qty, avg: p.avg_cost, invested: p.invested, price: px, value: value, gain: gain, gainPct: p.invested ? gain / p.invested * 100 : 0}); });
   const alloc = {GOLDBEES: 0, SILVERBEES: 0, HINDCOPPER: 0}; hold.forEach(h => alloc[h.symbol] = h.value);
-  alloc.CASH = L.total_value - sum(hold.map(h => h.value));
+  alloc.CASH = num(L.cash) != null ? L.cash : L.total_value - sum(hold.map(h => h.value));
   const sm = L.summary || {};
   return {date: L.session_date, asOf: L.ts, total: L.total_value, holdings: hold, prices: prices, alloc: alloc, dayProfit: L.today.pnl, dayPct: L.today.pct,
     overall: L.total_value - D.start, overallPct: (L.total_value / D.start - 1) * 100, idle: n.idle, live: true,
-    openGain: sum(hold.map(h => h.gain)), summary: sm};
+    openGain: num(sm.live_profit) != null ? sm.live_profit : sum(hold.map(h => h.gain)), summary: sm};
 }
 
 /* ---------- shared components ---------- */
@@ -323,7 +326,7 @@ function fundCards(n) { const tot = n.total, by = Object.fromEntries(n.holdings.
     return '<div class="fcard" data-seg="' + f.sym + '" style="--c:var(' + f.v + ')"><div><h3>' + f.name + '</h3><div class="val">' + fmtShort(h.value) + '</div><div class="sh">' + h.units + ' sh @ ' + fmtINR(h.avg, 2) + '</div><div class="sub">cost ' + fmtINR(h.invested) + ' \u00B7 now ' + fmtINR(h.price, 2) + '</div>' + signChip(h.gain, h.gainPct, {plain: true}) + '</div><div class="sp">' + sp + '</div></div>'; }).join('') +
    '<div class="fcard" data-seg="CASH" style="--c:var(--cash)"><div><h3>Cash</h3><div class="val">' + fmtShort(n.alloc.CASH) + '</div><div class="sub">' + Math.round(n.alloc.CASH / tot * 100) + '% of total \u00B7 idle' + (n.idle === 'liquidbees' ? ' (LIQUIDBEES)' : '') + '</div></div></div>'; }
 function topHtml(n) { const bd = n.summary && n.summary.breakdown;
-  const note = bd ? 'Overall profit = booked ' + fmtINR(bd.booked) + ' + open gain ' + fmtINR(bd.open) + ' + costs ' + fmtINR(bd.costs) + ' + past interest ' + fmtINR(bd.interest) + '.' : '';
+  const note = bd ? 'Overall profit = open gain ' + fmtINR(bd.open) + ' + booked ' + fmtINR(bd.booked) + ' (after costs) + past interest ' + fmtINR(bd.interest) + '.' : '';
   return '<section class="hero2"><div class="stat"><span class="lbl">Total value</span><span class="big" id="total">' + fmtINR(n.total) + '</span></div>' +
    '<div class="stat"><span class="lbl">Overall</span>' + signChip(n.overall, n.overallPct) + '</div>' +
    '<div class="stat"><span class="lbl">Today</span>' + signChip(n.dayProfit, n.dayPct) + '</div>' +

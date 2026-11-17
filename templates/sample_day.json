@@ -5,23 +5,31 @@
  "day_of_month_run": 1,
  "start_capital": 100000,
  "portfolio": {
-  "open": 100000,
-  "close": 100147,
-  "day_pnl": 147,
-  "day_pnl_pct": 0.15,
-  "month_pnl": 147,
-  "month_pnl_pct": 0.15,
-  "floor": 99500,
-  "floor_next_step": "Floor moves to ₹1,00,000 once profit reaches ₹500",
-  "distance_to_floor": 647,
-  "cash_in_liquidbees": 90134,
-  "liquidbees_income": 17,
-  "costs_paid": 26
+  "open": 100000.0,
+  "prev_close_date": "2026-10-09",
+  "close": 100675.8,
+  "day_pnl": 675.8,
+  "day_pnl_pct": 0.68,
+  "month_pnl": 675.8,
+  "month_pnl_pct": 0.68,
+  "floor": 75000,
+  "floor_next_step": "Brake level 0: full size.",
+  "next_value": 100675.8,
+  "floor_after_next": 75000,
+  "distance_to_floor": 25675.8,
+  "cash_in_liquidbees": 22236.0,
+  "liquidbees_income": 0,
+  "costs_paid": 14.0,
+  "v2": true,
+  "account_stop": 75000,
+  "drawdown_from_peak": 0.0,
+  "brake_level": 0,
+  "peak": 100675.8
  },
  "pnl_breakdown": {
-  "realized_trades": 41.5,
-  "unrealized_open": 88.5,
-  "liquidbees_income": 17
+  "realized_trades": 0,
+  "unrealized_open": 675.8,
+  "liquidbees_income": 0
  },
  "market": [
   {
@@ -53,92 +61,68 @@
  "holdings_close": [
   {
    "symbol": "GOLDBEES",
-   "qty": 95,
-   "avg": 104.2,
-   "close": 105.4,
-   "value": 10013,
-   "unrealized": 114,
-   "stop": 104.2
+   "qty": 250,
+   "avg": 116.5,
+   "close": 117.2,
+   "value": 29285.35,
+   "gross_value": 29300.0,
+   "unrealized": 146.35,
+   "stop": 0.0
+  },
+  {
+   "symbol": "SILVERBEES",
+   "qty": 120,
+   "avg": 180.0,
+   "close": 183.87,
+   "value": 22053.37,
+   "gross_value": 22064.4,
+   "unrealized": 442.37,
+   "stop": 0.0
+  },
+  {
+   "symbol": "HINDCOPPER",
+   "qty": 90,
+   "avg": 300.0,
+   "close": 301.5,
+   "value": 27101.08,
+   "gross_value": 27135.0,
+   "unrealized": 87.08,
+   "stop": 0.0
   }
  ],
  "decisions": [
   {
-   "time": "09:52",
+   "time": "15:10",
    "action": "BUY",
-   "symbol": "GOLDBEES",
-   "qty": 190,
-   "price": 104.2,
-   "amount": 19798,
+   "symbol": "HINDCOPPER",
+   "qty": 90,
+   "price": 300.0,
+   "amount": 27000.0,
    "pnl": null,
-   "reason": "Dollar fell overnight and gold rose in Asia; price is above its 20-day average.",
-   "trigger": "Pre-market plan",
-   "stop": 102.1,
-   "risk": 399
+   "reason": "HINDCOPPER trend turned ON: close is above its 55-day high.",
+   "trigger": "Trend check",
+   "stop": 0,
+   "risk": 0
   },
   {
-   "time": "11:05",
-   "action": "SKIP",
+   "time": "15:26",
+   "action": "BLOCK",
    "symbol": "SILVERBEES",
    "qty": 0,
-   "price": 141.9,
+   "price": 183.87,
    "amount": 0,
    "pnl": null,
-   "reason": "Signal not strong enough (0.55, needs 0.65), and only ₹101 of today's risk budget was left.",
-   "trigger": "Minute check"
-  },
-  {
-   "time": "12:40",
-   "action": "SELL",
-   "symbol": "GOLDBEES",
-   "qty": 95,
-   "price": 105.1,
-   "amount": 9984.5,
-   "pnl": 85.5,
-   "reason": "Hit first target (+0.9%); sold half to lock profit and moved stop on the rest to the buy price.",
-   "trigger": "Target rule"
-  },
-  {
-   "time": "13:18",
-   "action": "BUY",
-   "symbol": "SILVERBEES",
-   "qty": 40,
-   "price": 142.5,
-   "amount": 5700,
-   "pnl": null,
-   "reason": "Fast lane: US jobless claims jumped, rate-cut odds rose; Opus approved a small silver position.",
-   "trigger": "News trigger",
-   "stop": 139.65,
-   "risk": 114
-  },
-  {
-   "time": "14:46",
-   "action": "SELL",
-   "symbol": "SILVERBEES",
-   "qty": 40,
-   "price": 141.4,
-   "amount": 5656,
-   "pnl": -44,
-   "reason": "Rally faded as the dollar bounced; Opus exited early instead of holding overnight.",
-   "trigger": "Opus review"
-  },
-  {
-   "time": "15:20",
-   "action": "HOLD",
-   "symbol": "GOLDBEES",
-   "qty": 95,
-   "price": 105.3,
-   "amount": 0,
-   "pnl": null,
-   "reason": "Overnight check passed: stop is at the buy price, so a gap down cannot touch the floor.",
-   "trigger": "Overnight check"
+   "reason": "SILVERBEES is -1.60% from yesterday's close (trigger is 1.5%). New buys are paused for 30 minutes.",
+   "trigger": "Price shock"
   }
  ],
  "counts": {
-  "buys": 2,
-  "sells": 2,
-  "skips": 1,
-  "holds": 1,
-  "fast_lane_runs": 1
+  "buys": 1,
+  "sells": 0,
+  "skips": 0,
+  "blocks": 1,
+  "holds": 0,
+  "fast_lane_runs": 0
  },
  "intraday": [
   [
@@ -198,65 +182,229 @@
    100147
   ]
  ],
- "glance": {
-  "engine": {
-   "first": "09:15",
-   "last": "15:29",
-   "count": 375,
-   "source": "checks",
-   "late": false
-  },
-  "decisions": {
-   "allowed": 4,
-   "buys": 2,
-   "sells": 2,
-   "blocked": 0,
-   "blocked_by": {},
-   "skipped": 1,
-   "held": 1
-  },
-  "instruments": [
+ "tomorrow": "CPI is due on Wednesday 14 Oct at 18:00; the system follows its normal rules.",
+ "one_line_summary": "Small green day: bought copper at the 15:10 trend check; silver buys paused after a price shock.",
+ "money_summary": {
+  "day": "2026-10-12",
+  "idle_cash": true,
+  "start_capital": 100000.0,
+  "idle_label": "Cash",
+  "total_now": 100675.8,
+  "metals": [
    {
     "symbol": "GOLDBEES",
-    "open": 104.05,
-    "close": 105.4,
-    "change_pct": 1.3,
-    "low": 103.9,
-    "high": 105.45
+    "qty": 250,
+    "price": 117.2,
+    "avg_price": 116.5,
+    "value": 29285.35,
+    "gross_value": 29300.0,
+    "invested": 29139.0,
+    "open_gain": 146.35
    },
    {
     "symbol": "SILVERBEES",
-    "open": 142.2,
-    "close": 141.6,
-    "change_pct": -0.42,
-    "low": 141.1,
-    "high": 143.0
+    "qty": 120,
+    "price": 183.87,
+    "avg_price": 180.0,
+    "value": 22053.37,
+    "gross_value": 22064.4,
+    "invested": 21611.0,
+    "open_gain": 442.37
    },
    {
     "symbol": "HINDCOPPER",
-    "open": 312.4,
-    "close": 313.35,
-    "change_pct": 0.3,
-    "low": 311.2,
-    "high": 314.1
+    "qty": 90,
+    "price": 301.5,
+    "avg_price": 300.0,
+    "value": 27101.08,
+    "gross_value": 27135.0,
+    "invested": 27014.0,
+    "open_gain": 87.08
    }
   ],
-  "money": {
-   "value": 100147,
-   "day_pnl": 147,
-   "split": [
+  "metals_value": 78439.8,
+  "metals_gross_value": 78499.4,
+  "exit_cost": 59.6,
+  "cash": 22236.0,
+  "today_buys": [
+   {
+    "symbol": "HINDCOPPER",
+    "time": "15:10",
+    "qty": 90,
+    "price": 300.0,
+    "amount": 27000.0
+   }
+  ],
+  "today_sells": [],
+  "today_buys_more": 0,
+  "today_sells_more": 0,
+  "today_bought": 27000.0,
+  "today_sold": 0.0,
+  "bought_total": 77725.0,
+  "sold_total": 0.0,
+  "prev_close": 100000.0,
+  "prev_close_date": "2026-10-09",
+  "today_profit": 675.8,
+  "today_pct": 0.676,
+  "overall_profit": 675.8,
+  "overall_pct": 0.676,
+  "live_profit": 675.8,
+  "held": true,
+  "funds": {
+   "rows": [
     {
-     "name": "GOLDBEES",
-     "pct": 10
+     "symbol": "GOLDBEES",
+     "metal": "gold",
+     "label": "Gold ETF",
+     "kind": "fund",
+     "held": true,
+     "units": 250,
+     "avg_price": 116.5,
+     "invested": 29139.0,
+     "price": 117.2,
+     "value": 29285.35,
+     "gross_value": 29300.0,
+     "profit": 146.35,
+     "profit_pct": 0.5,
+     "share_pct": 29.1
     },
     {
-     "name": "LIQUIDBEES (cash)",
-     "pct": 90
+     "symbol": "SILVERBEES",
+     "metal": "silver",
+     "label": "Silver ETF",
+     "kind": "fund",
+     "held": true,
+     "units": 120,
+     "avg_price": 180.0,
+     "invested": 21611.0,
+     "price": 183.87,
+     "value": 22053.37,
+     "gross_value": 22064.4,
+     "profit": 442.37,
+     "profit_pct": 2.05,
+     "share_pct": 21.9
+    },
+    {
+     "symbol": "HINDCOPPER",
+     "metal": "copper",
+     "label": "Copper share",
+     "kind": "fund",
+     "held": true,
+     "units": 90,
+     "avg_price": 300.0,
+     "invested": 27014.0,
+     "price": 301.5,
+     "value": 27101.08,
+     "gross_value": 27135.0,
+     "profit": 87.08,
+     "profit_pct": 0.32,
+     "share_pct": 26.9
+    },
+    {
+     "symbol": "CASH",
+     "metal": "cash",
+     "label": "Idle money, earns nothing",
+     "kind": "cash",
+     "held": true,
+     "units": null,
+     "avg_price": null,
+     "invested": null,
+     "price": null,
+     "value": 22236.0,
+     "profit": null,
+     "profit_pct": null,
+     "share_pct": 22.1
     }
-   ]
+   ],
+   "total": {
+    "invested": 77764.0,
+    "value": 100675.8,
+    "profit": 675.8,
+    "profit_pct": 0.87,
+    "share_pct": 100.0,
+    "exit_cost": 59.6,
+    "overall_profit": 675.8
+   },
+   "sentence": "₹29,285 (29%) is in gold, ₹22,053 (22%) in silver, ₹27,101 (27%) in copper, ₹22,236 (22%) is cash. Overall +₹676 since start.",
+   "style": "COMPACT"
+  },
+  "breakdown": {
+   "booked": 0.0,
+   "open": 675.8,
+   "interest": 0.0,
+   "sum": 675.8,
+   "costs_in_booked": 0.0
   }
  },
- "tomorrow": "US inflation data comes out at 18:00 IST tomorrow, after NSE closes. The 15:20 overnight check will keep positions small before it.",
- "one_line_summary": "Small green day: +₹147. Gold trade worked, a quick silver trade lost ₹44, and the floor is ₹647 away.",
-  "money_summary": {"day": "2026-10-12", "idle_cash": true, "start_capital": 100000.0, "idle_label": "Cash", "total_now": 100244.44, "metals": [{"symbol": "GOLDBEES", "qty": 423, "price": 117.2, "value": 49575.6, "net_value": 49550.81, "invested": 49306.37, "open_gain": 244.44}], "metals_value": 49575.6, "exit_cost": 24.79, "cash": 50693.63, "today_buys": [{"symbol": "GOLDBEES", "time": "10:00", "qty": 423, "price": 116.5, "amount": 49279.5}], "today_sells": [], "today_buys_more": 0, "today_sells_more": 0, "today_bought": 49279.5, "today_sold": 0.0, "bought_total": 49279.5, "sold_total": 0.0, "prev_close": 100000.0, "prev_close_date": "2026-10-09", "today_profit": 244.44, "today_pct": 0.244, "overall_profit": 244.44, "overall_pct": 0.244, "live_profit": 244.44, "held": true, "breakdown": {"booked": 0.0, "open": 244.44, "costs": 0.0, "interest": 0.0, "booked_after_costs": 0.0, "sum": 244.44}}
+ "closed": false,
+ "targets": [
+  {
+   "symbol": "GOLDBEES",
+   "state": "ON",
+   "sigma": 0.196,
+   "target_pct": 29.0,
+   "actual_pct": 29.0,
+   "level_kind": "sma200",
+   "level_raw": 109.2,
+   "level": 108.65,
+   "level_side": "off",
+   "close": 117.2,
+   "gap_pct": -7.29,
+   "weight_if_on": 71.4
+  },
+  {
+   "symbol": "SILVERBEES",
+   "state": "ON",
+   "sigma": 0.337,
+   "target_pct": 22.0,
+   "actual_pct": 22.0,
+   "level_kind": "donchian55",
+   "level_raw": 168.2,
+   "level": 168.2,
+   "level_side": "off",
+   "close": 183.87,
+   "gap_pct": -8.52,
+   "weight_if_on": 41.5
+  },
+  {
+   "symbol": "HINDCOPPER",
+   "state": "ON",
+   "sigma": 0.4,
+   "target_pct": 27.0,
+   "actual_pct": 27.0,
+   "level_kind": "donchian55",
+   "level_raw": 281.0,
+   "level": 281.0,
+   "level_side": "off",
+   "close": 301.5,
+   "gap_pct": -6.8,
+   "weight_if_on": 35.0
+  }
+ ],
+ "vs_gold": {
+  "since": "6 Oct",
+  "you": 0.676,
+  "gold": 0.6,
+  "diff": 0.1
+ },
+ "safety": {
+  "stop": 75000,
+  "peak": 100675.8,
+  "level": 0,
+  "dd1": 0.15,
+  "dd2": 0.25
+ },
+ "prev_closes": {
+  "GOLDBEES": 116.9,
+  "SILVERBEES": 186.85,
+  "HINDCOPPER": 300.0
+ },
+ "next_event": "CPI Wed 14 Oct 18:00",
+ "engine_checks": 372,
+ "thrift": false,
+ "owner_top": {
+  "vs_hold": "",
+  "action": "Action for you: none"
+ },
+ "subject": "Metals Daybook · 📈 Mon 12 Oct · +₹676 (green)"
 }

@@ -37,7 +37,8 @@ def test_average_after_two_buys_and_a_partial_sell():
     g = by(rows, "GOLDBEES")
     assert g["units"] == 15 and g["avg_price"] == 105.0           # (1000 + 1100) / 20, a sell does not change the average
     assert g["invested"] == 1583.25                              # 15 x 105 + (5 + 6) x 15/20 of the buying costs
-    assert g["value"] == 1800.0 and g["gain"] == 216.75 and g["gain_pct"] == 13.69
+    assert g["gross_value"] == 1800.0 and g["value"] == 1799.1          # after the estimated cost of selling (0.10% / 2)
+    assert g["gain"] == 215.85 and g["gain_pct"] == 13.63               # value - invested, the money summary's "open gain"
     assert g["first_buy"] == "2026-10-13"
     s = by(rows, "SILVERBEES")                                    # fully sold: nothing held, realised kept
     assert s["units"] == 0 and s["value"] == 0 and s["invested"] == 0 and s["realised"] == 94.0

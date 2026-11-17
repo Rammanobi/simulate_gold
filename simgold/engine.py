@@ -1414,7 +1414,8 @@ class Engine:
                         f"{head}; sigma60 {('%.3f' % sg) if sg else 'n/a'}; "
                         f"target {targets[sym] * 100:.0f}%, actual {act * 100:.0f}%" + ("" if mode == "full" else " (exits-only check)"),
                         "Trend check", extra={"state": state, "sigma": round(sg, 4) if sg else None,
-                                              "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1)})
+                                              "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1),
+                                              **trend.level_numbers(i, st, sym)})
 
     # ------------------------------------------------------------------ 5. snapshot
     def snapshot(self):

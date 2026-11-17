@@ -8,12 +8,12 @@ import pandas as pd
 from . import config
 from .brain import decide
 from .broker import Portfolio
-from .data import daily_history
+from .data import daily_history_robust
 from .features import all_tickers, build_frames, snapshot_row
 
 
 def run(start: str = "2019-01-01", warmup: int = 120) -> dict:
-    hist = daily_history(all_tickers(), start=start)
+    hist = daily_history_robust(all_tickers(), start=start)
     frames = build_frames(hist)
     idx = sorted(set.intersection(*(set(f.dropna(subset=["close"]).index) for f in frames.values())))
     pf = Portfolio()
@@ -98,7 +98,7 @@ def load_csv_frames(data_dir, symbols: list[str]) -> dict[str, pd.DataFrame]:
 
 def yahoo_frames(p: dict, start: str) -> dict[str, pd.DataFrame]:
     tick = p["engine"]["tickers"]
-    h = daily_history(list(tick.values()), start=start)
+    h = daily_history_robust(list(tick.values()), start=start)
     inv = {v: k for k, v in tick.items()}
     out = {k: h[k].rename(columns=inv)[list(tick)] for k in ("close", "high", "low")}
     out["high"] = np.maximum(out["high"], out["close"])

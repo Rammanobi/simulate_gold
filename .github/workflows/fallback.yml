@@ -20,6 +20,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write      # tools/ensure_engine.py may dispatch market-hours.yml / engine-relay.yml
 
 concurrency:
   group: fallback
@@ -49,6 +50,12 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Ensure the engine (restart source, tools/ensure_engine.py)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python tools/ensure_engine.py | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Key and model check
         if: ${{ inputs.check }}
         run: set -o pipefail; python tools/fallback_check.py | tee -a "$GITHUB_STEP_SUMMARY"
