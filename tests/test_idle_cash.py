@@ -141,7 +141,9 @@ def test_livepnl_cash_mode_reports_cash_and_no_accrual():
     assert d["v"] == 1 and d["cash"] == 50000.0 and d["liquidbees"]["value"] == 0.0 and d["liquidbees"]["accrued_today"] == 0.0
     assert d["total_value"] == 50000.0
     d2 = livepnl.build(pf, {}, {}, [("2026-10-13", 50000.0)], P_LB, at(10, 0), [], True, True)
-    assert d2["cash"] == 20000.0 and d2["liquidbees"]["value"] == 30000.0
+    # rollback mode: `cash` is the idle money (settled summary cash, LIQUIDBEES included); its parts are cash_account + liquidbees.value
+    assert d2["cash"] == d2["summary"]["cash"] == 50000.0 and d2["liquidbees"]["value"] == 30000.0 and d2["cash_account"] == 20000.0
+    assert d["cash_account"] == 50000.0
 
 
 def test_template_and_wording(tmp_path):
