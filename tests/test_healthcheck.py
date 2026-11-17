@@ -65,6 +65,7 @@ def test_outside_hours_skips_engine_checks(tmp_path):
     root = setup(tmp_path, tick_age_min=500, health_age_min=900)
     (root / "reports" / "daily").mkdir(parents=True)
     (root / "reports" / "daily" / "2026-10-13.json").write_text("{}")      # Claude's report is there
+    (root / "logs" / "ticks-2026-10-13.csv").write_text("time,value,floor,cash,liquidbees\n" + "09:15,100300,99500,0,70000\n" * 150)   # a full session
     assert run(root, now=CLOSED, gh=gh_idle) == []
 
 
@@ -165,3 +166,111 @@ def test_main_exit_codes(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(H, "run_checks", lambda *a, **k: [H.problem("x", "workflow_failed", "d")])
     assert H.main(["--no-write"]) == 4
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["severity"] == "medium"
+
+
+# ---- session_missed / relay_missing (12 Nov 2026: a whole session was missed and nothing alarmed) ----
+def _day_root(tmp_path, day, rows):
+    root = tmp_path
+    (root / "state").mkdir(parents=True, exist_ok=True); (root / "logs").mkdir(exist_ok=True)
+    if rows is not None:
+        (root / "logs" / f"ticks-{day}.csv").write_text("time,value,floor,cash,liquidbees\n" + "09:15,100300,75000,0,0\n" * rows)
+    return root
+
+
+def test_session_missed_fires_at_16_09_on_12_nov_with_no_ticks_file(tmp_path):
+    now = datetime(2026, 11, 12, 16, 9, tzinfo=IST)
+    p = H.check_session_missed(_day_root(tmp_path, "2026-11-12", None), now)
+    assert [(x["check"], x["severity"], x["category"]) for x in p] == [("session_missed", "high", "session_missed")]
+    assert "session_missed" in checks(run(_day_root(tmp_path, "2026-11-12", None), now=now, gh=gh_idle))
+
+
+def test_session_missed_on_a_tiny_ticks_file_but_not_on_a_full_one(tmp_path):
+    now = datetime(2026, 11, 12, 16, 9, tzinfo=IST)
+    assert H.check_session_missed(_day_root(tmp_path / "a", "2026-11-12", 99), now)
+    assert H.check_session_missed(_day_root(tmp_path / "b", "2026-11-12", 100), now) == []
+    assert H.check_session_missed(_day_root(tmp_path / "c", "2026-11-12", 375), now) == []
+
+
+def test_session_missed_not_on_holiday_weekend_or_before_1540(tmp_path):
+    root = _day_root(tmp_path, "2026-11-10", None)
+    assert H.check_session_missed(root, datetime(2026, 11, 10, 16, 9, tzinfo=IST)) == []        # Balipratipada holiday
+    assert H.check_session_missed(root, datetime(2026, 11, 14, 16, 9, tzinfo=IST)) == []        # Saturday
+    assert H.check_session_missed(root, datetime(2026, 11, 12, 15, 39, tzinfo=IST)) == []        # session may still be finishing
+    assert H.check_session_missed(root, datetime(2026, 11, 12, 15, 40, tzinfo=IST))
+
+
+def _gh_relays(statuses):
+    return lambda args: json.dumps({"workflow_runs": [{"id": i, "status": s} for i, s in enumerate(statuses)]})
+
+
+def test_relay_window():
+    d = lambda y, m, dd, hh, mm: datetime(y, m, dd, hh, mm, tzinfo=IST)
+    assert H.relay_should_exist(d(2026, 11, 12, 16, 30)) and H.relay_should_exist(d(2026, 11, 13, 8, 49))
+    assert not H.relay_should_exist(d(2026, 11, 13, 8, 50)) and not H.relay_should_exist(d(2026, 11, 13, 16, 29))
+    assert H.relay_should_exist(d(2026, 11, 14, 11, 0)) and H.relay_should_exist(d(2026, 11, 10, 11, 0))   # weekend / holiday: all day
+
+
+def test_relay_missing_is_medium_when_no_run_is_queued_or_in_progress():
+    night = datetime(2026, 11, 12, 21, 0, tzinfo=IST)
+    p = H.check_relay(night, _gh_relays(["completed", "completed"]), "o/r")
+    assert [(x["check"], x["severity"]) for x in p] == [("relay_missing", "medium")]
+    assert H.check_relay(night, _gh_relays([]), "o/r")
+    for ok in (["completed", "in_progress"], ["queued"], ["pending"]):
+        assert H.check_relay(night, _gh_relays(ok), "o/r") == []
+    assert H.check_relay(datetime(2026, 11, 12, 11, 0, tzinfo=IST), _gh_relays([]), "o/r") == []      # session hours: not judged
+    assert H.check_relay(night, lambda a: json.dumps({"total_count": 0}), "o/r") == []                # no run list: cannot judge
+
+
+def test_relay_query_failure_is_only_a_low_warning():
+    def boom(args): raise RuntimeError("gh missing")
+    p = H.check_relay(datetime(2026, 11, 12, 21, 0, tzinfo=IST), boom, "o/r")
+    assert [(x["check"], x["severity"]) for x in p] == [("relay_check_unknown", "low")]
+
+
+def test_new_categories_never_switch_safe_mode_on_and_are_still_reported():
+    from simgold import alerts
+    assert {"session_missed", "relay_missing"} <= alerts.SAFE_MODE_EXEMPT
+    assert alerts.severity_of("session_missed") == "high" and alerts.severity_of("relay_missing") == "medium"
+    probs = [H.problem("session_missed", "session_missed", "x"), H.problem("relay_missing", "relay_missing", "y")]
+    assert H.clean_for_safe_mode(probs)
+
+
+# ---- review fixes (PR 57) ----
+def test_session_missed_after_midnight_still_sees_the_previous_trading_day(tmp_path):
+    root = _day_root(tmp_path, "2026-11-11", 375)                       # the engine ran on 11 Nov, never on 12 Nov
+    for now in (datetime(2026, 11, 13, 0, 6, tzinfo=IST), datetime(2026, 11, 13, 9, 0, tzinfo=IST), datetime(2026, 11, 13, 15, 39, tzinfo=IST)):
+        p = H.check_session_missed(root, now)
+        assert [x["check"] for x in p] == ["session_missed"] and "2026-11-12" in p[0]["detail"]
+    assert H.check_session_missed(root, datetime(2026, 11, 13, 15, 40, tzinfo=IST))                 # now it is 13 Nov itself (no ticks)
+
+
+def test_session_missed_weekend_and_monday_look_at_friday(tmp_path):
+    root = _day_root(tmp_path, "2026-11-12", 375)
+    (root / "logs" / "ticks-2026-11-13.csv").write_text("time,value,floor,cash,liquidbees\n" + "09:15,1,1,0,0\n" * 375)
+    for now in (datetime(2026, 11, 14, 11, 0, tzinfo=IST), datetime(2026, 11, 16, 3, 0, tzinfo=IST)):
+        assert H.check_session_missed(root, now) == []
+    (root / "logs" / "ticks-2026-11-13.csv").unlink()
+    assert H.check_session_missed(root, datetime(2026, 11, 15, 11, 0, tzinfo=IST))
+    assert H.check_session_missed(root, datetime(2026, 11, 10, 16, 9, tzinfo=IST)) == []            # 10 Nov: prev trading day 9 Nov has no older log
+
+
+def test_session_missed_previous_day_check_needs_earlier_history(tmp_path):
+    """A fresh checkout (no older ticks file) must not alarm in the morning."""
+    root = _day_root(tmp_path, "2026-11-13", 5)
+    assert H.check_session_missed(root, datetime(2026, 11, 13, 9, 0, tzinfo=IST)) == []
+
+
+def test_relay_check_unknown_is_low_and_safe_mode_exempt():
+    from simgold import alerts
+    assert "relay_check_unknown" in alerts.SAFE_MODE_EXEMPT and alerts.severity_of("relay_check_unknown") == "low"
+    def boom(args): raise RuntimeError("503")
+    p = H.check_relay(datetime(2026, 11, 13, 8, 30, tzinfo=IST), boom, "o/r")
+    assert [x["category"] for x in p] == ["relay_check_unknown"] and H.clean_for_safe_mode(p)
+
+
+def test_relay_check_ignores_test_runs_and_names_the_last_conclusion():
+    night = datetime(2026, 11, 12, 21, 0, tzinfo=IST)
+    gh = lambda a: json.dumps({"workflow_runs": [
+        {"status": "in_progress", "display_title": "engine-relay TEST"}, {"status": "completed", "conclusion": "failure", "display_title": "engine-relay"}]})
+    p = H.check_relay(night, gh, "o/r")
+    assert [x["check"] for x in p] == ["relay_missing"] and "ended 'failure'" in p[0]["detail"] or "failure" in p[0]["detail"]

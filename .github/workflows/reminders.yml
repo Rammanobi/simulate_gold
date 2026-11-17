@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
+  actions: write      # tools/ensure_engine.py may dispatch market-hours.yml / engine-relay.yml
   contents: write
   issues: read
 
@@ -40,6 +40,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
+      - name: Ensure the engine (restart source, tools/ensure_engine.py)
+        continue-on-error: true
+        run: python tools/ensure_engine.py | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Healthcheck (watches the watchdog)
         run: |
           set +e
@@ -53,6 +57,17 @@ jobs:
               python -m simgold.alerts post --text-file "$RUNNER_TEMP/facts.json" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
+          exit 0
+
+      - name: Missed session, Claude-free alarm email (once per day)
+        if: always()
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+        run: |
+          set +e
+          [ -s "$RUNNER_TEMP/problems.txt" ] && python tools/alert_email.py --problems "$RUNNER_TEMP/problems.txt" | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
 
       - name: Record acknowledgements and find reminders that are due

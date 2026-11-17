@@ -23,7 +23,7 @@ import copy  # noqa: E402
 
 from simgold import alerts, config, trend  # noqa: E402
 from simgold.broker import validate_portfolio_dict  # noqa: E402
-from simgold.market import IST, is_trading_day  # noqa: E402
+from simgold.market import IST, is_trading_day, prev_trading_day  # noqa: E402
 
 ENGINE_WORKFLOW = "market-hours.yml"
 WINDOW = (dtime(9, 10), dtime(15, 40))
@@ -112,6 +112,70 @@ def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
         if age > TICK_MAX_AGE_MIN:
             out.append(problem("ticks_stale", "engine_not_running", f"last tick row is {age:.0f} min old (limit {TICK_MAX_AGE_MIN})"))
     return out
+
+
+MISSED_AFTER = dtime(15, 40)
+MISSED_MIN_ROWS = 100            # a full session is ~375 one-minute rows (09:15-15:30)
+RELAY_WORKFLOW = "engine-relay.yml"
+RELAY_FROM, RELAY_UNTIL = dtime(16, 30), dtime(8, 50)
+
+
+def _ticks_rows(f: Path) -> int | None:
+    if not f.exists():
+        return None
+    try:
+        return max(0, sum(1 for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()) - 1)
+    except OSError:
+        return 0
+
+
+def check_session_missed(root: Path, now: datetime) -> list[dict]:
+    """HIGH: the last trading day that should be over has no ticks file or fewer than ~100 rows.
+    After 15:40 IST on a trading day that is today; before 15:40 (or on a weekend/holiday) it is the PREVIOUS trading day, so a
+    check that runs after midnight still sees it and the alert is not marked resolved. The previous-day check needs some older ticks
+    file in logs/ (proof the engine has run before), so a fresh checkout does not alarm.
+    12 Nov 2026: the engine never ran in market hours and every check that could see it was gated to the window."""
+    now = now.astimezone(IST)
+    today = now.date()
+    if is_trading_day(today) and now.time() >= MISSED_AFTER:
+        day, prior = today, False
+    else:
+        day, prior = prev_trading_day(today), True
+    f = root / "logs" / f"ticks-{day.isoformat()}.csv"
+    if prior and not any(p.name < f.name for p in (root / "logs").glob("ticks-*.csv")):
+        return []
+    rows = _ticks_rows(f)
+    if rows is None:
+        return [problem("session_missed", "session_missed", f"{f.name} does not exist: the engine did not run the {day.isoformat()} session")]
+    if rows < MISSED_MIN_ROWS:
+        return [problem("session_missed", "session_missed", f"{f.name} has only {rows} rows (a full session has ~375): most of the {day.isoformat()} session was missed")]
+    return []
+
+
+def relay_should_exist(now: datetime) -> bool:
+    """Between 16:30 IST and the next trading-day 08:50 IST (weekends and holidays included) a relay run must be queued or in progress."""
+    now = now.astimezone(IST)
+    return not (is_trading_day(now.date()) and RELAY_UNTIL <= now.time() < RELAY_FROM)
+
+
+def check_relay(now: datetime, gh, repo: str) -> list[dict]:
+    if not relay_should_exist(now):
+        return []
+    try:
+        data = json.loads(gh(["api", f"repos/{repo}/actions/workflows/{RELAY_WORKFLOW}/runs?per_page=10"]))
+    except Exception as e:  # noqa: BLE001
+        return [problem("relay_check_unknown", "relay_check_unknown", f"could not query engine-relay runs: {e}")]
+    runs = data.get("workflow_runs")
+    if not isinstance(runs, list):
+        return []                       # no run list in the answer: cannot judge
+    runs = [r for r in runs if isinstance(r, dict) and "TEST" not in str(r.get("display_title") or r.get("name") or "")]   # dry_run / until runs are no relay
+    if any(r.get("status") != "completed" for r in runs):
+        return []
+    last = runs[0].get("conclusion") if runs else None            # newest first; a failed / timed-out / cancelled last run is the likely cause
+    why = f" (the last relay run ended '{last}')" if last and last != "success" else ""
+    return [problem("relay_missing", "relay_missing",
+                    "no engine-relay run is queued or in progress between 16:30 IST and the next trading-day 08:50 IST: "
+                    f"nothing is waiting to start tomorrow's engine session{why}")]
 
 
 def check_state_files(root: Path) -> tuple[list[dict], dict]:
@@ -342,6 +406,8 @@ def run_checks(root: Path, now: datetime, gh=real_gh, repo: str = "", git=real_g
     probs += _guarded("incident_limits", check_incident_limits, root, now, cfg)
     probs += _guarded("calendar", check_calendar, now)
     probs += _guarded("routines_silent", check_routines_silent, root, loaded.get("guidance.json"), now)
+    probs += _guarded("session_missed", check_session_missed, root, now)
+    probs += _guarded("relay", check_relay, now, gh, repo)
     if in_market_window(now):
         probs += _guarded("watchdog", check_watchdog, root, now, cfg)
         probs += _guarded("engine", check_engine, root, now, gh, repo)

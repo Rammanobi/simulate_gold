@@ -85,7 +85,7 @@ jobs:
         # simgold-append union driver instead) -> push, 3 tries, and a merge fallback when a rebase cannot finish
         run: |
           python -c "import pathlib, sys; from simgold import gitsync; sys.exit(0 if gitsync.sync(pathlib.Path('.')) else 1)"
-      - name: Start the next session (engine starts its own afternoon session)
+      - name: Start the next session (engine starts its own afternoon session; after 15:25 hands over to engine-relay)
         if: always()
         # Owner-required 2026-10-29: the hourly Claude routine no longer dispatches the engine. On a trading day, before 15:25 IST,
         # dispatch the next run of this workflow unless another run (not this one) is already queued or in progress. It waits in the
@@ -93,11 +93,20 @@ jobs:
         run: |
           NOW=$(date +%H%M)
           TRADING=$(python -c "from simgold.market import now_ist, is_trading_day; print(is_trading_day(now_ist().date()))" 2>/dev/null || echo unknown)
-          if [ "$TRADING" != "True" ]; then
-            echo "next session: not dispatched (trading day: $TRADING)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
-          fi
-          if [ "$NOW" -ge 1525 ]; then
-            echo "next session: not dispatched (IST $NOW is at or after 15:25)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          if [ "$TRADING" != "True" ] || [ "$NOW" -ge 1525 ]; then
+            # Hand over to engine-relay.yml (tools/engine_relay.py), which sleeps to the next trading-day 08:55 IST and dispatches the
+            # engine itself, so no Claude routine and no GitHub cron is needed to start tomorrow (12 Nov 2026 missed session).
+            # Skipped when another engine-relay run is queued or in progress (a failed look-up dispatches: a duplicate relay exits at once).
+            RELAYS=$(gh api "repos/${{ github.repository }}/actions/workflows/engine-relay.yml/runs?per_page=20" --jq '[.workflow_runs[] | select(.status != "completed" and ((.display_title // "") | contains("TEST") | not))] | length' 2>/dev/null || echo unknown)
+            if [ "$RELAYS" != "0" ] && [ "$RELAYS" != "unknown" ]; then
+              echo "next session: not dispatched (IST $NOW, trading day: $TRADING); engine-relay already active ($RELAYS run(s))" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            if gh api -X POST "repos/${{ github.repository }}/actions/workflows/engine-relay.yml/dispatches" -f ref=main; then
+              echo "next session: handed over to engine-relay (IST $NOW, trading day: $TRADING)" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "next session: engine-relay dispatch FAILED (IST $NOW); its restart crons and tools/ensure_engine.py still apply" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
           fi
           OTHERS=$(gh api "repos/${{ github.repository }}/actions/workflows/market-hours.yml/runs?per_page=20" --jq "[.workflow_runs[] | select(.status != \"completed\" and (.id | tostring) != \"$GITHUB_RUN_ID\")] | length" 2>/dev/null || echo unknown)
           if [ "$OTHERS" != "0" ]; then
