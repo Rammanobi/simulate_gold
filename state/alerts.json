@@ -42,6 +42,26 @@
    "status": "resolved",
    "step": "tick"
   },
+  "market hours paper trading|fail the run so the incident pipeline alerts pytest failed on main|trade fail the run": {
+   "acked": false,
+   "category": "test_failure_main",
+   "component": "market-hours paper trading",
+   "count": 1,
+   "deferred": false,
+   "detail": "failure in trade / Fail the run so the incident pipeline alerts (pytest failed on main)",
+   "emails": [],
+   "first_seen": 1794918586.650684,
+   "fp": "market hours paper trading|fail the run so the incident pipeline alerts pytest failed on main|trade fail the run",
+   "group": "",
+   "incident_id": "",
+   "issue": null,
+   "issue_url": "",
+   "last_seen": 1794918586.650684,
+   "resolved_emailed": false,
+   "severity": "high",
+   "status": "open",
+   "step": "Fail the run so the incident pipeline alerts (pytest failed on main)"
+  },
   "market hours paper trading|unknown|": {
    "acked": false,
    "category": "workflow_failed",
@@ -230,13 +250,14 @@
  },
  "fires": {
   "date": "2026-11-17",
-  "n": 2,
+  "n": 3,
   "ts": [
    1794887171.495257,
-   1794914953.580333
+   1794914953.580333,
+   1794918586.650684
   ]
  },
- "last_high_fire": 1794914953.580333,
+ "last_high_fire": 1794918586.650684,
  "pending": [],
  "version": 1
 }
