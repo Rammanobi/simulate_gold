@@ -247,9 +247,15 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
 
     same_day = pf.get("day_costs_date") == sd
     lb_income = _pos_num(pf.get("liquidbees_income_today")) if same_day else 0.0
-    cash_v, lb_v = _pos_num(pf.get("cash")), _pos_num(pf.get("liquidbees"))
+    # Idle money: ONE number, the summary's settled cash (cash account + LIQUIDBEES, whole paise), so cash + holdings = total to
+    # the paisa in both idle modes. In the LIQUIDBEES rollback mode its parts are split in whole paise too, so
+    # cash_account + liquidbees.value == cash exactly (two separately rounded floats can miss by a paisa).
+    idle_p = int(round(summary["cash"] * 100))
     if idle_is_cash(params):                      # idle money is plain cash: no LIQUIDBEES balance, no accrual
-        cash_v, lb_v, lb_income = cash_v + lb_v, 0.0, 0.0
+        lb_p, lb_income = 0, 0.0
+    else:
+        lb_p = min(max(int(round(_pos_num(pf.get("liquidbees")) * 100)), 0), max(idle_p, 0))
+    cash_v, lb_v, cash_account_v = idle_p / 100, lb_p / 100, (idle_p - lb_p) / 100
     day_costs = _pos_num(pf.get("day_costs")) if same_day else 0.0
     # realised is shown before the sell costs: those are counted once, in `costs` (= day_costs)
     realised = sum(_pos_num(t.get("pnl")) + _pos_num(t.get("costs")) for t in pf.get("trades") or []
@@ -280,7 +286,8 @@ def build(pf: dict, prices: dict, prev_close: dict, equity_rows, params: dict, n
         "prices": price_rows,
         "positions": positions,
         "liquidbees": {"value": _num(lb_v), "accrued_today": _num(lb_income)},
-        "cash": _num(cash_v),
+        "cash": _num(cash_v),                                 # idle money = summary["cash"] (includes LIQUIDBEES in rollback mode)
+        "cash_account": _num(cash_account_v),                 # additive: the part of `cash` not in LIQUIDBEES (= cash when idle is cash)
         "series": decimate(rows),
         "summary": summary,                                   # additive: schema stays v:1
     }

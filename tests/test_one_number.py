@@ -268,7 +268,7 @@ def test_dashboard_page_falls_back_for_an_old_feed(surfaces, tmp_path):
     old = json.loads(json.dumps(surfaces["live"]))
     for p in old["positions"]:
         p.pop("value"), p.pop("open_pnl")
-    old.pop("cash"), old["summary"].pop("live_profit")
+    old.pop("cash"), old["summary"].pop("live_profit"), old["summary"].pop("cash")
     g = next(h for h in _run_template(tmp_path, surfaces["alldays_full"], old)["v"]["holdings"] if h["symbol"] == "GOLDBEES")
     assert g["value"] == round(437 * 116.2, 2) or abs(g["value"] - 50779.4) < 0.01       # an old feed has nothing better than qty x price
 
@@ -390,3 +390,104 @@ def test_trend_numbers_survive_odd_input():
     assert trend.level_numbers_from_record(rec, st)["level_raw"] == 123.86                                       # a sentence-final dot
     for bad in ({"symbol": "GOLDBEES", "reason": "SMA200 1.2.3", "price": "x", "sigma": "y"}, {"reason": None}, {"symbol": 3, "reason": "55-day high ."}):
         assert isinstance(trend.level_numbers_from_record(bad, st), dict)
+
+
+# ------------------------------------------------------------------------------------------------ idle modes (cash | liquidbees rollback)
+def _params_idle(mode):
+    p = config.load_params()
+    mp = pytest.MonkeyPatch()
+    mp.setitem(p["capital"], "idle", mode)
+    mp.setitem(p["strategy"], "mode", "v2_trend")
+    return p, mp
+
+
+def _random_idle_book(rnd, mode):
+    """A random book. In `liquidbees` mode the idle money is split between the cash account and LIQUIDBEES with odd paise; in `cash`
+    mode a stray LIQUIDBEES balance (the pre-22-Oct state) must still be counted as cash."""
+    pf = _random_live(rnd)
+    idle = rnd.uniform(1000, 60000)
+    lb = rnd.choice([0.0, rnd.uniform(0, idle), idle]) if mode == "liquidbees" else rnd.choice([0.0, rnd.uniform(0, idle)])
+    pf["cash"], pf["liquidbees"] = idle - lb + rnd.random() * 0.004, lb + rnd.random() * 0.004
+    return pf
+
+
+@pytest.mark.parametrize("mode", ["cash", "liquidbees"])
+def test_live_feed_cash_plus_holdings_is_total_in_both_idle_modes(mode):
+    rnd = random.Random(11 if mode == "cash" else 12)
+    params, mp = _params_idle(mode)
+    try:
+        for _ in range(300):
+            pf = _random_idle_book(rnd, mode)
+            prices = {s: p["last_price"] for s, p in pf["positions"].items()}
+            d = livepnl.build(pf, prices, {}, [("2026-10-30", 100000.0)], params, datetime(2026, 11, 2, 11, 0, tzinfo=IST), [], market_open=True)
+            sm = d["summary"]
+            holdings_sum = sum(D(p["value"]) for p in d["positions"])
+            # one cash: the feed, the settled summary and the funds table's idle row
+            assert d["cash"] == sm["cash"] == next(r["value"] for r in sm["funds"]["rows"] if r["symbol"] == "CASH")
+            assert D(d["cash"]) + holdings_sum == D(d["total_value"]) == D(sm["total_now"])
+            # the parts of the idle money add up to it to the paisa, in both modes
+            assert D(d["cash_account"]) + D(d["liquidbees"]["value"]) == D(d["cash"])
+            assert D(d["cash_account"]) >= 0 and D(d["liquidbees"]["value"]) >= 0
+            if mode == "cash":
+                assert d["liquidbees"]["value"] == 0.0 and d["cash_account"] == d["cash"]
+            else:
+                assert abs(D(d["liquidbees"]["value"]) - D(pf["liquidbees"])) <= Decimal("0.01")
+            b = sm["breakdown"]
+            assert D(b["open"]) + D(b["booked"]) + D(b["interest"]) == D(d["total"]["pnl"]) == D(d["total_value"]) - 100000
+            assert D(d["open"]["pnl"]) == D(b["open"]) == sum(D(p["open_pnl"]) for p in d["positions"])
+    finally:
+        mp.undo()
+
+
+@pytest.mark.parametrize("mode", ["cash", "liquidbees"])
+def test_summary_cash_plus_holdings_is_total_in_both_idle_modes(mode):
+    rnd = random.Random(21 if mode == "cash" else 22)
+    params, mp = _params_idle(mode)
+    try:
+        for _ in range(300):
+            pf = _random_idle_book(rnd, mode)
+            prices = {s: p["last_price"] for s, p in pf["positions"].items()}
+            ms = summary.money_summary(pf, prices, [("2026-10-30", 100000.0)], "2026-11-02", params, idle_cash=config.idle_is_cash(params))
+            assert D(ms["cash"]) + sum(D(m["value"]) for m in ms["metals"]) == D(ms["total_now"])
+            assert abs(D(ms["cash"]) - D(pf["cash"]) - D(pf["liquidbees"])) <= Decimal("0.01")      # the real idle money, LIQUIDBEES included
+            b = ms["breakdown"]
+            assert D(b["open"]) + D(b["booked"]) + D(b["interest"]) == D(ms["overall_profit"]) == D(ms["total_now"]) - 100000
+    finally:
+        mp.undo()
+
+
+@pytest.mark.parametrize("mode", ["cash", "liquidbees"])
+def test_dashboard_page_allocation_sums_to_the_total_in_both_idle_modes(surfaces, tmp_path, mode):
+    """The page's Cash comes from the settled summary: in the LIQUIDBEES rollback mode it includes the LIQUIDBEES balance, so
+    cash + holdings = total (it used to show the account cash only, leaving the allocation short by the LIQUIDBEES value)."""
+    rnd = random.Random(31 if mode == "cash" else 32)
+    params, mp = _params_idle(mode)
+    try:
+        for i in range(8):
+            pf = _random_idle_book(rnd, mode)
+            if mode == "liquidbees" and i % 2 == 0:
+                pf["liquidbees"] = max(pf["liquidbees"], 5000.0)             # make sure the case that broke is covered
+            prices = {s: p["last_price"] for s, p in pf["positions"].items()}
+            live = livepnl.build(pf, prices, {}, [("2026-11-06", 100328.32)], params, datetime(2026, 11, 9, 11, 0, tzinfo=IST), [], market_open=True)
+            out = _run_template(tmp_path, surfaces["alldays_full"], live)
+            v = out["v"]
+            assert v["live"] is True and v["idle"] == ("cash" if mode == "cash" else "liquidbees")
+            assert v["alloc"]["CASH"] == live["cash"] == live["summary"]["cash"]
+            assert sum(D(x) for x in v["alloc"].values()) == D(v["total"]) == D(live["total_value"])
+            assert sum(D(h["value"]) for h in v["holdings"]) + D(v["alloc"]["CASH"]) == D(v["total"])
+            assert "Cash" in out["hold"]
+    finally:
+        mp.undo()
+
+
+def test_dashboard_page_cash_survives_a_feed_without_the_top_level_cash(surfaces, tmp_path):
+    """summary.cash is the first choice; the feed's `cash` and then total minus holdings are only fallbacks."""
+    live = json.loads(json.dumps(surfaces["live"]))
+    live["cash"] = 1.0                                                      # a wrong top-level number must not win over the summary
+    assert _run_template(tmp_path, surfaces["alldays_full"], live)["v"]["alloc"]["CASH"] == live["summary"]["cash"] == 49574.31
+    live["summary"].pop("cash")
+    assert _run_template(tmp_path, surfaces["alldays_full"], live)["v"]["alloc"]["CASH"] == 1.0
+    live.pop("cash")
+    v = _run_template(tmp_path, surfaces["alldays_full"], live)["v"]
+    assert round(sum(v["alloc"].values()), 2) == v["total"]
+

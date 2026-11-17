@@ -245,10 +245,12 @@ function view() { /* the "now" the top of the page shows: stored last day, or th
     value = num(p.value) != null ? p.value : p.qty * px, gain = num(p.open_pnl) != null ? p.open_pnl : value - p.invested;
     hold.push({symbol: p.symbol, units: p.qty, avg: p.avg_cost, invested: p.invested, price: px, value: value, gain: gain, gainPct: p.invested ? gain / p.invested * 100 : 0}); });
   const alloc = {GOLDBEES: 0, SILVERBEES: 0, HINDCOPPER: 0}; hold.forEach(h => alloc[h.symbol] = h.value);
-  alloc.CASH = num(L.cash) != null ? L.cash : L.total_value - sum(hold.map(h => h.value));
   const sm = L.summary || {};
+  /* Cash = the settled idle money from the summary (cash account + LIQUIDBEES in the rollback mode, whole paise), so cash + holdings
+     = total to the paisa in both idle modes. The feed's own `cash` is the same number; an old feed falls back to total minus holdings. */
+  alloc.CASH = num(sm.cash) != null ? sm.cash : num(L.cash) != null ? L.cash : L.total_value - sum(hold.map(h => h.value));
   return {date: L.session_date, asOf: L.ts, total: L.total_value, holdings: hold, prices: prices, alloc: alloc, dayProfit: L.today.pnl, dayPct: L.today.pct,
-    overall: L.total_value - D.start, overallPct: (L.total_value / D.start - 1) * 100, idle: n.idle, live: true,
+    overall: L.total_value - D.start, overallPct: (L.total_value / D.start - 1) * 100, idle: sm.idle_cash === true ? 'cash' : sm.idle_cash === false ? 'liquidbees' : n.idle, live: true,
     openGain: num(sm.live_profit) != null ? sm.live_profit : sum(hold.map(h => h.gain)), summary: sm};
 }
 

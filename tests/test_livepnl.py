@@ -13,7 +13,7 @@ from simgold.market import IST
 
 P = config.load_params()
 KEYS = {"v", "ts", "session_date", "market_open", "feed_ok", "start_capital", "prev_close_date", "prev_close_value",
-        "total_value", "today", "open", "total", "prices", "positions", "liquidbees", "cash", "series", "summary"}
+        "total_value", "today", "open", "total", "prices", "positions", "liquidbees", "cash", "cash_account", "series", "summary"}
 
 
 def at(day, hh=11, mm=30):
