@@ -148,21 +148,20 @@
    "acked": false,
    "category": "routines_silent",
    "component": "watchdog",
-   "count": 3,
+   "count": 1,
    "deferred": false,
-   "detail": "guidance.json was last written by the fallback (limit 3 h): the Claude routines are not running (usage limit or credits?)",
+   "detail": "no daily report reports/daily/2026-11-17.json after 16:30 IST: the Claude routines are not running (usage limit or credits?)",
    "emails": [],
-   "first_seen": 1794811571.3217962,
+   "first_seen": 1794914953.580333,
    "fp": "watchdog|routines_silent|",
    "group": "",
    "incident_id": "",
    "issue": null,
    "issue_url": "",
-   "last_seen": 1794818773.1110127,
-   "resolved_at": 1794825556.6865473,
+   "last_seen": 1794914953.580333,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "resolved",
+   "status": "open",
    "step": "routines_silent"
   },
   "watchdog|ticks_missing|": {
@@ -180,9 +179,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1794887171.495257,
+   "resolved_at": 1794914953.719547,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "ticks_missing"
   },
   "watchdog|ticks_stale|": {
@@ -230,12 +230,13 @@
  },
  "fires": {
   "date": "2026-11-17",
-  "n": 1,
+  "n": 2,
   "ts": [
-   1794887171.495257
+   1794887171.495257,
+   1794914953.580333
   ]
  },
- "last_high_fire": 1794887171.495257,
+ "last_high_fire": 1794914953.580333,
  "pending": [],
  "version": 1
 }
