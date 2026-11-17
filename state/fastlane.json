@@ -1,7 +1,7 @@
 {
- "updated": "2026-11-13T09:16:41+05:30",
+ "updated": "2026-11-17T09:28:34+05:30",
  "GOLDBEES": {
-  "tighten_stop": 111.0
+  "tighten_stop": 109.4
  },
- "note": "Gold fell 2.6% at the open with no confirmed news, so the gold stop is raised to 111.0 to limit further loss."
+ "note": "Gold fell about 1.5% as the US dollar strengthened on Fed rate-hike expectations, so a protective stop is set at 109.40 on the gold holding."
 }
