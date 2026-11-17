@@ -83,9 +83,9 @@ def test_item_from_daily(tmp_path, capsys):
     assert B.main(["item-from-daily", "--date", "2026-10-12", "--report-url", "https://r/x", "--root", str(tmp_path), "--now", NOW]) == 0
     it = json.loads(capsys.readouterr().out)
     assert (it["id"], it["kind"], it["status"], it["revision"]) == ("daily-2026-10-12", "daily", "needs_approval", 1)
-    assert [r[0] for r in it["impact"]] == ["Portfolio", "Day P&L", "Floor", "Cash in LIQUIDBEES", "Trades"]
-    assert dict(it["impact"])["Portfolio"] == "₹1,00,147" and dict(it["impact"])["Day P&L"] == "+₹147"
-    assert dict(it["impact"])["Trades"].startswith("4 (2 buys, 2 sells)")
+    assert [r[0] for r in it["impact"]] == ["Portfolio", "Day P&L", "Account stop", "Cash in LIQUIDBEES", "Trades"]
+    assert dict(it["impact"])["Portfolio"] == "₹1,00,676" and dict(it["impact"])["Day P&L"] == "+₹676"
+    assert dict(it["impact"])["Trades"].startswith("1 (1 buys, 0 sells)")
     assert it["summary"].startswith("Small green day") and it["report_url"] == "https://r/x" and it["sample"] is True
     assert it["title"] == "Daily report: Mon 12 Oct"
 

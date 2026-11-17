@@ -18,6 +18,9 @@ config.load_params()["strategy"]["mode"] = "v1_scores"
 # The shipped file has `capital.idle: cash` (owner decision 2026-10-22). The older tests exercise the LIQUIDBEES path (the
 # one-line rollback `capital.idle: liquidbees`), so the cached params keep that; cash mode has its own tests (tests/test_idle_cash.py).
 config.load_params()["capital"]["idle"] = "liquidbees"
+# The shipped email style is `report.portfolio_style: COMPACT` (tests/test_email_compact.py). The older report tests exercise the previous
+# email (the one-line rollback `AB`), so the cached params keep that; the compact tests switch it back on for themselves.
+config.load_params()["report"]["portfolio_style"] = "AB"
 
 
 def d5_params() -> dict:

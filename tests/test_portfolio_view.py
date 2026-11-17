@@ -34,9 +34,9 @@ def test_split_cells_adds_up():
 
 
 def test_style_comes_from_config_and_defaults_to_a():
-    assert summary.portfolio_style({}) == "AB" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
+    assert summary.portfolio_style({}) == "COMPACT" and summary.portfolio_style({"report": {"portfolio_style": "b"}}) == "B"
     assert summary.portfolio_style({"report": {"portfolio_style": "a"}}) == "A"
-    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "AB"
+    assert summary.portfolio_style({"report": {"portfolio_style": "zzz"}}) == "COMPACT"
     assert config.load_params()["report"]["portfolio_style"] == "AB"
     assert summary.portfolio_style(config.load_params()) in STYLES
 

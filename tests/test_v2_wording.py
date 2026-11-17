@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def v2_day():
     day = json.loads((ROOT / "templates" / "sample_day.json").read_text(encoding="utf-8"))
+    day["money_summary"]["funds"]["style"] = "AB"            # these tests pin the previous email's wording (the COMPACT email has its own tests)
     p = day["portfolio"]
     p.update(v2=True, floor=75000, distance_to_floor=p["close"] - 75000, drawdown_from_peak=-0.062, brake_level=0, peak=106000,
              floor_next_step="Brake level 0: full size. Value is 6.2% below its peak. At -15% every target is halved, at -25% everything is sold, "
@@ -37,6 +38,8 @@ def test_text_and_html_reports_describe_the_brakes_and_the_account_stop():
 
 def test_v1_reports_keep_the_floor_wording():
     day = json.loads((ROOT / "templates" / "sample_day.json").read_text(encoding="utf-8"))
+    day["money_summary"]["funds"]["style"] = "AB"
+    day["portfolio"]["v2"] = False
     txt = report.render_text(day, sample=True)
     assert "PORTFOLIO AND FLOOR" in txt and "Next step" in txt
 

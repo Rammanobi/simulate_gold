@@ -267,7 +267,7 @@ alerts:
 # On a trading day, if the report is not SENT by this IST time, the code backup email goes out at once (owner approval 2026-10-29).
 report:
   backup_after: "16:30"
-  portfolio_style: AB               # AB | A | B (see "Where your money is" above)
+  portfolio_style: COMPACT          # COMPACT (compact broker-card email) | AB (previous email, one-line rollback) | A | B
 
 # ---- fallback when Claude cannot run at all (simgold/fallback_llm.py, tools/fallback_brain.py, tools/fallback_report.py) ----
 # Used ONLY when the watchdog reports routines_silent. DeepSeek is OpenAI-compatible; the key lives in the GitHub secret

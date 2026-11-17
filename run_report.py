@@ -19,11 +19,13 @@ ROOT = Path(__file__).resolve().parent
 
 
 def generate(date: str, root: Path = ROOT, report_url: str | None = None, holiday: str | None = None,
-             inbox_url: str | None = None):
-    """Build and write the report files for one trading date. Returns (day dict, {json,email,txt,page: Path})."""
+             inbox_url: str | None = None, kind: str = "evening"):
+    """Build and write the report files for one trading date. Returns (day dict, {json,email,txt,page: Path}).
+    kind "morning" builds the pre-open plan for `date` (last close's numbers + today's plan) into reports/daily/<date>-morning.*"""
     root = Path(root)
-    day = report.build_day(date, root, holiday=holiday)
-    paths = report.write_reports(day, root / "reports" / "daily", date, ROOT / "templates" / "daily_report_template.html",
+    morning = kind == "morning"
+    day = report.build_morning(date, root) if morning else report.build_day(date, root, holiday=holiday)
+    paths = report.write_reports(day, root / "reports" / "daily", f"{date}-morning" if morning else date, ROOT / "templates" / "daily_report_template.html",
                                  report_url=report_url, inbox_url=inbox_url or load_inbox_url(root))
     return day, paths
 
