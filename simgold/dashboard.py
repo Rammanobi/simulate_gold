@@ -9,7 +9,8 @@ amount, pnl, reason, trigger, stop, risk, value_after}], notes[{time, who, text}
 checks{syms, texts, rows[[time, value, [text index per symbol]]]} (every minute, also when nothing happened), targets[] (empty on v1 days).
 Strategy v2 days only (strategy absent on v1 days): strategy{mode, brake_level 0/1/2, account_stop, ai_stop, invested_pct,
 min_invested?, peak?, drawdown_pct?, account_stop_level?} and targets[{symbol, time, trend ON/OFF, state, sigma (the engine's TARGET fields), reason, sigma60, target_pct, actual_pct, stop, exit_level?,
-ai_stop?}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
+ai_stop?, level_kind (sma200|donchian55), level_raw, level (the ON level incl. the hysteresis band when OFF, the OFF level when ON),
+level_side (on|off), close (the 15:10 check price), gap_pct (level/close-1 in %), weight_if_on (% of the portfolio)}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
 "Drawdown brake" / "Account stop" decisions.
 
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
@@ -26,7 +27,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from simgold import config, holdings as holdings_mod, report
+from simgold import config, holdings as holdings_mod, report, trend
 from simgold.market import now_ist
 
 log = logging.getLogger(__name__)
@@ -92,6 +93,15 @@ def _params(root: Path) -> dict:
         return {}
 
 
+def _trend_params(par: dict) -> dict:
+    """The strategy numbers for the trend levels (band, caps, vol target): the root's own params.yaml over the repo's."""
+    try:
+        base = config.load_params().get("strategy") or {}
+    except Exception:  # noqa: BLE001
+        base = {}
+    return {**base, **par}
+
+
 def _num(v):
     return _f(v) if isinstance(v, (int, float, str)) else None
 
@@ -148,7 +158,7 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
     floor = _num(par.get("min_invested", par.get("gold_floor")))
     if floor is not None:
         strategy["min_invested"] = floor if floor > 1 else round(floor * 100, 1)
-    targets = []
+    targets, tpar = [], _trend_params(par)
     for s in SYMS:
         r = last.get(s)
         if not r:
@@ -161,6 +171,10 @@ def _v2(path: Path, root: Path, alloc: dict, close) -> tuple[dict | None, list[d
              "reason": (m.group(1) if m else reason)[:300],
              "sigma60": round(float(r["sigma"]), 4) if isinstance(r.get("sigma"), (int, float)) else None,
              "target_pct": _num(r.get("target_pct")), "actual_pct": _num(r.get("actual_pct"))}
+        try:
+            t.update(trend.level_numbers_from_record(r, tpar))     # level, level_kind, close, gap_pct, weight_if_on: numbers, not text
+        except Exception:  # noqa: BLE001 - the numbers are extra; the text reason still says it
+            log.warning("dashboard: no trend numbers for %s", s, exc_info=True)
         real = [v for v in (stp.get("exit_level"), stp.get("ai_stop")) if v]
         if real:
             t["stop"] = max(real)
@@ -254,9 +268,11 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
     alloc = {s: 0.0 for s in SYMS}
     for h in closes:
         alloc[h["symbol"]] = round(float(h.get("value") or 0), 2)
-    alloc["LIQUIDBEES"] = round(float(p.get("cash_in_liquidbees") or 0), 2)
+    ms = day.get("money_summary") or {}
+    alloc["LIQUIDBEES"] = round(float(ms["cash"] if ms.get("cash") is not None else (p.get("cash_in_liquidbees") or 0)), 2)
     try:        # holdings (4 rows, as of the day) and the full trade ledger up to and including the day
-        hv = holdings_mod.view(date, root, {h["symbol"]: h["close"] for h in closes if h.get("close")}, alloc["LIQUIDBEES"])
+        hv = holdings_mod.view(date, root, {h["symbol"]: h["close"] for h in closes if h.get("close")}, alloc["LIQUIDBEES"],
+                               values={m["symbol"]: m["value"] for m in ms.get("metals") or []} or None)
         holdings = _with_stops(hv["rows"], closes)
         ledger, ledger_total = hv["ledger"], hv["ledger_total"]
     except Exception:  # noqa: BLE001 - never lose the day document over the extra view

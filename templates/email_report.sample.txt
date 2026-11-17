@@ -26,7 +26,7 @@ YOUR MONEY AT A GLANCE
 7. Live profit right now: +₹244.44
    (Gain on what you hold now)
 
-Overall profit +₹244.44 = booked profit ₹0.00 + open gain +₹244.44 + costs paid ₹0.00 + past interest on idle money ₹0.00 (before the 22 Oct switch to cash; booked is ₹0.00 after costs).
+Overall profit +₹244.44 = open gain +₹244.44 (after the cost of selling) + booked profit ₹0.00 (sells, after costs) + past interest on idle money ₹0.00 (earned before the 22 Oct switch to cash).
 
 DETAILS
 

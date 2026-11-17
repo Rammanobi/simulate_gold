@@ -29,9 +29,9 @@ def test_real_case_reconciles_to_the_paisa():
     assert s["bought_total"] == 49993.97 and s["sold_total"] == 48874.35
     assert s["today_bought"] == 0.0 and s["today_sold"] == 0.0
     b = s["breakdown"]
-    assert b["booked_after_costs"] == -1166.15
-    assert b["costs"] == -46.52 and b["open"] == 0.0 and b["interest"] == 146.82
-    assert round(b["booked"] + b["open"] + b["costs"] + b["interest"], 2) == s["overall_profit"] == b["sum"]
+    assert b["booked"] == -1166.15                                       # the sell's pnl, already after costs
+    assert b["costs_in_booked"] == -46.52 and b["open"] == 0.0 and b["interest"] == 146.82
+    assert round(b["booked"] + b["open"] + b["interest"], 2) == s["overall_profit"] == b["sum"]
 
 
 def test_trade_day_shows_todays_fills():
@@ -49,15 +49,15 @@ def test_holding_today_every_row_nonzero():
     pf = {"cash": cash, "liquidbees": 0.0, "trades": [BUY, SELL, buy],
           "positions": {"GOLDBEES": {"qty": 423, "avg_cost": 116.5, "buy_costs": 26.87, "last_price": 117.2}}}
     s = summary.money_summary(pf, {"GOLDBEES": 117.2}, EQ, "2026-10-29", P)
-    assert s["metals"][0]["value"] == round(423 * 117.2, 2) and s["held"]
     net = round(423 * 117.2 * (1 - 0.0010 / 2), 2)
+    assert s["metals"][0]["gross_value"] == round(423 * 117.2, 2) and s["metals"][0]["value"] == net and s["held"]
     assert s["exit_cost"] == round(round(423 * 117.2, 2) - net, 2) > 0
     assert s["total_now"] == round(cash + net, 2)
     assert s["today_bought"] == 49279.5 and len(s["today_buys"]) == 1
     assert s["live_profit"] == round(net - (423 * 116.5 + 26.87), 2)
     b = s["breakdown"]
-    assert b["open"] == s["live_profit"] and b["costs"] == -46.52          # open buy costs are inside the open gain
-    assert round(b["booked"] + b["open"] + b["costs"] + b["interest"], 2) == s["overall_profit"]
+    assert b["open"] == s["live_profit"] and b["costs_in_booked"] == -46.52   # open buy costs are inside the open gain
+    assert round(b["booked"] + b["open"] + b["interest"], 2) == s["overall_profit"]
     assert s["today_profit"] == round(s["total_now"] - 98980.67, 2)
 
 

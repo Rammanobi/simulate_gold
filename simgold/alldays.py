@@ -26,7 +26,7 @@ import re
 from datetime import date as _date
 from pathlib import Path
 
-from simgold import config, holdings as holdings_mod
+from simgold import config, holdings as holdings_mod, summary
 from simgold.market import is_trading_day, now_ist
 
 log = logging.getLogger(__name__)
@@ -75,6 +75,20 @@ def read_ticks(path: Path) -> list[tuple[str, float | None, dict]]:
     except OSError:
         return []
     return rows
+
+
+def tick_cash(path: Path) -> float | None:
+    """The cash (cash + LIQUIDBEES) of the last tick of the day: the engine's real balance at the close. None when there is none."""
+    last = None
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                c, lb = _r(r.get("cash")), _r(r.get("liquidbees"))
+                if c is not None:
+                    last = c + (lb or 0.0)
+    except OSError:
+        return None
+    return last
 
 
 def _minutes(hhmm: str) -> int:
@@ -194,18 +208,26 @@ def build_day(date: str, doc: dict, root: Path, ledger: list[dict], prev_close: 
     if close is None:
         close = prev_close
     day_trades = [e for e in ledger if e["date"] == date]
-    # closing price per fund: the dashboard's own row (the price the close value was computed on), else the last tick, else the last fill
+    # ONE closing price per fund, the same one every other surface uses: the last tick of the day (what the close value in
+    # state/equity.csv was computed on), else the dashboard document's own row, else the last fill (below)
     doc_px = {h.get("symbol"): _r(h.get("price"), 4) for h in doc.get("holdings") or [] if isinstance(h, dict)}
-    px = {s: doc_px.get(s) or tp[s][1] for s in SYMS}
+    px = {s: tp[s][1] or doc_px.get(s) for s in SYMS}
     rows = holdings_mod.compute(ledger, {s: v for s, v in px.items() if v}, 0.0, upto=date, idle_cash=True)
+    # settle to the paisa exactly like the money summary: the close is the equity close, cash the real cash of the last tick,
+    # and the few paise of rounding go to the holdings (simgold.summary.settle), so cash + holdings = close on every day
+    nets = {r["symbol"]: r["units"] * (px.get(r["symbol"]) or r["price"] or 0.0) * (1 - holdings_mod.sell_cost(r["symbol"]) / 2)
+            for r in rows if r["symbol"] in SYMS and r.get("units")}
+    values_p, cash_p, _total_p = summary.settle(nets, tick_cash(root / "logs" / f"ticks-{date}.csv"), close)
+    rows = holdings_mod.compute(ledger, {s: v for s, v in px.items() if v}, 0.0, upto=date, idle_cash=True,
+                                values={s: v / 100 for s, v in values_p.items()})
     held = _holdings_rows(rows)
     for h in held:
         px[h["symbol"]] = px.get(h["symbol"]) or h["price"]
     alloc = {s: 0.0 for s in SYMS}
     for h in held:
         alloc[h["symbol"]] = h["value"]
-    invested = _r(sum(alloc.values()))
-    alloc["Cash"] = _r(close - invested)
+    invested = _r(sum(summary._p(v) for v in alloc.values()) / 100)
+    alloc["Cash"] = _r(cash_p / 100)
     prices = {}
     for s in SYMS:
         o, c = tp[s][0], px.get(s)

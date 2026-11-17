@@ -189,7 +189,7 @@ class Sim:
         self.last_payload = d
         sm = d["summary"]
         bd = sm["breakdown"]
-        assert abs(bd["booked"] + bd["open"] + bd["costs"] + bd["interest"] - sm["overall_profit"]) < 0.0051, ("summary parts do not sum", bd, sm["overall_profit"])
+        assert abs(bd["booked"] + bd["open"] + bd["interest"] - sm["overall_profit"]) < 0.0051, ("summary parts do not sum", bd, sm["overall_profit"])
         assert abs(bd["sum"] - sm["overall_profit"]) < 0.0051
         assert abs(sm["total_now"] - eng.value()) < 0.025, (sm["total_now"], eng.value())
         assert abs(sm["overall_profit"] - (eng.value() - 100000.0)) < 0.025
