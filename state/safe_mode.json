@@ -1,5 +1,4 @@
 {
- "on": true,
- "since": "2026-11-17T09:46:53+05:30",
- "reason": "HIGH incident not fixed within 30 min: ticks_missing"
+ "on": false,
+ "cleared": "false positive: ticks_missing raised 09:16 before the engine's first push (09:20); session ran fine, nothing blocked"
 }

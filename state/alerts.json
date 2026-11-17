@@ -97,9 +97,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1794889013.5384026,
+   "resolved_at": 1794937072.5101902,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "safe-mode"
   },
   "tests|run python m pytest q|assertionerror": {
