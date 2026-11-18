@@ -1,0 +1,38 @@
+METALS DAYBOOK · Wed 18 Nov · close
+Action: check the open alert (Fail the run so the incident pipeline alerts (pytest failed on main)) and acknowledge it
+
+Total value ₹96,707
+Overall loss ↓ −₹3,293 (−3.29%)   |   Today's loss ↓ −₹904 (−0.93%)
+Invested ₹49,406   Cash ₹49,574   Booked ↓ −₹1,166
+open −₹2,273 + booked −₹1,166 + interest +₹147 = overall −₹3,293
+Gold 49% · Cash 51%
+GOLDBEES 437 × ₹113.00: ↓ −₹2,273 (−4.60%) · LTP ₹107.91 ↓ −1.83% today
+  437 shares × ₹107.91 = ₹47,157 · ₹47,133 after selling cost
+Cash ₹49,574 (idle, earns nothing)
+
+WHY CASH? TREND CHECK 15:10
+GOLDBEES OFF ₹107.87 / ₹124.14 · needs +15.1% · if ON alone 68% · now 49% / target 50%
+SILVERBEES OFF ₹155.97 / ₹232.45 · needs +49.0% · if ON alone 41% · now 0% / target 0%
+HINDCOPPER OFF ₹419.50 / ₹550.81 · needs +31.3% · if ON alone 35% · now 0% / target 0%
+Rules: min 50% in gold · gold if ON = min(1, 0.14/σ60) · silver cap 70% · copper cap 35% · trades only if gap > 5 pts
+Gold is held at the 50% floor; silver and copper wait for a 55-day breakout.
+
+TODAY: 0 buys · 0 sells · 3 blocked
+09:15  blocked GOLDBEES · price shock −1.79%
+09:23  blocked SILVERBEES · price shock −2.78%
+13:31  blocked GOLDBEES · price shock +0.63%
+15:10  No trades · check kept gold at 50%
+
+YOU VS GOLD · since 13 Oct: 7.5 pts ahead
+You ↓ −3.3%   Gold B&H ↓ −10.8%
+
+SAFETY · now ₹96,707 · peak ₹1,01,198
+₹21,707 above stop · 4.4% under peak · brake 0
+
+Gold ₹107.91 ↓ −1.83% today   Silver ₹155.86 ↓ −3.04% today   Copper ₹419.35 ↓ −2.92% today
+Next event: JOBS Fri 4 Dec 19:00
+
+Open dashboard: https://claude.ai/artifact/1YVZ1m6rDxCwccPzQtCz73#2026-11-18
+Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-11-18
+
+Paper trading · no real money · engine 371 checks · thrift
