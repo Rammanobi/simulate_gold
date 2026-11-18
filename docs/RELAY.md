@@ -44,3 +44,6 @@ live chain, never hands over. It lists runs for real, and an `until` run that is
 ## Limits
 Public-repo Actions minutes are free; a weekend is about 12 hops. If GitHub is down, nothing here helps.
 - `relay_check_unknown` (LOW): the relay run list could not be fetched; safe-mode exempt like the two above.
+
+## `ticks_missing` grace (17 Nov 2026)
+`tools/healthcheck.py` does not raise `ticks_missing` before 09:15 + `TICK_MAX_AGE_MIN` (09:27 IST): the engine's first ticks push to main is its first 5-minute git sync, about 09:20. `reminders.yml` also runs `resolve-missing --component watchdog` after raising (as `watchdog.yml` does), so a transient watchdog alert closes itself instead of ageing into the engine's "HIGH open > 30 min" safe-mode rule.

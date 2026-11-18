@@ -48,7 +48,9 @@ jobs:
         run: |
           set +e
           python tools/healthcheck.py --pull > "$RUNNER_TEMP/problems.txt"
-          if [ $? -eq 4 ]; then
+          rc=$?
+          current=""
+          if [ $rc -eq 4 ]; then
             decision=$(python -m simgold.alerts problems "$RUNNER_TEMP/problems.txt")
             echo "decision: $decision" >> "$GITHUB_STEP_SUMMARY"
             if [ "$(echo "$decision" | jq -r '.fire // false')" = "true" ]; then
@@ -56,6 +58,18 @@ jobs:
               jq -cn --rawfile p "$RUNNER_TEMP/p.txt" '{source:"reminders-healthcheck",workflow:"watchdog",problems_raw:$p}' > "$RUNNER_TEMP/facts.json"
               python -m simgold.alerts post --text-file "$RUNNER_TEMP/facts.json" >> "$GITHUB_STEP_SUMMARY"
             fi
+            current=$(jq -r '.check' "$RUNNER_TEMP/problems.txt" 2>/dev/null | paste -sd, -)
+          fi
+          # Same as watchdog.yml: this run raises watchdog alerts, so it must also close the ones that went away. Otherwise a transient
+          # alert stays open until the next watchdog run and the engine's "HIGH open > 30 min" rule turns safe mode on (17 Nov 2026).
+          # (only when the healthcheck itself ran: exit 0 = clean, 4 = problems; a crashed check resolves nothing)
+          if [ $rc -eq 0 ] || [ $rc -eq 4 ]; then
+            res=$(python -m simgold.alerts resolve-missing --component watchdog --current "$current")
+            echo "resolve-missing: $res" >> "$GITHUB_STEP_SUMMARY"
+            for id in $(echo "$res" | jq -r '.resolved_emailed[]?'); do
+              jq -cn --arg id "$id" '{mode:"resolved",incident_id:$id}' > "$RUNNER_TEMP/r.json"
+              python -m simgold.alerts post --text-file "$RUNNER_TEMP/r.json" >> "$GITHUB_STEP_SUMMARY"
+            done
           fi
           exit 0
 
