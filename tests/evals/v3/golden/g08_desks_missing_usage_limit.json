@@ -150,6 +150,25 @@
       "memory": "ok"
      }
     }
+   },
+   {
+    "name": "tricky: negated cash prose",
+    "proposal": {
+     "action": "hold_default",
+     "phase": "provisional",
+     "weights": "default",
+     "confidence": 0,
+     "note": "No cash is held back; the three weights sum to 1.00 and nothing is parked in liquid funds",
+     "final_message": "hold-default written: desks missing, usage limit; the default runs; models used: sonnet; budget: THRIFT",
+     "desks": {
+      "macro": "missing",
+      "gold": "missing",
+      "silver": "missing",
+      "copper": "missing",
+      "risk": "missing",
+      "memory": "ok"
+     }
+    }
    }
   ],
   "non_compliant": [
@@ -575,6 +594,50 @@
     },
     "expect_flags": [
      "always_green"
+    ]
+   },
+   {
+    "name": "adversarial: prose cash: keep 20% of the book in cash",
+    "proposal": {
+     "action": "hold_default",
+     "phase": "provisional",
+     "weights": "default",
+     "confidence": 0,
+     "note": "Keep 20% of the book in cash",
+     "final_message": "hold-default written: desks missing, usage limit; the default runs; models used: sonnet; budget: THRIFT",
+     "desks": {
+      "macro": "missing",
+      "gold": "missing",
+      "silver": "missing",
+      "copper": "missing",
+      "risk": "missing",
+      "memory": "ok"
+     }
+    },
+    "expect_flags": [
+     "cash_weight"
+    ]
+   },
+   {
+    "name": "adversarial: prose cash: hold some cash back",
+    "proposal": {
+     "action": "hold_default",
+     "phase": "provisional",
+     "weights": "default",
+     "confidence": 0,
+     "note": "hold some cash back",
+     "final_message": "hold-default written: desks missing, usage limit; the default runs; models used: sonnet; budget: THRIFT",
+     "desks": {
+      "macro": "missing",
+      "gold": "missing",
+      "silver": "missing",
+      "copper": "missing",
+      "risk": "missing",
+      "memory": "ok"
+     }
+    },
+    "expect_flags": [
+     "cash_weight"
     ]
    }
   ]
