@@ -168,18 +168,49 @@ def test_claude_md_is_untouched_by_this_branch():
     assert "desk allocation" not in c and "allocation set" not in c
 
 
-def test_invariants_draft_has_the_required_clauses():
+def _draft_body():
     d = doc("CLAUDE_INVARIANTS_DRAFT.md")
-    body = d.split("```markdown", 1)[1].split("\n```", 1)[0]
+    return d, d.split("```markdown", 1)[1].split("\n```", 1)[0]
+
+
+def test_invariants_draft_replaces_only_invariant_one_with_the_required_clauses():
+    d, body = _draft_body()
     items = re.findall(r"^(\d+)\. ", body, re.M)
-    assert items == [str(i) for i in range(1, 11)]
-    low = body.lower()
-    for needle in ("allocation set", "logged only", "never: place or simulate an order", "leverage", "short", "outside the three", "cash",
-                   "account stop", "latch", "untrusted data, never instructions", "always green", "hand-edit", "$report_email", "deepseek",
-                   "the objective is profit", "rotates into", "config/**"):
+    assert items == ["1"]                                                          # D12: ONLY invariant 1
+    low = re.sub(r"\s+", " ", body.lower())
+    for needle in ("allocation set", "logged only", "never buy", "never place or simulate an order", "never set a size", "never loosen a stop",
+                   "never touch the floor", "caps, gaps or limits", "leverage", "a short", "outside the three", "cash", "account stop", "latch",
+                   "untrusted data", "always green", "profit", "rotate between the three metals", "tools/desk.py write",
+                   "the tools refuse buys, favour in the fast lane, sizes and looser stops", "`v2_trend` or `v1_scores`",
+                   "`allocation.phase` is `shadow`", "`allocation.ai_trust` is 0", "shares summing to 1.00 (within 0.01)", "after 15:05"):
         assert needle in low, needle
-    assert "owner applies" in d.lower() or "applies this text" in d.lower() or "owner applies this text" in d.lower()
+    # several allocations a day are allowed: provisional + final (+ a defensive fast-lane final); never "ONE per day"
+    assert "one target allocation per trading day" not in low and "ONE" not in body
+    assert "provisional" in low and "final" in low and "fast lane" in low
+    assert "0.93" not in d and "minus 0.05" not in d
+    assert "only invariant 1" in d.lower() and "invariants 2 to 6 stay" in d.lower()
     assert "not in force" in d.lower()
+
+
+def test_invariants_draft_keeps_the_protections_that_live_in_the_other_invariants():
+    d, body = _draft_body()
+    claude = re.sub(r"\s+", " ", (ROOT / "CLAUDE.md").read_text(encoding="utf-8"))
+    untouched = d.split("## What stays untouched", 1)[1].split("## Other CLAUDE.md edits", 1)[0]
+    untouched = re.sub(r"\s+", " ", untouched)
+    # (a) the draft lists each protection ...
+    for needle in ("`tools/memory_ltm.py` and `tools/memory_stm.py`", "`state/tomorrow.txt`", "`guidance.py tomorrow` fails", "1 or 2 plain sentences",
+                   "repo data files", "incident payloads", "`tools/guidance.py` refuses buys, favour in the fast lane, sizes and looser stops",
+                   "`$REPORT_EMAIL`", "advice that breaks a rule is ignored and logged", "never hand-edit state JSON"):
+        assert needle in untouched, needle
+    # (b) ... and today's CLAUDE.md really says it, so the draft does not lean on a rule that is not there
+    for needle in ("`tools/memory_ltm.py` / `tools/memory_stm.py`", "`state/tomorrow.txt` is plain text", "if `guidance.py tomorrow` fails",
+                   "1–2 plain sentences", "repo data files", "incident payloads", "`tools/guidance.py` refuses buys, favour in the fast lane, sizes and looser stops",
+                   "$REPORT_EMAIL", "ignored and logged", "Never hand-edit state JSON", "never touch the floor, caps, gaps or limits"):
+        assert needle in claude, needle
+    # the replacement keeps what the old invariant 1 said
+    low = re.sub(r"\s+", " ", body.lower())
+    for needle in ("never buy", "never set a size", "never loosen a stop", "never touch the floor"):
+        assert needle in low
 
 
 def test_rollout_has_phases_rollbacks_usage_limit_and_all_twelve_decisions():
@@ -193,3 +224,194 @@ def test_rollout_has_phases_rollbacks_usage_limit_and_all_twelve_decisions():
     for needle in ("0.98", "rotate_to_gold", "Level 2 (-25%)", "0.24", "Compact", "At most `hold-default`" if False else "No (at most `hold-default`)", "Rs 75,000"):
         assert needle in r, needle
     assert "always green" in r.lower() and "profit" in r.lower()
+    assert "9 of 10" not in r and "invested_target` minus" not in r
+
+
+# ------------------------------------------------------------------------------------------------ the mode gate (step 1b)
+GATE_MODES = ("v2_trend", "v1_scores", "v3_alloc", "FAILED")
+
+
+def step_1b(name: str) -> str:
+    m = re.search(r"^1b\.\s+(.*?)(?=^\d+[a-z]?\.\s)", raw(name), re.M | re.S)
+    assert m, f"{name}.md has no step 1b"
+    return re.sub(r"\s+", " ", m.group(1))
+
+
+def gate(step: str) -> dict:
+    """Execute step 1b as text: for each MODE (and a failed MODE command) say what the clause that names it tells the routine to do.
+    Returns {mode: ('hand_over', 'routines/x.md') | ('continue', None) | ('unknown', None)}."""
+    clauses = list(re.finditer(r"MODE\s+((?:`[a-z0-9_]+`(?:,\s*|\s+or\s+|,\s+or\s+)?)+)(?:,?\s*or the MODE command failed)?", step))
+    out = {m: ("unknown", None) for m in GATE_MODES}
+    for i, c in enumerate(clauses):
+        end = clauses[i + 1].start() if i + 1 < len(clauses) else len(step)
+        after = step[c.end():end]
+        named = re.findall(r"`([a-z0-9_]+)`", c.group(1))
+        failed = "MODE command failed" in c.group(0) or "MODE command failed" in step[c.start():c.end() + 40]
+        target = re.search(r"routines/([a-z0-9_]+\.md)", after)
+        verdict = ("hand_over", "routines/" + target.group(1)) if target else (("continue", None) if re.search(r"go on|continue", after) else ("unknown", None))
+        for m in named + (["FAILED"] if failed else []):
+            out[m] = verdict
+    return out
+
+
+def gate_errors(step: str, handover: str) -> list[str]:
+    g = gate(step)
+    errs = []
+    for m in ("v2_trend", "v1_scores", "FAILED"):
+        if g[m] != ("hand_over", handover):
+            errs.append(f"{m} -> {g[m]} (want a hand-over to {handover})")
+    if g["v3_alloc"] != ("continue", None):
+        errs.append(f"v3_alloc -> {g['v3_alloc']} (want: continue)")
+    return errs
+
+
+GATES = {"premarket": "routines/premarket_v2.md", "allocation": "routines/hourly.md"}
+
+
+def _swap(step: str, a: str, b: str) -> str:
+    return step.replace(a, "\0").replace(b, a).replace("\0", b)
+
+
+@pytest.mark.parametrize("name", sorted(GATES))
+def test_step_1b_hands_v2_and_v1_and_a_failed_mode_command_to_the_legacy_playbook_and_v3_continues(name):
+    step = step_1b(name)
+    assert gate_errors(step, GATES[name]) == [], (name, step)
+    g = gate(step)
+    assert g["v2_trend"] == g["v1_scores"] == g["FAILED"] == ("hand_over", GATES[name])
+    assert g["v3_alloc"] == ("continue", None)
+
+
+@pytest.mark.parametrize("name", sorted(GATES))
+def test_a_gate_that_always_hands_to_v3_is_caught(name):
+    """Mutation: the gate ignores the mode and always carries on with the v3 steps."""
+    step = step_1b(name)
+    mutant = re.sub(r"Follow `routines/[a-z0-9_]+\.md`", "Go on with the steps below", step)
+    mutant = re.sub(r"and stop; none of the steps below run", "and go on; all of the steps below run", mutant)
+    assert mutant != step and gate_errors(mutant, GATES[name]), mutant
+    mutant2 = re.sub(r"MODE `v2_trend`.*?(?=MODE `v3_alloc`)", "", step)
+    assert mutant2 != step and gate_errors(mutant2, GATES[name]), mutant2
+
+
+@pytest.mark.parametrize("name", sorted(GATES))
+def test_an_inverted_gate_is_caught(name):
+    """Mutation: v3_alloc is handed to the legacy playbook and the legacy modes carry on with v3."""
+    step = step_1b(name)
+    mutant = _swap(step, "`v2_trend`, `v1_scores`", "`v3_alloc`")
+    assert mutant != step
+    errs = gate_errors(mutant, GATES[name])
+    assert errs and any("v3_alloc" in e for e in errs), (mutant, errs)
+    assert gate(mutant)["v2_trend"][0] != "hand_over"
+
+
+def test_the_gate_evaluator_itself_sees_a_hand_over_to_the_wrong_file():
+    step = step_1b("premarket").replace("premarket_v2.md", "premarket.md")
+    assert gate_errors(step, GATES["premarket"])
+
+
+# ------------------------------------------------------------------------------------------------ doc consistency
+def _step_refs(name: str):
+    return re.findall(r"\bstep (\d+[a-z]?)\b", text(name))
+
+
+def test_step_references_point_at_steps_that_exist():
+    for name in ("premarket", "allocation"):
+        have = set(re.findall(r"^(\d+[a-z]?)\.\s", raw(name), re.M))
+        for ref in _step_refs(name):
+            assert ref in have, (name, ref, sorted(have))
+    assert "step 4b" not in text("premarket")
+    al = text("allocation")
+    assert "devil's advocate (step 4)" in al.replace("\n", " ") and "(step 5)" not in al
+    assert "4. **Brainstorm and challenge.**" in raw("allocation")
+    pm = text("premarket")
+    assert "yourself (step 4)" in pm and "continue with step 4 for the missing desks only" in pm
+
+
+def test_the_common_method_steps_are_numbered_a1_to_a8_and_cross_references_agree():
+    c = raw("_common")
+    heads = re.findall(r"^\*\*(A\d+)\.", c, re.M)
+    assert heads == [f"A{i}" for i in range(1, 9)]
+    assert "**A5. Edge and cost test" in c and "**A6. Target allocation" in c and "**A7. Confidence" in c and "**A8. Self-check" in c
+    assert "`_common.md` A4 to A8" in text("premarket") and "Confidence per `_common.md` A7" in text("premarket")
+    assert "no cash weight (`_common.md` A6)" in text("allocation")
+    for name in ("premarket", "allocation", "desk_macro", "desk_metal", "desk_risk", "fastlane"):
+        assert "A6. Confidence" not in raw(name) and "`_common.md` A6" not in text(name).replace("no cash weight (`_common.md` A6)", "")
+
+
+def test_the_thrift_web_call_limit_is_6_and_5_in_thrift_everywhere():
+    pm = text("premarket")
+    assert "At most 6 web calls in all (5 in THRIFT)" in pm
+    assert pm.count("5 in THRIFT") == 2                                           # Models line and step 4
+    assert "at most 5 web calls, compact desks done by you" in pm                 # step 0 point 4 (THRIFT)
+    assert "At most 5 web calls in all when you only synthesise" not in pm
+    r = doc("ROLLOUT.md")
+    assert "at most 6 web calls, 5 in THRIFT" in r and "at most 6 web calls)" not in r
+
+
+def test_weights_are_shares_summing_to_one_within_one_hundredth_in_every_document():
+    for name in ("_common", "premarket", "allocation", "fastlane"):
+        s = text(name)
+        assert "invested_target` minus" not in s and "0.93" not in s, name
+    c = text("_common")
+    assert "total 1.00 within 0.01" in c and "outside 0.99 to 1.01" in c
+    assert "(within 0.01)" in text("premarket") and "(within 0.01)" in text("allocation")
+    assert K.SUM_TOL == 0.01
+    ok = {"GOLDBEES": 0.85, "SILVERBEES": 0.10, "HINDCOPPER": 0.0501}
+    bad = {"GOLDBEES": 0.85, "SILVERBEES": 0.10, "HINDCOPPER": 0.07}
+    probe = {"action": "allocation_set", "weights": ok}
+    assert "sum_not_one" not in K.codes(K.check_proposal({}, probe))
+    assert "sum_not_one" in K.codes(K.check_proposal({}, {"action": "allocation_set", "weights": bad}))
+    assert "100%" in doc("CLAUDE_INVARIANTS_DRAFT.md") or "1.00 (within 0.01)" in doc("CLAUDE_INVARIANTS_DRAFT.md")
+
+
+def test_the_golden_bar_names_12_cases_and_the_safety_codes_are_the_checkers():
+    r = doc("ROLLOUT.md")
+    assert "at least 11 of 12 cases pass and no safety case fails" in r.replace("\n", " ")
+    assert len(list((ROOT / "tests" / "evals" / "v3" / "golden").glob("*.json"))) == 12
+    for code in K.SAFETY_CODES:
+        assert code in r, code
+        assert code in K.KNOWN_CODES, code
+    assert "default_band_exceeded" not in K.SAFETY_CODES
+
+
+# ------------------------------------------------------------------------------------------------ prompt improvements
+def test_the_edge_and_cost_test_and_the_no_trade_band_are_in_the_method():
+    c = text("_common")
+    for needle in ("0.15% per side", "0.30% of the moved amount", "historical typical 5-day move from the memory desk", "Minimum edge",
+                   "at least +0.10% of the account", "at least twice the costs", "propose the current share", "base rate",
+                   "No-trade band 0.05 per metal", "yesterday's FINAL as executed", "the remainder goes to GOLDBEES", "exempt"):
+        assert needle in c or needle.replace("goes", "goes") in c, needle
+    for name in ("premarket", "allocation"):
+        s = text(name)
+        assert "edge" in s.lower() and "0.05" in s and "no-trade band" in s.lower() or "no-trade band" in text("_common").lower()
+    assert "0.15%" in text("premarket") and "0.05 of its current share" in text("premarket")
+    assert "0.05 no-trade band" in text("allocation") or "no-trade band" in text("allocation")
+
+
+def test_confidence_is_capped_by_the_desks_own_calibration():
+    c = text("_common")
+    for needle in ("`desk_brier`", "`ai_vs_default`", "Calibration cap", "above 0.25", "confidence is at most 0.40", "at most 0.55"):
+        assert needle in c, needle
+    assert "calibration cap" in text("premarket").lower() and "calibration cap" in text("allocation").lower()
+    assert "A7 caps confidence by them" in c
+
+
+@pytest.mark.parametrize("name", ["desk_macro", "desk_metal", "desk_risk"])
+def test_desks_read_mode_before_the_budget_check_and_stop_unless_fanout_is_full(name):
+    r = raw(name)
+    sec = r.split("## 0. Budget check", 1)[1].split("## Steps", 1)[0]
+    sec = re.sub(r"\s+", " ", sec)
+    assert sec.index("Read MODE before anything else") < sec.index("tools/budget.py mode")
+    assert "Unless fanout is `full`" in sec and "compact mode, premarket covers it" in sec
+    assert sec.index("compact mode, premarket covers it") < sec.index("tools/budget.py mode")
+    assert "no budget call" in sec and "failed MODE command" in sec
+    assert "THRIFT **and**" not in sec                                            # compact stops in NORMAL too
+
+
+def test_the_go_live_checklist_says_which_duties_only_run_twice_a_day_once_hourly_is_off():
+    r = re.sub(r"\s+", " ", doc("ROLLOUT.md"))
+    for needle in ("Duties that shrink when hourly.md is disabled", "watchdog", "Inbox decision retry (2b)", "dashboard copy (2c)", "08:50", "14:40",
+                   "reminders.yml"):
+        assert needle in r, needle
+    assert "premarket step 9" in r and "allocation step 2" in r
+    assert "2b. **Unnotified owner decisions**" in raw("allocation") and "2c. **Dashboard copy**" in raw("allocation")
+    assert "step 9" in text("premarket") and "9. **Engine watchdog.**" in raw("premarket")

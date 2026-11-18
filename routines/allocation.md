@@ -7,7 +7,7 @@ trend check, rotating between GOLDBEES (the low-volatility sink), SILVERBEES and
 parked in cash. The engine decides and trades; your proposal can be clamped, scaled or ignored.
 
 **Models:** Sonnet alone, under 6 minutes, at most 3 web calls. In NORMAL you may start ONE Sonnet subagent as the devil's advocate
-(step 5); in THRIFT you play that role yourself in 3 lines. Record `models used: ...` in the final message.
+(step 4); in THRIFT you play that role yourself in 3 lines. Record `models used: ...` in the final message.
 
 **Advice status:** read `_common.md` ("Advice status"). While `strategy.mode` is `v2_trend` or `v1_scores` this routine is dormant
 and step 1b hands over to `routines/hourly.md`. While `allocation.phase` is `shadow`, or `ai_trust` is 0, the FINAL you write is
@@ -96,7 +96,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
      on the affected metals, HINDCOPPER 0 in its results window.
    - Never favour a metal to win back today's or this month's loss; the loss is not a reason, only evidence is.
    - Never after 15:05 IST: the tool refuses a FINAL then and the provisional stands (final message `provisional stands`).
-   Weights are shares that sum to 1.00 across the three symbols, no cash weight (`_common.md` A5).
+   Weights are shares that sum to 1.00 (within 0.01) across the three symbols, no cash weight (`_common.md` A6). Before any tilt run the
+   edge and cost test (A5: 0.15% a side, minimum edge) and the 0.05 no-trade band from the current shares (the provisional as executed, plus
+   today's fills); confidence per A7 including the calibration cap (your `desk_brier` and `ai_vs_default`). Defensive moves are exempt.
 6. **Write the FINAL.** `python tools/guidance.py allocation set --phase final --weights ... --confidence ... --scenario ... --rationale ...` (the same arguments as in `premarket.md` step 7; forms in `_common.md`, "The
    allocation CLI"), then `python tools/guidance.py allocation explain` and read the clamped result. No change from the provisional:
    still write it (it refreshes `written`) and let `--rationale` say "unchanged: <the deciding fact>". No view: `python tools/guidance.py allocation hold-default --note "<why>"`.

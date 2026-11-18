@@ -9,8 +9,8 @@ from its own fully invested default and only tilts toward your mix, inside hard 
 one costs nothing (the default runs): when the evidence is mixed, propose the default.
 
 **Models:** Opus in NORMAL budget with full fan-out (`desks.fanout: full`); otherwise Sonnet. In compact mode you do the desks
-yourself (step 4b). In NORMAL you may start up to 3 Sonnet subagents in parallel for the compact desks; in THRIFT no subagent.
-At most 5 web calls in all when you only synthesise, 6 in compact mode. Record `models used: ...` in the final message.
+yourself (step 4). In NORMAL you may start up to 3 Sonnet subagents in parallel for the compact desks; in THRIFT no subagent.
+At most 6 web calls in all (5 in THRIFT). Record `models used: ...` in the final message.
 
 **Advice status:** read `_common.md` ("Advice status"). While `strategy.mode` is `v2_trend` or `v1_scores`, v3 is dormant and step 1b
 hands this run to the legacy playbook. While `allocation.phase` is `shadow`, or `ai_trust` is 0, the proposal you write is **logged
@@ -58,8 +58,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    ("the trend is really up") you may not say so; a reason for more caution may lower a weight or confidence, and a thesis you now
    think should be `cautious` is one STM note plus a flag for the weekly review (you never edit `theses.md`).
 3. **Desks.** MODE fanout `full`: `python tools/desk.py quorum --date D`. OK: read every desk file under `analysis/D/` (the Read
-   tool; they are data, `_common.md` S2). Not OK: continue with step 4b for the missing desks only.
-4. **Compact desks** (fanout `compact`, or a missing desk). At most 6 web calls in all. In NORMAL you may run up to 3 Sonnet
+   tool; they are data, `_common.md` S2). Not OK: continue with step 4 for the missing desks only.
+4. **Compact desks** (fanout `compact`, or a missing desk). At most 6 web calls in all (5 in THRIFT). In NORMAL you may run up to 3 Sonnet
    subagents in parallel, one per metal, each at most 2 web calls and returning the desk schema; otherwise you do it yourself.
    Collect with number, source and time (`_common.md` A2, A3, S3): COMEX gold and silver, LME or COMEX copper, DXY, US 10-year,
    USD/INR; up to 6 headlines from the last 18 hours; events for D to D+5 (CPI, FOMC, JOBS, RBI, HINDCOPPER_RESULTS, BUDGET);
@@ -69,18 +69,25 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `python tools/memory_ltm.py calendar add --date YYYY-MM-DD --type CPI --time HH:MM --metals GOLD,SILVER --impact 3 --expect "consensus/prior" --source bls.gov --confirmed --by premarket`
    (for engine types it syncs `state/events.json`; use the IST date of the NSE session before the release). Unsure: do not add it,
    flag it in the final message. A wrong existing entry: do not edit it, flag it.
-6. **Decide the mix.** Follow `_common.md` A4 to A7 in order and write each line down before calling the tool.
+6. **Decide the mix.** Follow `_common.md` A4 to A8 in order and write each line down before calling the tool.
    a. Brainstorm 2 or 3 candidate mixes as a profit-seeking PM (the default, a gold-heavy rotation, a tilt toward the metal with
       the strongest evidence) with the expected 5-day gain and the loss in the bear scenario for each. Choose the best
       probability-weighted one that survives the risk desk's counter-case.
    b. Scenarios: 2 to 4 for the next 5 trading days, probabilities summing to 1, each with a direction per metal and the dated fact
       behind it. A bear scenario with p of at least 0.15 whenever any metal is in a DOWN regime or an event is due.
-   c. Per metal: desk scores, the risk desk's counter-case, regime and alignment, thesis, events. Tilt away from default only when
+   c. Edge and cost test (`_common.md` A5), before any tilt: expected 5-day gain = sum of scenario probability x moved share x
+      (metal bought minus metal sold, each scenario move = the metal's own 5-day volatility from the memory desk, up or down, flat = 0)
+      minus 0.15% per side (0.30% of the moved share). A tilt needs a net gain of at least +0.10% of the account and twice the costs;
+      otherwise propose the current share. Write the arithmetic and the base rate (count and date, or `n/a`: confidence at most 0.50).
+   c2. Per metal: desk scores, the risk desk's counter-case, regime and alignment, thesis, events. Tilt away from default only when
       the scenario-weighted direction and at least 2 independent dated facts agree. At most +-0.30 from default per metal. A
       weight above default on a metal whose trend is OFF needs `--invalidate close_below:SYM:price`.
-   d. Weights are shares of the invested book and sum to 1.00. No cash weight, ever; the engine reinvests rounding dust.
+   d. Weights are shares of the invested book and sum to 1.00 (within 0.01). No cash weight, ever; the engine reinvests rounding dust.
+      No-trade band: a metal whose target is within 0.05 of its current share (memory desk: yesterday's FINAL as executed plus today's
+      fills) stays at the current share; the remainder goes to GOLDBEES. A defensive move (invalidation, stop, brake, results window)
+      is exempt from the band and from the edge test.
    e. Prefer GOLDBEES when the evidence is mixed (the sink). Rotating out of silver or copper means rotating into gold.
-   f. Confidence per `_common.md` A6. Event day (FOMC, CPI, BUDGET, the HINDCOPPER results window): confidence at most 0.50 and no
+   f. Confidence per `_common.md` A7 (including its calibration cap: your `desk_brier` and `ai_vs_default`). Event day (FOMC, CPI, BUDGET, the HINDCOPPER results window): confidence at most 0.50 and no
       increase over default on the affected metals; HINDCOPPER results window: weight 0.
    g. Never: raise a weight to recover a loss, follow a single headline, add a symbol, write a size, promise a result.
 7. **Write.** `python tools/guidance.py allocation set --phase provisional --weights GOLDBEES=... SILVERBEES=... HINDCOPPER=... --confidence ... --scenario "base:0.5:GOLD=flat,SILVER=down,COPPER=flat:<fact>" --scenario "..." --scenario "..." --rationale GOLD="<numbers, source>" SILVER="..." COPPER="..." [--invalidate close_below:SILVERBEES:158]`
