@@ -3,6 +3,12 @@
 **Purpose:** measure the week honestly against buy-and-hold GOLDBEES, keep memory small and true, refresh
 the events calendar, and PROPOSE (never make) at most 3 rule changes for the owner.
 
+**Strategy v3 (dormant until go-live):** when `strategy.mode` is `v3_alloc` (MODE line of `routines/_common.md` S1, read in step 1), steps 2b, 3-v3 and 4d-v3 and the
+v3 line in step 6 below are added to the matching steps; under `v2_trend` or `v1_scores` they do not run and the review is as before.
+The objective is profit, measured honestly: the AI tilt is judged by whether it made more money than the engine's own default, and
+the book against GOLDBEES buy-and-hold. Never claim "always green" or promise a result; report losses plainly. In the shadow phase
+(or with `ai_trust` 0) report "would-have" numbers only and say so.
+
 **Models:** routine runs on Opus (judgement on lessons and proposals). It may give step 2 to ONE Sonnet
 subagent (Agent tool, `model: "sonnet"`) that runs the script and returns its JSON. Record "models used".
 
@@ -29,7 +35,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 1. `git pull --rebase --autostash -q`; then `python tools/memory_ltm.py regime --write`, `python tools/memory_ltm.py check`,
    `python tools/memory_ltm.py perf --write` (code only, one command per Bash call), then `python tools/context.py --view weekly`
-   (performance, alignment, regime, theses, calendar, lessons, ledger, STM window, this week's notes). WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
+   (performance, alignment, regime, theses, calendar, lessons, ledger, STM window, this week's notes). Also run the MODE line:
+   `python -c "import yaml;c=yaml.safe_load(open('config/params.yaml',encoding='utf-8'));a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'))"` (read only; a failure means `v2_trend`). WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
 2. **Stats by Python, never by hand.** Run from the repo root and keep the JSON:
    ```bash
    python - <<'EOF'
@@ -76,8 +83,12 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
        "floor": pf.get("floor"), "best_profit": pf.get("best_profit")}))
    EOF
    ```
-   Also read `memory/daily/*.md` for this week's dates (≤ 5 small files) for facts and lesson candidates.
+   Under v3 also run step 2b. Also read `memory/daily/*.md` for this week's dates (≤ 5 small files) for facts and lesson candidates.
    If you need one more number, compute it with a short Python snippet; never estimate.
+2b. **Allocation stats by Python, never by hand (v3 only).** `python tools/evaluate.py --week WEEK --format json` gives, per day: default vs
+    final vs held weights; the P&L of the account, of the engine's default alone, of D5 (the v2 rule) and of GOLDBEES buy-and-hold;
+    turnover used (budget 0.20 a day, 0.40 a week); clamp counts by rule; and each desk's Brier score on its 5-day direction calls
+    and the synthesis's scenario calibration. Numbers you need beyond that: a short Python snippet; never estimate.
 3. **Weekly note** `memory/weekly/WEEK.md`, ≤ 25 lines: the numbers (week %, vs GOLDBEES % and its source,
    trades, wins/losses, realised P&L, max intraweek drawdown in ₹, floor and cushion under v1; under v2 the drawdown from peak, brake level, trend targets vs actual and the result vs GOLDBEES buy-and-hold), which bias calls helped
    or hurt (with dates), events that mattered, and data or system problems.
@@ -103,13 +114,23 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    Types: CPI, FOMC, JOBS, RBI, HINDCOPPER_RESULTS, BUDGET (a confirmed one inside 21 days also updates `state/events.json`),
    and informational INDIA_DUTY, CHINA_DATA, OTHER. Holidays and month-end are filled by code. IST date of the NSE
    session before the release. Flag wrong existing entries; never hand-edit, never remove a confirmed engine event.
+3-v3. **Weekly note under v3** (adds to step 3, still at most 25 lines): AI tilt P&L against the default (Rs and percentage points) with
+    which metal's tilts helped or hurt and on which dates; clamp counts; turnover used against 0.40; rotation into GOLDBEES and
+    out of it, and what it earned or cost; days the default ran because the routines were silent; desk calibration (Brier);
+    the same plain comparison with GOLDBEES buy-and-hold. No promise, no "always green".
 4d. **LTM review: performance and alignment scorecard.** Read `performance.json` and its `by_alignment` table. After 4+ weeks
    of data you may PROPOSE (step 6) a change to a core multiplier or ceiling with the numbers; you never apply one.
    **First Saturday of the month:** write `memory/monthly/YYYY-MM.md` (≤ 15 lines, the previous month): numbers copied from
    `performance.json`, what drove the month, which alignment states paid, green or not. It is the owner's scorecard.
 5. **Events** are covered by step 4c (it syncs `state/events.json`). Use `python tools/guidance.py events add …` only for an
    engine event you could not enter through the calendar tool.
-6. **Proposals** `reports/weekly/WEEK-proposals.md`, at most 3, or the single line "No proposals this week."
+4d-v3. **Trust and limits scorecard (v3 only).** After at least 20 trading days of LIVE data (not shadow) you may PROPOSE, in step 6, a change to
+    `ai_trust`, `ai_caps`, `max_tilt` or the turnover limits, with the attribution numbers, a stated pass or fail test and the main
+    risk. Rules: never propose higher trust or caps after a month in which the AI tilt lost to the default; never propose removing
+    or loosening a brake, the account stop, the latch or the turnover limits; never propose new symbols as a routine change (it
+    is an owner topic: write it as one "Owner question" line). A tilt that lost money is reported as lost money.
+6. **Proposals** `reports/weekly/WEEK-proposals.md`, at most 3, or the single line "No proposals this week." Under v3 add at most one
+   "Owner question" line (for example the universe or the cash policy), which is not a proposal and not counted in the 3.
    Each: the parameter (`config/params.yaml` path, current → proposed), safer or riskier, the evidence
    (numbers, dates; one week alone is weak evidence, say so), a suggested out-of-sample test (e.g. replay
    on a held-out period with `run_backtest.py`, or 4 more weeks of paper data with a stated pass/fail
@@ -129,7 +150,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 ## Decision guidance
 
 Be honest: report under-performance against GOLDBEES plainly. Prefer "safer" proposals; a riskier one needs
-strong, multi-week evidence. Never propose removing the floor, tripwire or month-end protection (v1), or the drawdown brakes and the ₹75,000 account stop (v2).
+strong, multi-week evidence. Never propose removing the floor, tripwire or month-end protection (v1), or the drawdown brakes and the ₹75,000 account stop (v2 and v3).
 
 ## Output contract
 
