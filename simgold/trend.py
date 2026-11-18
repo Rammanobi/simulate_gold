@@ -27,11 +27,18 @@ import pandas as pd
 
 MODE_V2 = "v2_trend"
 MODE_V1 = "v1_scores"
+MODE_V3 = "v3_alloc"          # v3 desk allocation (simgold/allocation.py): the v2 engine code with a different target source
 
 
 def is_v2(p: dict | None) -> bool:
-    """True when the params select the v2 trend core. Anything else (or no `strategy:` block) is the v1 score rules."""
-    return bool(p) and (p.get("strategy") or {}).get("mode") == MODE_V2
+    """True when the params select the v2 trend core or its v3 allocation variant (v3 reuses all of the v2 engine code).
+    Anything else (or no `strategy:` block) is the v1 score rules."""
+    return bool(p) and (p.get("strategy") or {}).get("mode") in (MODE_V2, MODE_V3)
+
+
+def is_v3(p: dict | None) -> bool:
+    """True when strategy.mode is v3_alloc (the allocation pipeline; shadow or live per allocation.shadow)."""
+    return bool(p) and (p.get("strategy") or {}).get("mode") == MODE_V3
 
 
 # ---------------------------------------------------------------- inputs

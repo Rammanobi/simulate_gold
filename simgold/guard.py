@@ -593,3 +593,13 @@ def sanitize_fastlane(raw: dict, now: datetime, positions: dict[str, dict], p: d
         else:
             rej.append(f"{k}: unknown field ignored")
     return acc, rej
+
+
+# ---------------------------------------------------------------- strategy v3: allocation proposals (shared filter)
+def sanitize_allocation(obj, now: datetime, p: dict | None = None, tdays=None):
+    """The one filter for state/allocation.json, used by the routine tool and the engine alike (simgold/allocation.py).
+    Returns (Advice or None, [plain reasons the proposal is not used]). A None advice means the engine's default runs."""
+    from . import allocation
+    cfg = allocation.settings(_p(p))
+    adv, notes = allocation.resolve_advice(obj, now, cfg, tdays)
+    return adv, [str(n.get("why") or n.get("rule")) for n in notes if n.get("rule") not in ("provisional", "carry_yesterday")]
