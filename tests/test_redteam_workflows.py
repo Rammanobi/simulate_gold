@@ -117,10 +117,11 @@ def test_engine_kick_starts_the_engine_on_a_routine_guidance_push():
 
 
 def test_engine_kick_path_is_one_the_premarket_routine_commits():
-    premarket = (ROOT / "routines" / "premarket.md").read_text(encoding="utf-8")
-    step8 = premarket[premarket.index("**Commit and push**"):]
-    assert "state/guidance.json" in step8.split("```")[1]
-    assert "engine-kick.yml" in premarket
+    for name in ("premarket_v2.md", "premarket.md"):             # v2 (live) and v3 (dormant, hands over to v2 while the mode is v2)
+        premarket = (ROOT / "routines" / name).read_text(encoding="utf-8")
+        step8 = premarket[premarket.index("**Commit and push**"):]
+        assert "state/guidance.json" in step8.split("```")[1], name
+        assert "engine-kick.yml" in premarket, name
 
 
 def test_report_retry_backup_email_step_is_gated_and_uses_the_right_secrets():

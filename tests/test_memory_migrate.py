@@ -164,7 +164,7 @@ def test_memory_commands_in_playbooks_are_single_commands():
         assert ";" not in bare and "&&" not in bare and "|" not in bare and "$(" not in bare and "2>&1" not in bare, (name, c)
 
 
-@pytest.mark.parametrize("name,view", [("premarket.md", "premarket"), ("hourly.md", "hourly"), ("fastlane.md", "fastlane"),
+@pytest.mark.parametrize("name,view", [("premarket_v2.md", "premarket"), ("premarket.md", "allocation"), ("allocation.md", "allocation"), ("desk_metal.md", "desk"), ("hourly.md", "hourly"), ("fastlane.md", "fastlane"),
                                        ("daily_report.md", "daily"), ("weekly.md", "weekly")])
 def test_each_playbook_uses_its_context_view(name, view):
     text = (PLAY / name).read_text(encoding="utf-8")
@@ -173,7 +173,9 @@ def test_each_playbook_uses_its_context_view(name, view):
 
 
 def test_playbooks_use_the_tools_and_never_write_memory_json_directly():
-    need = {"premarket.md": ["memory_ltm.py regime --write", "memory_stm.py note", "guidance.py set"],
+    need = {"premarket_v2.md": ["memory_ltm.py regime --write", "memory_stm.py note", "guidance.py set"],   # v2 premarket (v3 premarket.md hands over to it while the mode is v2)
+            "premarket.md": ["memory_ltm.py regime --write", "memory_stm.py note", "guidance.py allocation set"],
+            "allocation.md": ["memory_stm.py note", "guidance.py allocation set"],
             "hourly.md": ["memory_stm.py note", "guidance.py set"],
             "fastlane.md": ["memory_stm.py note"],
             "daily_report.md": ["memory_stm.py day", "memory_ltm.py lesson candidate", "memory_ltm.py perf --write"],
