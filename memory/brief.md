@@ -1,4 +1,4 @@
-# Brief 2026-11-18 09:01 IST (Wed) | NSE CLOSED (pre-open); opens 09:15
+# Brief 2026-11-18 09:07 IST (Wed) | NSE CLOSED (pre-open); opens 09:15
 
 ## Portfolio
 value ₹97,612 | account stop ₹75,000 | drawdown from peak -3.5% (peak ₹101,198) | brake level 0 (-15% halves, -25% flat) | best profit ₹1,560 | day P&L n/a
@@ -18,7 +18,7 @@ HINDCOPPER 431.85 (as of 15:29) | vs prev close +0.30% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=neutral, SILVER=block, COPPER=neutral | 9 min old
+GOLD=neutral, SILVER=block, COPPER=neutral | 15 min old
 note: GOLD[WEAKENING]: no verified overnight data (web search returned nothing current), alignment default. SILVER[…
 
 ## Fast-lane requests today
