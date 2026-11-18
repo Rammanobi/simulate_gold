@@ -602,6 +602,56 @@
     "expect_flags": [
      "always_green"
     ]
+   },
+   {
+    "name": "adversarial: prose cash: park the rest in liquid funds",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.92,
+      "SILVERBEES": 0.05,
+      "HINDCOPPER": 0.03
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT",
+     "note": "park the rest in liquid funds"
+    },
+    "expect_flags": [
+     "cash_weight"
+    ]
    }
   ]
  }
