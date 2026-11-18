@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from . import config
+from .trend import is_v2 as trend_is_v2
 from .market import is_trading_day
 
 log = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ def rules_vs_live(root, d: date, frames=None, params: dict | None = None) -> dic
         from .backtest import run_v2
         root = Path(root)
         p = copy.deepcopy(params if params is not None else config.load_params())
-        if (p.get("strategy") or {}).get("mode") != "v2_trend":
+        if not trend_is_v2(p):
             return None
         mon, _ = week_bounds(d)
         eq = _equity(root)

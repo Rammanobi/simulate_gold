@@ -145,7 +145,7 @@ governance:
 # ROLLBACK = change the next line to v1_scores (one line). Note: v1 then re-applies its floor (99,500 or more) at once, so a
 # portfolio under that floor is flattened by the tripwire on the next tick.
 strategy:
-  mode: v2_trend                      # v2_trend | v1_scores
+  mode: v2_trend                      # v2_trend | v3_alloc (dormant until the owner switches it; see `allocation:` below) | v1_scores
   profile: aggressive                 # the owner's risk choice; the numbers below ARE the profile
   vol_target: 0.14                    # per-asset annual volatility target: weight = min(cap, vol_target / sigma60)
   vol_span: 60                        # sigma60: 60-day close-to-close volatility, annualised x sqrt(252)
@@ -209,6 +209,33 @@ strategy:
     cost_per_side: {GOLDBEES: 0.0015, SILVERBEES: 0.0015, HINDCOPPER: 0.0030}   # costs + slippage, as in the research
     lag_days: 1                       # signal at close t, fill at close t+1 (the live engine fills at the check, so this is conservative)
     oos_years: 2                      # the "last 2 years" out-of-sample window
+
+# ---- STRATEGY v3 "desk allocation" (engine part, DORMANT): simgold/allocation.py, docs in the v3 design ----
+# Only read when strategy.mode is v3_alloc; with mode v2_trend (the shipped value) this block is ignored and nothing changes.
+# ROLLBACK (one line each): strategy.mode: v2_trend -> exactly today's D5; allocation.ai_trust: 0 -> fully invested without AI;
+# allocation.shadow: true -> the v2 decision trades and the v3 target is only LOGGED (ALLOC records in logs/decisions-D.jsonl).
+# Owner decisions 17-18 Nov 2026: invested at all times (cash is only rounding dust, residual cash is reinvested at every check), brake
+# level 1 rotates to GOLDBEES, level 2 and the account stop go to cash.
+allocation:
+  shadow: true                   # true: v2 (D5) trades, the v3 target is computed and logged next to it. false: v3 trades (phase below)
+  phase: shadow                  # (shadow false only) shadow = D5-FI default trades, the AI tilt is only logged; live = the tilt trades
+  invested_target: 0.98          # MINIMUM invested share; advice weights must sum to at least this minus 5 points
+  invested_max: 1.00             # the engine aims for this: leftover cash is reinvested in whole units at every check
+  ai_trust: 0.0                  # 0 = default only; 0.5 then 1.0 after the evals (design section 4.3)
+  ai_caps:        {GOLDBEES: 1.00, SILVERBEES: 0.50, HINDCOPPER: 0.25}     # D3 (a cap never pushes below the engine's own default)
+  off_trend_caps: {GOLDBEES: 1.00, SILVERBEES: 0.20, HINDCOPPER: 0.10}     # D4 (halved when DEFENSIVE or the thesis is cautious)
+  max_tilt: 0.30                 # the AI moves a weight at most this far from the default
+  max_turnover_day: 0.20         # D5 one-way, discretionary moves only (risk sells and their reinvestment in gold are exempt)
+  max_turnover_week: 0.40        # rolling 5 sessions
+  rebalance_threshold: 0.03      # v3 band (v2 uses strategy.rebalance_threshold 0.05)
+  max_port_vol: 0.30             # 60-day EWMA portfolio volatility guard: weight moves to GOLDBEES, never to cash
+  underwater_port_vol: 0.24      # D7: the lower cap while value is under the starting capital (null = off)
+  brake_mode: rotate_to_gold     # D2: level 1 (-15%) cuts silver/copper x0.5 and rotates to GOLDBEES (no cash); cash = the older all-x0.5.
+                                 #     Level 2 (-25%) and the 75,000 account stop always go to cash (latched as today).
+  protect_gold_min: 0.30         # the AI fast lane never sells the first 30% of the book in GOLDBEES (v3 live only)
+  carry_days: 1                  # yesterday's FINAL proposal is carried at half strength for this many trading days
+  provisional_conf_mult: 0.8
+  desks: {fanout: compact, quorum: 2}   # D8 (read by the routines, not the engine)
 
 # ---- engine-only extras (not in the rulebook block) ---------------------------------
 engine:

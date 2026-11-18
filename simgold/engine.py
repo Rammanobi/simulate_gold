@@ -24,7 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
-from . import alerts, budget, config, fastlane, guard, market, trend
+from . import alerts, allocation, budget, config, fastlane, guard, market, trend
 from .broker import Position, Portfolio, trade_costs
 
 log = logging.getLogger(__name__)
@@ -45,7 +45,9 @@ FUTURE_SLACK = timedelta(minutes=5)     # state files dated further ahead than t
 TRIGGERS = {"Minute check", "Target rule", "Trailing stop", "Stop-loss", "Time stop", "Score exit", "Overnight check",
             "Month-end rule", "Tripwire", "News trigger", "Price shock", "Opus guidance", "Event rule", "Safe mode",
             # strategy v2 (trend core)
-            "Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop", "Strategy mode", "Tripwire"}
+            "Trend check", "Trend exit", "Rebalance", "Drawdown brake", "Account stop", "Strategy mode", "Tripwire",
+            # strategy v3 (allocation; dormant unless strategy.mode is v3_alloc)
+            "Allocation"}
 
 
 @dataclass
@@ -142,6 +144,12 @@ class Engine:
         self.v2 = trend.is_v2(self.p)                       # strategy v2 (trend core) instead of the v1 score rules
         self.st = self.p.get("strategy") or {}
         self.v2_detail: dict = {}
+        # strategy v3 (allocation.py), dormant: only strategy.mode v3_alloc turns any of it on. allocation.shadow true (the shipped
+        # value): the v2 decision trades and the v3 target is only logged; false: v3 trades.
+        self.v3 = trend.is_v3(self.p)
+        self.alloc_cfg = allocation.settings(self.p) if self.v3 else None
+        self.v3_live = bool(self.v3 and not self.alloc_cfg["shadow"])
+        self._v3_last = None                                # the last AllocResult computed for trading this tick
         self.v2_halted = False                              # hard account stop in force this tick
         self.safe_mode = alerts.safe_mode_on(env.state_dir)   # re-read from disk on every tick
         self.fast_cap = budget.fastlane_cap(self.p, env.state_dir)   # thrift mode (state/budget.json) lowers it
@@ -848,6 +856,8 @@ class Engine:
 
     def v2_weights(self, infos: dict, level: int, reconfirm) -> tuple[dict, float, float]:
         mult = trend.brake_mult(level, self.st)
+        if self.v3_live:
+            return self.v3_weights(infos, level, reconfirm), 1.0, mult
         w, scale, self.v2_detail = trend.target_weights_ex({s: (i.on, i.sigma) for s, i in infos.items() if i}, self.st, mult, reconfirm)
         return w, scale, mult
 
@@ -873,6 +883,8 @@ class Engine:
     def v2_floor_weight(self, targets: dict, level: int | None = None) -> float:
         if level is None:
             level = int((self.v2_state().get("brake") or {}).get("level") or 0)
+        if self.v3_live:                                    # v3: the AI fast lane never sells the first protect_gold_min of the book
+            return 0.0 if int(level) >= 2 else float(self.alloc_cfg["protect_gold_min"])
         return trend.floor_weight(self.v2_detail, targets, self.st, level)
 
     def v2_floor_qty(self, sym: str) -> int:
@@ -1248,6 +1260,11 @@ class Engine:
         """'GOLDBEES trend ON (close 121.40 > SMA200 118.90); target 87% = min(1, 0.14/0.161)'"""
         st = self.st
         state, detail = trend.describe(i, st)
+        if self.v3_live and self._v3_last is not None:
+            r = self._v3_last
+            return (f"{sym} trend {state} ({detail}); v3 target {w * 100:.0f}% (default {r.default.get(sym, 0.0) * 100:.0f}%, "
+                    f"AI tilt strength {r.k:.2f}, drawdown brake level {r.brake_level}"
+                    + (", account stop in force" if r.halted else "") + ")")
         cap = st["symbols"][sym]["cap"]
         out = f"{sym} trend {state} ({detail}); "
         dt = self.v2_detail
@@ -1295,6 +1312,9 @@ class Engine:
         br = self.v2_brake(infos, value)
         dd = value / max(float(br.get("peak") or value), 1.0) - 1.0
         targets, scale, mult = self.v2_weights(infos, br["level"], br.get("reconfirm") or [])
+        alloc_ctx = self.v3_prepare(infos, br, targets) if (self.v3 and mode == "full" and log_target) else None
+        n_log0 = len(self.log)
+        dst = self.v3_decide_cfg() if self.v3_live else st
         bias, fresh, upd = self.guidance()
         plan = []
         cfg = self.v2_stops_cfg()
@@ -1305,11 +1325,13 @@ class Engine:
             pos = pf.positions.get(sym)
             cur = self.cur_weight(sym, value)
             b, tgt = self.effective_bias(sym, bias, fresh, upd), targets[sym]
+            if self.v3_live:
+                b = "neutral"                            # v3: the AI speaks only through state/allocation.json
             capped = cfg["protect"] and sym == fsym and b == "block"
             if capped:                                   # an AI block caps gold at its floor weight; it never skips the floor buy
                 tgt, b = min(tgt, max(fw, cur)), "neutral"
             d = trend.decide(on=i.on, target=tgt, cur=cur, flat=not pos or pos.qty <= 0, rsi_val=i.rsi,
-                             bias=b, st=st, brake_level=br["level"],
+                             bias=b, st=dst, brake_level=br["level"],
                              eligible=sym not in (br.get("reconfirm") or []), sigma_ok=bool(i.sigma and i.sigma > 0))
             if capped and tgt < targets[sym] - 1e-9 and d.action == "HOLD":
                 d = trend.Decision("SKIP", "wait", tgt, f"Claude's bias for this metal is block, so it is held at the floor weight {fw * 100:.0f}% "
@@ -1398,6 +1420,8 @@ class Engine:
                 xl = float((self.v2_state().get("xlvl") or {}).get(sym) or 0.0) if sym in cfg["intraday"] else 0.0
                 pf.positions[sym].exit_level = xl or i.exit_level or 0.0
             self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
+        if self.v3_live and mode == "full" and alloc_ctx is not None:
+            self.v3_sweep(infos, value, alloc_ctx)
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
             if sym in retry or mode == "retry":
@@ -1416,6 +1440,229 @@ class Engine:
                         "Trend check", extra={"state": state, "sigma": round(sg, 4) if sg else None,
                                               "target_pct": round(targets[sym] * 100, 1), "actual_pct": round(act * 100, 1),
                                               **trend.level_numbers(i, st, sym)})
+        if alloc_ctx is not None:
+            self.v3_emit(alloc_ctx, n_log0)
+
+    # ------------------------------------------------------------------ strategy v3: allocation (DORMANT unless strategy.mode v3_alloc)
+    def v3_state(self) -> dict:
+        return self.rt.setdefault("v3", {})
+
+    def v3_decide_cfg(self) -> dict:
+        """The strategy block with the v3 rebalance band (3 points); only used for trend.decide."""
+        return dict(self.st, rebalance_threshold=self.alloc_cfg["rebalance_threshold"])
+
+    def v3_cov(self):
+        """Annualised EWMA covariance of the three symbols from completed daily bars plus the live price; None when unavailable."""
+        series, today = {}, self.day.isoformat()
+        for s in self.syms:
+            b, px = self.mkt.hist.get(s), self.mkt.prices.get(s)
+            if not b or not b.dates or len(b.dates) != len(b.close):
+                return None
+            d = {str(k)[:10]: v for k, v in zip(b.dates, b.close)}
+            if px:
+                d[today] = px
+            series[s] = d
+        try:
+            return allocation.ewma_cov(series, int(self.st.get("vol_span", 60)))
+        except Exception:       # noqa: BLE001 - a data problem must never stop the tick
+            log.exception("v3 covariance failed")
+            return None
+
+    def v3_context(self) -> dict:
+        """Alignment-halving, results-window and ledger inputs of the clamp (all fail-safe)."""
+        halve: set[str] = set()
+        try:
+            from . import memstore
+            root = self.env.state_dir.parent
+            al = memstore.current_alignment(root, self.now, self.p)
+            for sym in self.syms:
+                metal = allocation.METAL[sym]
+                rec = al.get(metal) if isinstance(al, dict) else None
+                if isinstance(rec, dict) and rec.get("state") in allocation.DEFENSIVE_STATES:
+                    halve.add(sym)
+                if memstore.thesis_cautious(root, metal):
+                    halve.add(sym)
+        except Exception:       # noqa: BLE001
+            log.exception("v3 alignment failed")
+            halve = set(self.syms)                           # fail safe: the most cautious reading
+        zero = {r["sym"] for r in self.er.rules if r.get("kind") == "all_day" and str(r.get("why", "")).startswith("Hindustan Copper results")}
+        zero |= set(self.er.forced_exits)
+        return {"halve": halve, "zero": zero & set(allocation.SYMS)}
+
+    def v3_plan(self, infos: dict, level: int, reconfirm, trust: float | None = None, ledger_key: str = "ledger"):
+        """The allocation pipeline for this minute: (AllocResult, Advice or None). Nothing is written."""
+        cfg = self.alloc_cfg if trust is None else dict(self.alloc_cfg, ai_trust=trust)
+        value = self.value()
+        avail = [s for s in self.syms if infos.get(s)]
+        cur = {s: self.cur_weight(s, value) for s in self.syms}
+        frozen = {s: cur[s] for s in self.syms if s not in avail}
+        st = self.st
+        default, detail = allocation.default_d5fi({s: (infos[s].on, infos[s].sigma) for s in avail}, st, cfg, reconfirm)
+        self._v3_detail = detail or {}
+        tdays = lambda a, b: market.trading_days_between(a + timedelta(days=1), b)      # noqa: E731
+        adv, notes = allocation.load_proposal(self.env.state_dir / "allocation.json", self.now, cfg, tdays)
+        inval = allocation.invalidated_symbols(adv, {s: infos[s].close for s in avail})
+        ctx = self.v3_context()
+        led = self.v3_state().get(ledger_key)
+        day_left, week_left = allocation.turnover_left(led, self.day, cfg, market.prev_trading_day)
+        halted = bool(self.v2_halted or self.v2_account_latched())
+        res = allocation.clamp(
+            default=default, advice=adv.weights if adv else None, confidence=adv.confidence if adv else 0.0, current=cur,
+            on={s: infos[s].on for s in avail}, cfg=cfg, cov=self.v3_cov(), halve=ctx["halve"], zero=ctx["zero"],
+            ineligible=set(reconfirm or []), invalidated=inval, brake_level=int(level), brake_mult=trend.brake_mult(int(level), st),
+            halted=halted, day_left=day_left, week_left=week_left, underwater=value < float(self.p["capital"]["start"]),
+            frozen=frozen, notes=notes, advice_source=adv.source if adv else "none")
+        return res, adv
+
+    def v3_weights(self, infos: dict, level: int, reconfirm) -> dict:
+        """Targets that trade in v3 live: the pipeline at the configured trust (phase live) or at trust 0 (phase shadow: the AI
+        tilt is only logged, D5-FI trades). Falls back to the v2 weights if the pipeline fails (never stops the tick)."""
+        trust = None if self.alloc_cfg["phase"] == "live" else 0.0
+        try:
+            res, _adv = self.v3_plan(infos, level, reconfirm, trust)
+        except Exception:       # noqa: BLE001
+            log.exception("v3 allocation failed; using the v2 targets this minute")
+            w, _s, self.v2_detail = trend.target_weights_ex({s: (i.on, i.sigma) for s, i in infos.items() if i}, self.st,
+                                                            trend.brake_mult(level, self.st), reconfirm)
+            self._v3_last = None
+            return w
+        self._v3_last = res
+        self.v2_detail = getattr(self, "_v3_detail", {})
+        return {s: res.final[s] for s in self.syms}
+
+    def v3_prepare(self, infos: dict, br: dict, targets: dict):
+        """First full daily check of the day: the context for ONE ALLOC record (None if already logged today or on a failure).
+        Live: the result v3_weights just computed. Shadow: the v3 pipeline is computed here, next to the v2 targets that trade."""
+        v3, today = self.v3_state(), self.day.isoformat()
+        if v3.get("alloc_day") == today:
+            return None
+        v3["alloc_day"] = today
+        ctx: dict = {"mode": "v3_live" if self.alloc_cfg["phase"] == "live" else "d5fi_ai_logged_only"}
+        try:
+            if self.v3_live:
+                res = self._v3_last
+                if self.alloc_cfg["phase"] != "live":       # the AI tilt that WOULD have traded at the configured trust
+                    ctx["would_have"], _a = self.v3_plan(infos, br["level"], br.get("reconfirm") or [], None)
+            else:
+                ctx["mode"] = "shadow_v2_trades"
+                res, _a = self.v3_plan(infos, br["level"], br.get("reconfirm") or [], None, "shadow_ledger")
+                ctx["v2_targets"] = {s: round(float(targets.get(s, 0.0)), 4) for s in self.syms}
+        except Exception:       # noqa: BLE001 - the v3 log must never stop the v2 decision
+            log.exception("v3 allocation record failed")
+            return None
+        if res is None:
+            return None
+        ctx["res"], ctx["sweep"] = res, 0.0
+        return ctx
+
+    def v3_emit(self, ctx: dict, n_log0: int):
+        """One ALLOC decision record per daily check: default, proposal, k, every stage, the clamps, what was executed. Also
+        books the discretionary one-way turnover in the ledger (live) or the shadow ledger (shadow)."""
+        res = ctx["res"]
+        key = "shadow_ledger" if ctx["mode"] == "shadow_v2_trades" else "ledger"
+        v3 = self.v3_state()
+        led = v3.setdefault(key, {})
+        today = self.day.isoformat()
+        led[today] = round(float(led.get(today, 0.0)) + res.discretionary_turnover + ctx.get("sweep", 0.0), 6)
+        for k in sorted(led)[:-10]:
+            led.pop(k, None)
+        executed = [{"action": d["action"], "symbol": d["symbol"], "qty": d["qty"], "price": d["price"]}
+                    for d in self.log[n_log0:] if d.get("action") in ("BUY", "SELL")]
+        rec = res.as_record()
+        extra = {"alloc": rec, "alloc_mode": ctx["mode"], "executed": executed}
+        if "v2_targets" in ctx:
+            extra["v2_targets"] = ctx["v2_targets"]
+        if ctx.get("would_have") is not None:
+            extra["would_have"] = ctx["would_have"].as_record()
+        fm = lambda m: "/".join(f"{m[s] * 100:.0f}" for s in allocation.SYMS)      # noqa: E731
+        why = (f"Allocation check ({ctx['mode']}): default G/S/C {fm(res.default)}%, final {fm(res.final)}%, "
+               f"advice {res.advice_source}, tilt strength {res.k:.2f}, {len(res.clamps)} clamp note(s)"
+               + ("" if self.v3_live else "; the v2 decision trades, this is only logged") + ".")
+        self.record("ALLOC", "ALL", 0, None, why, "Allocation", extra=extra)
+
+    def v3_event_rebalance(self):
+        """Event-driven intraday defence inside the allocation rules (before the daily check; never a buy). When a proposal's
+        invalidation level (close_below:SYM:price) is broken by two consecutive FRESH prices while the book still holds SYM above
+        what the engine would hold without that advice, the excess is sold at once (a risk sell: not limited by the turnover
+        budget). The cash waits for the 15:10 check, which reinvests it in the sink within the turnover budget, and SYM is not
+        bought back today. Everything else (tilts, buys, rebalances) only happens at the daily check."""
+        t = self.now.time()
+        if not (guard.hhmm(self.p["engine"]["market_open"]) <= t < guard.hhmm(self.st["check_time"])):
+            return
+        try:
+            adv, _notes = allocation.load_proposal(self.env.state_dir / "allocation.json", self.now, self.alloc_cfg,
+                                                   lambda a, b: market.trading_days_between(a + timedelta(days=1), b))
+            if adv is None or not adv.invalidate:
+                return
+            v3, today = self.v3_state(), self.day.isoformat()
+            cnt = v3.setdefault("inval_below", {})
+            hit = {}
+            for sym, level in adv.invalidate:
+                px = self.mkt.prices.get(sym)
+                if px and self.fresh(sym) and px < level and (v3.get("event_done") or {}).get(sym) != today:
+                    hit[sym] = level
+            for sym in list(cnt):
+                if sym not in hit:
+                    cnt.pop(sym, None)                       # a tick above the level (or no fresh price) resets the count
+            for sym in hit:
+                cnt[sym] = int(cnt.get(sym) or 0) + 1
+            due = [s for s in hit if cnt[s] >= 2 and s in self.pf.positions]
+            if not due:
+                return
+            infos = self.v2_infos()
+            br = self.v2_state().get("brake") or {}
+            res, _a = self.v3_plan(infos, int(br.get("level") or 0), br.get("reconfirm") or [], None)
+            value = self.value()
+            for sym in due:
+                px = self.price(sym)
+                cur = self.cur_weight(sym, value)
+                target = res.final.get(sym, 0.0)
+                v3.setdefault("event_done", {})[sym] = today
+                cnt.pop(sym, None)
+                if not px or cur - target <= self.alloc_cfg["rebalance_threshold"]:
+                    continue
+                qty = min(self.pf.positions[sym].qty, int((cur - target) * value / px))
+                if qty < 1:
+                    continue
+                why = (f"{sym} fell through the proposal's invalidation level ₹{hit[sym]:,.2f} on two fresh prices (now ₹{px:,.2f}), "
+                       f"so the part above what the engine would hold without that advice is sold: {cur * 100:.0f}% to {target * 100:.0f}%. "
+                       f"The cash waits for the {self.st['check_time']} check")
+                if self.v2_sell(sym, qty, why + ".", "Allocation"):
+                    self.v2_no_rebuy(sym)
+        except Exception:       # noqa: BLE001 - a v3 problem must never stop the exits and the account stop
+            log.exception("v3 event rebalance failed")
+
+    def v3_sweep(self, infos: dict, value: float, ctx: dict):
+        """Owner decision 18 Nov: nothing idles in cash. After the check's buys, leftover cash (rounding dust, small buys the
+        band skipped) is put into whole GOLDBEES units, within the gold ceiling, the turnover budget left and the usual buy
+        blockers. Never at brake level 2 or while the account stop is in force."""
+        res = ctx["res"]
+        g = allocation.SINK
+        px, i = self.mkt.prices.get(g), infos.get(g)
+        if res.brake_level >= 2 or res.halted or not px or not i or not self.fresh(g):
+            return
+        cash = self.pf.cash + self.pf.liquidbees
+        cur = self.cur_weight(g, value)
+        room = max(0.0, res.caps[g] - cur)
+        left = res.turnover_budget - res.discretionary_turnover
+        # the turnover budget limits the sweep, except for the small leftover the 3-point rebalance band lets sit idle (dust sweep)
+        turn_cash = max(left, self.alloc_cfg["rebalance_threshold"]) * value if math.isfinite(left) else cash
+        spend = min(cash, room * value, max(0.0, turn_cash))
+        fill_px = px * (1 + self.p["valuation"]["paper_slippage"][g])
+        qty = int(spend / fill_px)
+        if qty < 1 or self.v2_buy_blocker(g, px):
+            return
+        why = (f"{g} cash sweep: ₹{cash:,.0f} would sit idle, so {qty} more units are bought (nothing is held in cash; gold ceiling "
+               f"{res.caps[g] * 100:.0f}%, turnover left {max(0.0, left) * 100:.1f}%, dust allowance {self.alloc_cfg['rebalance_threshold'] * 100:.0f}%)")
+        r = self._fill(g, "BUY", qty, px, why, "Trend check")
+        if not r:
+            return
+        c = self.pf.counters
+        c["buys_today"] = c.get("buys_today", 0) + 1
+        c.setdefault("buys_sym_today", {})[g] = c["buys_sym_today"].get(g, 0) + 1
+        self.cd["last_buy_ts"] = self.now.isoformat()
+        ctx["sweep"] = ctx.get("sweep", 0.0) + r["amount"] / max(value, 1.0)
+        self.record("BUY", g, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
 
     # ------------------------------------------------------------------ 5. snapshot
     def snapshot(self):
@@ -1500,6 +1747,8 @@ class Engine:
         if self.v2:
             self.v2_exits(advice)
             self.ratchet()
+            if self.v3_live:
+                self.v3_event_rebalance()
             self.v2_tick()
         else:
             self.exits(advice)
