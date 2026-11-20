@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-19T08:51:50+05:30",
+ "updated": "2026-11-20T08:52:05+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[DEFENSIVE]: GOLDBEES m5 -6.4%, regime DOWN since 18 Nov (code). SILVER[DEFENSIVE]: SILVERBEES m5 -11.9%, regime DOWN (code). COPPER[DEFENSIVE]: HINDCOPPER m5 -3.9%, regime DOWN (code). No overnight data confirmed; alignment default block.",
+ "note": "GOLD[DEFENSIVE]: regime DOWN since 18 Nov, GOLDBEES 106.31 on 19 Nov -1.43% (code). SILVER[DEFENSIVE]: regime DOWN, SILVERBEES 152.91 -1.82% (code). COPPER[DEFENSIVE]: regime DOWN, HINDCOPPER 425.85 +1.59%; no overnight data found.",
  "prices_at_update": {
-  "GOLDBEES": 107.91,
-  "SILVERBEES": 155.86,
-  "HINDCOPPER": 419.35
+  "GOLDBEES": 106.31,
+  "SILVERBEES": 152.91,
+  "HINDCOPPER": 425.85
  },
  "alignment": {
   "GOLD": "DEFENSIVE",

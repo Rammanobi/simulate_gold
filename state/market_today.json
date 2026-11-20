@@ -1,20 +1,20 @@
 {
- "date": "2026-11-19",
+ "date": "2026-11-20",
  "market": [
   {
-   "name": "GOLDBEES (18 Nov close)",
-   "move_pct": -1.83,
-   "note": "Gold ETF at 1-year low; overnight COMEX n/a"
+   "name": "GOLDBEES (19 Nov close)",
+   "move_pct": -1.43,
+   "note": "Overnight COMEX data n/a"
   },
   {
-   "name": "SILVERBEES (18 Nov close)",
-   "move_pct": -3.04,
-   "note": "Silver ETF fell again; overnight COMEX n/a"
+   "name": "SILVERBEES (19 Nov close)",
+   "move_pct": -1.82,
+   "note": "Overnight COMEX data n/a"
   },
   {
-   "name": "HINDCOPPER (18 Nov close)",
-   "move_pct": -2.92,
-   "note": "Copper stock down; Q2 results already out 11 Nov"
+   "name": "HINDCOPPER (19 Nov close)",
+   "move_pct": 1.59,
+   "note": "Results out 11 Nov; no overnight copper data"
   }
  ]
 }
