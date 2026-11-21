@@ -30,7 +30,9 @@ WINDOW_DAYS = 10
 MAX_NOTES_PER_DAY = 8
 DAY_MAX_BYTES = 1500
 WINDOW_MAX_BYTES = 2000
-WHO = ("premarket", "hourly", "fastlane", "daily")
+WHO = ("premarket", "hourly", "fastlane", "daily",
+       # strategy v3 (dormant): the allocation run and the desks (routines/_common.md S8; `desk-METAL` is lower-cased)
+       "allocation", "desk-macro", "desk-gold", "desk-silver", "desk-copper", "desk-risk")
 SCORE_RE = re.compile(r"Score\s+(-?[0-9.]+)\s+is below the\s+([0-9.]+)\s+needed")
 PAUSE_RE = re.compile(r"Buys paused until (\d\d:\d\d) \(([^)]+)\)")
 NEAR = 0.10
@@ -343,6 +345,7 @@ def _read_notes(root: Path) -> list[dict]:
 
 
 def add_note(root: Path, now: datetime, who: str, metal: str, text: str, source: str | None) -> str:
+    who = (who or "").strip().lower()
     if who not in WHO:
         raise Refused(f"--who must be one of {'/'.join(WHO)}")
     metal = (metal or "ALL").upper()
