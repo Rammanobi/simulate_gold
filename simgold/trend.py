@@ -33,12 +33,19 @@ MODE_V3 = "v3_alloc"          # v3 desk allocation (simgold/allocation.py): the 
 def is_v2(p: dict | None) -> bool:
     """True when the params select the v2 trend core or its v3 allocation variant (v3 reuses all of the v2 engine code).
     Anything else (or no `strategy:` block) is the v1 score rules."""
-    return bool(p) and (p.get("strategy") or {}).get("mode") in (MODE_V2, MODE_V3)
+    return bool(p) and ((p.get("strategy") or {}).get("mode") in (MODE_V2, MODE_V3) or is_v3(p))
 
 
 def is_v3(p: dict | None) -> bool:
-    """True when strategy.mode is v3_alloc (the allocation pipeline; shadow or live per allocation.shadow)."""
-    return bool(p) and (p.get("strategy") or {}).get("mode") == MODE_V3
+    """True when the v3 allocation pipeline is on: strategy.mode is v3_alloc (shadow or live per allocation.shadow / phase), OR the
+    owner's single switch allocation.phase is live_default / live (with strategy.mode v2_trend or v3_alloc, never with v1_scores)."""
+    if not p:
+        return False
+    mode = (p.get("strategy") or {}).get("mode")
+    if mode == MODE_V3:
+        return True
+    ph = str((p.get("allocation") or {}).get("phase", "")).strip().lower()
+    return mode == MODE_V2 and ph in ("live_default", "live")
 
 
 # ---------------------------------------------------------------- inputs
