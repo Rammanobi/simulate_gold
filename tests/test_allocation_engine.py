@@ -304,3 +304,375 @@ def test_event_rebalance_is_off_in_shadow_and_without_a_proposal(tmp_path):
     v3_tick(pf, env, closes, i, hh=10, mm=0)
     v3_tick(pf, env, closes, i, hh=10, mm=1)
     assert pf.positions["SILVERBEES"].qty == q0                                  # no proposal: nothing happens before 15:10
+
+
+# ------------------------------------------------------------------ go-live fixes (review of PR 67)
+def _settle(pf, env, closes, i0, i1):
+    for i in range(i0, i1):
+        v3_tick(pf, env, closes, i)
+
+
+def _decisions(env, day):
+    f = env.logs_dir / f"decisions-{day}.jsonl"
+    return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
+
+
+def _silver_stop_day(tmp_path, monkeypatch=None, credit_off=False, split=(0.6, 0.25, 0.15), i=330, **alloc):
+    """A fully invested book that still holds silver (a seed is searched where the default keeps silver); at 10:00 a silver AI stop is
+    hit on two fresh prices (a risk sell, silver is not bought back today); then the 15:10 check. Returns (pf, env, closes, day)."""
+    from simgold import engine
+    for seed in (1, 2, 4, 5, 9, 3, 6, 10):
+        rng = np.random.default_rng(seed)
+        closes = make_path(rng, "up")
+        d = tmp_path / f"s{seed}"
+        d.mkdir()
+        env = v3_env(d, **alloc)
+        pf = invested_book(closes, 299, split=split)
+        _settle(pf, env, closes, 300, i)
+        px, v = book(pf, closes, i)
+        if "SILVERBEES" in pf.positions and pf.positions["SILVERBEES"].qty * px["SILVERBEES"] / v > 0.15:
+            break
+    else:
+        pytest.fail("no seed keeps silver in the default")
+    if credit_off:
+        monkeypatch.setattr(engine.Engine, "v3_credit", lambda self, *a, **k: 0.0)
+    pf.positions["SILVERBEES"].ai_stop = px["SILVERBEES"] * 1.05
+    v3_tick(pf, env, closes, i, hh=10, mm=0)
+    v3_tick(pf, env, closes, i, hh=10, mm=1)
+    assert "SILVERBEES" not in pf.positions                                   # the stop sold it all
+    assert pf.cash / v > 0.12                                                 # the proceeds sit in cash until the check
+    v3_tick(pf, env, closes, i, hh=15, mm=10)
+    return pf, env, closes, DAYS[i].date().isoformat()
+
+
+def test_cash_from_intraday_risk_sells_is_redeployed_at_the_check_without_burning_the_turnover_budget(tmp_path):
+    """Review fix 1 (the 5 Feb pattern: a silver stop left 36-39% cash for days). The proceeds of a risk sell are re-invested at the
+    15:10 check in full, and the 0.20/day 0.40/week budget is not touched by it."""
+    pf, env, closes, day = _silver_stop_day(tmp_path)
+    px, v = book(pf, closes, 330)
+    assert pf.cash <= 0.02 * v + min(px.values()) + 1e-6, (pf.cash, v)
+    al = [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
+    assert al["credit"]["available"] > 0.15 and al["credit"]["exempt_buy"] > 0.15
+    assert al["turnover"]["discretionary"] == pytest.approx(0.0, abs=0.01)    # nothing was counted against the budget
+    assert pf.runtime["v3"]["ledger"].get(day, 0.0) <= 0.03 + 1e-9             # at most the dust sweep is booked for today
+    assert pf.runtime["v3"].get("credit", 0.0) < 0.01                          # spent (only rounding dust of cash is left)
+    assert any(r["action"] == "BUY" and r["symbol"] == "GOLDBEES" for r in _decisions(env, day))
+
+
+def test_without_the_credit_the_same_day_strands_cash(tmp_path, monkeypatch):
+    """The same day with the credit switched off (the PR 67 behaviour): the turnover budget leaves a large part of the book in cash."""
+    pf, env, closes, day = _silver_stop_day(tmp_path, monkeypatch, credit_off=True)
+    px, v = book(pf, closes, 330)
+    assert pf.cash > 0.05 * v
+
+
+def test_credit_is_bounded_by_cash_and_cleared_by_the_deep_brake(tmp_path):
+    pf, env, closes, day = _silver_stop_day(tmp_path)
+    eng_cash = pf.cash
+    assert eng_cash >= 0
+    pf.runtime["v3"]["credit"] = 5.0                                          # a corrupt value can never exceed the cash on hand
+    from simgold.engine import Engine
+    e = Engine.__new__(Engine)
+    # the engine method clamps by the real cash weight: exercised through a normal tick (no exception, no leverage)
+    v3_tick(pf, env, closes, 331)
+    px, v = book(pf, closes, 331)
+    assert pf.cash >= -1e-9 and sum(p.qty * px[s] for s, p in pf.positions.items()) <= v * 1.0001
+
+
+def test_gold_invalidation_does_not_strand_the_cash(tmp_path):
+    """Review fix 1b: gold falls through the proposal's invalidation level, the excess is sold intraday and gold is not bought back
+    today. At 15:10 the cash goes to the remaining metals (silver/copper up to their caps), then, as a last resort, back to gold:
+    nothing idles."""
+    rng = np.random.default_rng(1)
+    closes = make_path(rng, "up")
+    i = 330
+    env = v3_env(tmp_path, phase="live", ai_trust=1.0)
+    pf = invested_book(closes, 299, split=(0.85, 0.10, 0.05))
+    day = DAYS[i].date().isoformat()
+    level = float(closes["GOLDBEES"][i]) * 1.2
+    prop = {"for_date": day, "written": f"{day}T08:55:00+05:30", "by": "allocation", "phase": "final",
+            "weights": {"GOLDBEES": 0.9, "SILVERBEES": 0.05, "HINDCOPPER": 0.05}, "confidence": 0.8,
+            "scenarios": [{"name": "base", "p": 0.6}, {"name": "bear", "p": 0.4}], "invalidate": [f"close_below:GOLDBEES:{level:.2f}"]}
+    (env.state_dir / "allocation.json").write_text(json.dumps(prop), encoding="utf-8")
+    v3_tick(pf, env, closes, i, hh=10, mm=0)
+    v3_tick(pf, env, closes, i, hh=10, mm=1)
+    sells = [r for r in _decisions(env, day) if r["action"] == "SELL" and r["trigger"] == "Allocation"]
+    assert sells and "GOLDBEES" in sells[0]["symbol"]                          # the excess above the default is sold intraday
+    px, v = book(pf, closes, i)
+    assert pf.cash / v > 0.10
+    v3_tick(pf, env, closes, i, hh=15, mm=10)
+    px, v = book(pf, closes, i)
+    assert pf.cash <= 0.03 * v + min(px.values()) + 1e-6, (pf.cash / v)         # nothing idles after the check
+    al = [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
+    assert any(c["rule"] == "no_add" and c["sym"] == "GOLDBEES" for c in al["clamps"]) or al["final"]["GOLDBEES"] <= pf.positions["GOLDBEES"].qty * px["GOLDBEES"] / v + 0.03
+
+
+def _cov_records(env, day):
+    return [r["alloc"] for r in _decisions(env, day) if r["action"] == "ALLOC"]
+
+
+def test_vol_guard_uses_the_last_good_covariance_then_a_logged_fallback(tmp_path, monkeypatch):
+    """Review fix 2: when the covariance cannot be computed (one bad close, mismatched history, fewer than 21 shared dates) the vol
+    guard must not switch off silently: first the last good covariance (at most cov_max_age_days old), then a conservative
+    per-asset-volatility stand-in. Either way the ALLOC record says so."""
+    from simgold import allocation
+    rng = np.random.default_rng(3)
+    closes = make_path(rng, "up")
+    env = v3_env(tmp_path)
+    pf = invested_book(closes, 299, split=(0.2, 0.5, 0.3))                     # a risky book: silver and copper heavy
+    _settle(pf, env, closes, 300, 320)
+    assert pf.runtime["v3"]["cov_day"] and pf.runtime["v3"]["cov_last"]        # a good one is remembered
+    live = _cov_records(env, DAYS[319].date().isoformat())
+    assert live and live[0]["vol"]["cov"] == "live"
+    monkeypatch.setattr(allocation, "ewma_cov", lambda *a, **k: None)         # what a bad close / short history looks like
+    v3_tick(pf, env, closes, 320)
+    rec = _cov_records(env, DAYS[320].date().isoformat())[0]
+    assert rec["vol"]["cov"].startswith("last_good")
+    assert any(c["rule"] == "vol_guard_stale_cov" for c in rec["clamps"])
+    pf.runtime["v3"].pop("cov_last")                                           # nothing stored either
+    v3_tick(pf, env, closes, 321)
+    rec = _cov_records(env, DAYS[321].date().isoformat())[0]
+    assert rec["vol"]["cov"] == "fallback" and rec["vol"]["before"] is not None
+    assert any(c["rule"] == "vol_guard_fallback" for c in rec["clamps"])
+
+
+def test_a_short_history_for_one_symbol_is_a_fallback_not_a_silent_skip(tmp_path):
+    rng = np.random.default_rng(3)
+    closes = make_path(rng, "up")
+    env = v3_env(tmp_path)
+    pf = invested_book(closes, 299, split=(0.2, 0.5, 0.3))
+    i = 330
+    day = DAYS[i].to_pydatetime()
+    now = datetime(day.year, day.month, day.day, 15, 10, tzinfo=IST)
+    hist = {}
+    for s in SYMS:
+        n = 15 if s == "SILVERBEES" else i                                     # 15 shared dates only: ewma_cov needs 21
+        c = closes[s][i - n:i]
+        hist[s] = trend.clean_bars(c.tolist(), (c * 1.004).tolist(), (c * 0.996).tolist(), [d.date().isoformat() for d in DAYS[i - n:i]])
+    mkt = Market(now=now, prices={s: float(closes[s][i]) for s in SYMS}, price_ts={s: now for s in SYMS}, scores={},
+                 prev_close={s: float(closes[s][i - 1]) for s in SYMS}, hist=hist)
+    run_tick(pf, mkt, env)
+    recs = _cov_records(env, DAYS[i].date().isoformat())
+    assert recs, "the daily check must still run and log"
+    assert recs[0]["vol"]["cov"] == "fallback"
+    assert any(c["rule"] == "vol_guard_fallback" for c in recs[0]["clamps"])
+
+
+# ------------------------------------------------------------------ turnover ledger (review fixes 3 and 8)
+def _td_index(i0=330):
+    """An index i whose previous bar is the previous NSE trading day and which is itself a trading day."""
+    from simgold import market
+    for i in range(i0, i0 + 40):
+        d = DAYS[i].date()
+        if market.is_trading_day(d) and market.prev_trading_day(d) == DAYS[i - 1].date():
+            return i
+    raise AssertionError("no trading day pair")
+
+
+def _cash_book(closes, i, cash=100000.0) -> Portfolio:
+    pf = Portfolio()
+    pf.cash, pf.liquidbees = cash, 0.0
+    return pf
+
+
+def _led_env(tmp_path, ledger: dict | None, **alloc):
+    env = v3_env(tmp_path, **alloc)
+    return env
+
+
+def _seed_ledger(pf, ledger: dict, key="ledger"):
+    pf.runtime.setdefault("v3", {})[key] = dict(ledger)
+
+
+def _first_alloc(env, day):
+    return [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
+
+
+@pytest.mark.parametrize("seed_ledger,expect_budget", [
+    ({"today": 0.20}, 0.0),                       # the day budget is used up
+    ({"d-1": 0.20, "d-2": 0.20}, 0.0),            # the week budget is used up (0.20 + 0.20 over the last sessions)
+    ({"d-1": 0.15, "d-2": 0.10, "d-3": 0.05}, 0.10),   # 0.30 used: 0.10 of the week left (the day allows 0.20)
+    ({}, 0.20)])
+def test_the_ledger_limits_the_next_check(tmp_path, seed_ledger, expect_budget):
+    """Review fix 8: the discretionary buy at 15:10 is exactly what the day and week budgets leave, read from the ledger. With the
+    ledger ignored every row would buy 20 points, so this fails for each of them."""
+    from simgold import market
+    rng = np.random.default_rng(3)
+    closes = make_path(rng, "up")
+    i = _td_index()
+    day = DAYS[i].date()
+    led, d = {}, day
+    for k, v in seed_ledger.items():
+        if k == "today":
+            led[day.isoformat()] = v
+        else:
+            n = int(k.split("-")[1])
+            dd = day
+            for _ in range(n):
+                dd = market.prev_trading_day(dd)
+            led[dd.isoformat()] = v
+    env = v3_env(tmp_path)
+    pf = _cash_book(closes, i)
+    _seed_ledger(pf, led)
+    v3_tick(pf, env, closes, i)
+    al = _first_alloc(env, day.isoformat())
+    assert al["turnover"]["budget"] == pytest.approx(expect_budget, abs=1e-6)
+    assert al["turnover"]["discretionary"] == pytest.approx(expect_budget, abs=1e-3)
+    px, v = book(pf, closes, i)
+    invested = 1 - pf.cash / v
+    assert invested == pytest.approx(expect_budget + 0.03 * (1 if expect_budget < 0.2 else 0), abs=0.035)   # the budget, plus at most the dust sweep
+    booked = pf.runtime["v3"]["ledger"][day.isoformat()]
+    assert booked == pytest.approx(led.get(day.isoformat(), 0.0) + expect_budget + (invested - expect_budget if invested > expect_budget else 0), abs=0.01)
+
+
+def test_ramp_in_takes_about_two_weeks_with_the_default_limits_and_three_checks_when_the_owner_raises_them(tmp_path):
+    """Review fix 3: all cash to fully invested under 0.20/day 0.40/week takes about two weeks (documented); allocation.ramp_turnover_day
+    and ramp_turnover_week are the owner's knobs to make it faster. Nothing exceeds the limits silently."""
+    def days_to_invested(d, **alloc):
+        rng = np.random.default_rng(3)
+        closes = make_path(rng, "up")
+        env = v3_env(d, **alloc)
+        pf = _cash_book(closes, 330)
+        i0 = _td_index()
+        for n, i in enumerate(range(i0, i0 + 25), 1):
+            if DAYS[i].date().weekday() >= 5:
+                continue
+            v3_tick(pf, env, closes, i)
+            px, v = book(pf, closes, i)
+            if 1 - pf.cash / v >= 0.95:
+                return n, pf, env
+        return 99, pf, env
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    slow, pf_a, env_a = days_to_invested(tmp_path / "a")
+    fast, pf_b, env_b = days_to_invested(tmp_path / "b", ramp_turnover_day=0.5, ramp_turnover_week=1.0)
+    assert 8 <= slow <= 14, slow
+    assert fast <= 3, fast
+    # the default run never booked more than the week budget plus the recorded dust (week window of 5 sessions)
+    from simgold import allocation as A, market
+    led, dust = pf_a.runtime["v3"]["ledger"], pf_a.runtime["v3"].get("dust", {})
+    last = max(led)
+    from datetime import date as _d
+    t = _d.fromisoformat(last)
+    assert A.window_total(led, t, market.prev_trading_day) - A.window_total(dust, t, market.prev_trading_day) <= 0.40 + 0.011
+    assert A.window_total(dust, t, market.prev_trading_day) <= 0.06 + 1e-6
+    recs = [r for r in _decisions(env_a, DAYS[_td_index()].date().isoformat()) if r["action"] == "ALLOC"]
+    assert any(c["rule"] == "ramp_in" for c in recs[0]["alloc"]["clamps"])
+
+
+def test_the_morning_retry_of_a_blocked_buy_is_booked_in_the_ledger(tmp_path):
+    """Review fix 3: the 09:30 retry is a normal buy. Its turnover is booked, so the 15:10 check cannot spend the day budget again."""
+    from simgold import market
+    rng = np.random.default_rng(3)
+    closes = make_path(rng, "up")
+    i = _td_index()
+    day = DAYS[i].date()
+    env = v3_env(tmp_path)
+    pf = _cash_book(closes, i)
+    prev = market.prev_trading_day(day).isoformat()
+    v3_tick(pf, env, closes, i, hh=9, mm=16)                                  # the first tick switches the strategy mode on
+    pf.runtime.setdefault("v2", {})["pending_buys"] = {"GOLDBEES": {"date": prev, "target": 0.6, "actual": 0.0, "blocker": "Price shock"}}
+    v3_tick(pf, env, closes, i, hh=9, mm=31)
+    recs = _decisions(env, day.isoformat())
+    buys = [r for r in recs if r["action"] == "BUY"]
+    assert buys and "Retry" in buys[0]["reason"]
+    px, v = book(pf, closes, i)
+    bought = 1 - pf.cash / v
+    assert 0.10 < bought <= 0.21                                              # at most the day budget
+    assert pf.runtime["v3"]["ledger"][day.isoformat()] == pytest.approx(bought, abs=0.01)
+    v3_tick(pf, env, closes, i)                                               # the 15:10 check: the day budget is gone
+    px, v = book(pf, closes, i)
+    assert 1 - pf.cash / v <= bought + 0.031
+    al = _first_alloc(env, day.isoformat())
+    assert al["turnover"]["budget"] == pytest.approx(0.20 - bought, abs=0.011) and al["turnover"]["budget"] < 0.06
+
+
+def test_dust_sweep_is_booked_and_bounded(tmp_path):
+    """The 3-point dust sweep may exceed the budget but is recorded in `dust`, and the week total is bounded (dust_week)."""
+    from simgold import allocation as A, market
+    from datetime import date as _d
+    rng = np.random.default_rng(5)
+    closes = make_path(rng, "mixed")
+    env = v3_env(tmp_path)
+    pf = _cash_book(closes, 330)
+    i0 = _td_index()
+    for i in range(i0, i0 + 12):
+        if DAYS[i].date().weekday() >= 5:
+            continue
+        v3_tick(pf, env, closes, i)
+        v3 = pf.runtime["v3"]
+        t = DAYS[i].date()
+        d = A.window_total(v3.get("dust", {}), t, market.prev_trading_day)
+        assert d <= 0.06 + 1e-6, (i, d)
+        assert v3.get("dust", {}).get(t.isoformat(), 0.0) <= 0.03 + 1e-6
+        # every swept rupee is in the ledger: the week total of the ledger covers the dust
+        assert A.window_total(v3["ledger"], t, market.prev_trading_day) + 1e-9 >= d
+
+
+# ------------------------------------------------------------------ one owner switch, routine bias (review fix 6)
+def test_allocation_phase_live_default_is_the_single_owner_switch(tmp_path):
+    """strategy.mode stays v2_trend; the ONE edit allocation.phase: live_default makes D5-FI trade fully invested with the AI only logged."""
+    from simgold import allocation as A
+    p = R.shipped_params(phase="live_default")
+    assert p["strategy"]["mode"] == "v2_trend" and trend.is_v3(p) and trend.is_v2(p)
+    a = A.settings(p)
+    assert a["phase"] == "live_default" and a["shadow"] is False
+    prop = {"for_date": "2026-11-13", "written": "2026-11-13T09:00:00+05:30", "by": "allocation", "phase": "final",
+            "weights": {"GOLDBEES": 0.70, "SILVERBEES": 0.20, "HINDCOPPER": 0.10}, "confidence": 0.8,
+            "scenarios": [{"name": "base", "p": 0.6, "GOLD": "flat"}, {"name": "bear", "p": 0.4, "GOLD": "down"}],
+            "rationale": {"GOLD": "DXY 104"}, "invalidate": []}
+    p["allocation"]["ai_trust"] = 1.0                               # even a configured trust does not tilt in live_default
+    pf, env = R.replay(tmp_path, p, days=R.DAYS[:1], state_files={"allocation.json": json.dumps(prop)})
+    al = [json.loads(x) for x in R.decisions_text(env, days=R.DAYS[:1]).splitlines() if json.loads(x)["action"] == "ALLOC"][0]
+    assert al["alloc_mode"] == "d5fi_ai_logged_only" and al["alloc"]["k"] == 0.0 and "would_have" in al
+    assert al["would_have"]["k"] > 0 and pf.positions                         # the AI tilt is only what would have happened
+    assert any(r["action"] == "BUY" for r in map(json.loads, R.decisions_text(env, days=R.DAYS[:1]).splitlines()))
+
+
+def test_phase_live_with_mode_v2_trend_trades_the_tilt_and_shadow_off_stay_dormant(tmp_path):
+    from simgold import allocation as A
+    assert trend.is_v3(R.shipped_params(phase="live")) and A.settings(R.shipped_params(phase="live"))["phase"] == "live"
+    for ph in ("shadow", "off", "bogus", None):
+        p = R.shipped_params(phase=ph) if ph is not None else R.shipped_params()
+        assert not trend.is_v3(p) and trend.is_v2(p), ph
+    assert not trend.is_v3(R.shipped_params("v1_scores", phase="live_default"))        # never over the v1 rules
+    d = tmp_path / "x"
+    d.mkdir()
+    pf, env = R.replay(d, R.shipped_params(phase="off"))
+    assert R.decisions_text(env) == golden("decisions.jsonl") and "v3" not in pf.runtime      # dormant: byte-identical
+
+
+def test_legacy_shadow_false_with_mode_v3_alloc_still_means_default_trades():
+    from simgold import allocation as A
+    a = A.settings(R.shipped_params("v3_alloc", shadow=False))
+    assert a["shadow"] is False and a["phase"] == "live_default"
+    a = A.settings(R.shipped_params("v3_alloc"))
+    assert a["shadow"] is True and a["phase"] == "shadow"
+
+
+def test_a_routine_block_bias_only_restricts_in_v3_live(tmp_path):
+    """Review fix 6: under v3 live a routine's bias `block` means no new buys of that metal (its weight goes to the others); `favour`
+    changes nothing; the file can never add exposure."""
+    rng = np.random.default_rng(2)
+    closes = make_path(rng, "up")
+    i = _td_index(340)
+    day = DAYS[i].date().isoformat()
+
+    def run(bias, d):
+        d.mkdir()
+        env = v3_env(d)
+        pf = _cash_book(closes, i)
+        env.state_dir.mkdir(parents=True, exist_ok=True)
+        for k in range(5):                                                    # several days so the ramp is not the limit
+            dk = DAYS[i - 4 + k].date().isoformat()
+            (env.state_dir / "guidance.json").write_text(json.dumps({"updated": f"{dk}T15:00:00+05:30", "bias": bias, "note": "t"}), encoding="utf-8")
+            v3_tick(pf, env, closes, i - 4 + k, hh=15, mm=10)
+        return pf, env
+    base_pf, base_env = run({"SILVERBEES": "neutral"}, tmp_path / "n")
+    blk_pf, blk_env = run({"SILVERBEES": "block"}, tmp_path / "b")
+    fav_pf, fav_env = run({"SILVERBEES": "favour"}, tmp_path / "f")
+    assert base_pf.positions.get("SILVERBEES") and base_pf.positions["SILVERBEES"].qty > 0      # without the block silver is bought
+    assert blk_pf.positions.get("SILVERBEES") is None or blk_pf.positions["SILVERBEES"].qty == 0
+    assert {s: p.qty for s, p in fav_pf.positions.items()} == {s: p.qty for s, p in base_pf.positions.items()}     # favour is a no-op
+    px, v = book(blk_pf, closes, i)
+    assert sum(p.qty * px[s] for s, p in blk_pf.positions.items()) <= v * 1.0001

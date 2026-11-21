@@ -211,14 +211,19 @@ strategy:
     oos_years: 2                      # the "last 2 years" out-of-sample window
 
 # ---- STRATEGY v3 "desk allocation" (engine part, DORMANT): simgold/allocation.py, docs in the v3 design ----
-# Only read when strategy.mode is v3_alloc; with mode v2_trend (the shipped value) this block is ignored and nothing changes.
-# ROLLBACK (one line each): strategy.mode: v2_trend -> exactly today's D5; allocation.ai_trust: 0 -> fully invested without AI;
-# allocation.shadow: true -> the v2 decision trades and the v3 target is only LOGGED (ALLOC records in logs/decisions-D.jsonl).
+# DORMANT while strategy.mode is v2_trend (the shipped value) and allocation.phase is off or shadow: nothing changes then.
+# ONE OWNER SWITCH (P1, "default only"): allocation.phase: live_default. The engine's fully invested D5-FI default trades (ai_trust is not
+# used), the AI advice is only logged (ALLOC records). strategy.mode may stay v2_trend. phase: live additionally trades the AI tilt at
+# ai_trust. strategy.mode: v3_alloc with phase shadow (and shadow true) = the v2 decision trades, the v3 target is only logged.
+# ROLLBACK (one line each): allocation.phase: shadow (and strategy.mode v2_trend) -> exactly today's D5; phase: live_default -> fully invested
+# without AI; strategy.mode: v1_scores -> the old score rules.
 # Owner decisions 17-18 Nov 2026: invested at all times (cash is only rounding dust, residual cash is reinvested at every check), brake
 # level 1 rotates to GOLDBEES, level 2 and the account stop go to cash.
 allocation:
-  shadow: true                   # true: v2 (D5) trades, the v3 target is computed and logged next to it. false: v3 trades (phase below)
-  phase: shadow                  # (shadow false only) shadow = D5-FI default trades, the AI tilt is only logged; live = the tilt trades
+  phase: shadow                  # off | shadow | live_default | live. shadow/off: v2 (D5) trades (v3 target only logged, and only under strategy.mode
+                                 # v3_alloc). live_default: D5-FI trades fully invested, AI only logged. live: the AI tilt trades too (ai_trust)
+  shadow: true                   # legacy second switch, kept so older configs keep working: false with strategy.mode v3_alloc = live_default.
+                                 # allocation.phase wins when it is live_default or live
   invested_target: 0.98          # MINIMUM invested share; advice weights must sum to at least this minus 5 points
   invested_max: 1.00             # the engine aims for this: leftover cash is reinvested in whole units at every check
   ai_trust: 0.0                  # 0 = default only; 0.5 then 1.0 after the evals (design section 4.3)
@@ -228,6 +233,13 @@ allocation:
   max_turnover_day: 0.20         # D5 one-way, discretionary moves only (risk sells and their reinvestment in gold are exempt)
   max_turnover_week: 0.40        # rolling 5 sessions
   rebalance_threshold: 0.03      # v3 band (v2 uses strategy.rebalance_threshold 0.05)
+  ramp_turnover_day: 0.20        # turnover limits used ONLY while the book is ramping in (idle cash above 10% of the book that did NOT come from
+  ramp_turnover_week: 0.40       # risk sells). Default = the normal limits: all cash to fully invested then takes about two weeks (11 sessions).
+                                 # The owner may raise these (e.g. 0.50 / 1.00 = invested in 2 checks); nothing exceeds them silently
+  dust_day: 0.03                 # exempt, recorded "dust sweep" of leftover cash into GOLDBEES past the turnover budget: at most this much a day ...
+  dust_week: 0.06                # ... and this much over the rolling 5 sessions (booked in state runtime v3.ledger and v3.dust)
+  cov_max_age_days: 10           # vol guard: a stored last-good covariance is used this long when today's cannot be computed (then a conservative stand-in)
+  fallback_rho: 1.0              # correlation of that stand-in (1.0 = volatilities add: the conservative bound)
   max_port_vol: 0.30             # 60-day EWMA portfolio volatility guard: weight moves to GOLDBEES, never to cash
   underwater_port_vol: 0.24      # D7: the lower cap while value is under the starting capital (null = off)
   brake_mode: rotate_to_gold     # D2: level 1 (-15%) cuts silver/copper x0.5 and rotates to GOLDBEES (no cash); cash = the older all-x0.5.
