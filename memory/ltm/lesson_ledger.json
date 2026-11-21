@@ -146,12 +146,16 @@
    "id": "0cee5bd9",
    "text": "GOLDBEES gapped -5.01% at the open with no confirmed news and closed -5.82%; the 50% gold floor carried the loss",
    "status": "candidate",
-   "first_seen": "2026-11-20",
+   "first_seen": "2026-11-18",
    "source": "daily",
    "support": [
     {
      "date": "2026-11-20",
      "text": "held 437 units unreal -5,042, 7 price-shock blocks, no sells"
+    },
+    {
+     "date": "2026-11-18",
+     "text": "GOLDBEES gapped down and closed -1.83%; the 437 held floor units carried the day loss of Rs 904 with no trades"
     }
    ],
    "contradict": []
