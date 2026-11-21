@@ -33,6 +33,10 @@ ENGINE_OPEN = (dtime(9, 15), dtime(15, 30))
 # ticks reach main with the engine's git sync, every 5 min (run_live --sync-every), so a row 5-7 min old is normal
 # on main. 5 raised a false ticks_stale at 15:16 IST on 14 Oct 2026 (row 6 min old) and a duplicate dispatch.
 TICK_MAX_AGE_MIN = 12
+# The engine's first ticks push to main is its first 5-min git sync, about 09:20 IST, so logs/ticks-TODAY.csv cannot exist on main
+# before ENGINE_OPEN + TICK_MAX_AGE_MIN (09:27). `ticks_missing` is not raised earlier (17 Nov 2026: reminders.yml raised a HIGH at
+# 09:16, nothing closed it, and the engine's safe-mode rule "HIGH open > 30 min" turned safe mode on at 09:46: a false positive).
+TICKS_MISSING_FROM = (datetime.combine(datetime(2000, 1, 1), ENGINE_OPEN[0]) + timedelta(minutes=TICK_MAX_AGE_MIN)).time()
 BRIEF_MAX, LESSONS_MAX, CONTEXT_MAX, LOGS_MAX = 8 * 1024, 60, 25 * 1024, 200 * 1024 * 1024
 FLOOR_SLACK = 100
 LIQUID_MIN = 0.30
@@ -106,6 +110,8 @@ def check_engine(root: Path, now: datetime, gh, repo: str) -> list[dict]:
         out.append(problem("engine_run_unknown", "warning", f"could not query workflow runs: {e}"))
     t = last_tick(root, now)
     if t is None:
+        if now.astimezone(IST).time() < TICKS_MISSING_FROM:
+            return out          # the first push of today's ticks file is still on its way (grace after the open)
         out.append(problem("ticks_missing", "engine_not_running", f"logs/ticks-{now.astimezone(IST).date().isoformat()}.csv does not exist yet today"))
     else:
         age = (now - t["time"]).total_seconds() / 60

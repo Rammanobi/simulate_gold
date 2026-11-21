@@ -279,8 +279,10 @@ def main():
         # in the concurrency queue): otherwise the engine trades on an old portfolio and overwrites newer logs
         gitsync.pull_latest(ROOT)
     if args.safe_mode:
-        alerts.set_safe_mode(STATE, args.safe_mode, notify=False)    # idempotent; the incident pipeline alerts separately
-        log.error("SAFE MODE requested on the command line (%s): no new buys this session", args.safe_mode)
+        # this process only, nothing written to state/safe_mode.json: a failed pytest run blocks buys for this session (the pipeline
+        # raises the test_failure_main alert separately) but the next session re-runs pytest and starts clean when it is green
+        alerts.set_session_safe_mode(args.safe_mode)
+        log.error("SAFE MODE requested on the command line (%s): no new buys this session (not persisted)", args.safe_mode)
     live = Live(force=args.force, tick_seconds=args.tick_seconds)
     try:
         live.livepub.start()                       # fetch the tip of the `live` branch (never blocks trading)
