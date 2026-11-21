@@ -78,6 +78,30 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
 4. One `ALLOC` record per daily check in `logs/decisions-D.jsonl` (default, proposal, k, every stage, clamps, executed).
 5. Shadow (shipped: `allocation.shadow: true`): the v2 decision trades and the v3 target is only logged.
 
+## Go-live fixes (review of the first engine PR)
+
+- **Idle cash after risk sells.** Every sell except the discretionary "Rebalance" (silver/copper stops, fast lane, results exit,
+  invalidation sell, trend exits) adds its proceeds, as a share of the book, to a running `v3.credit` in the runtime state. At the
+  next check `clamp(credit=...)` does not count gold buys up to that credit against the 0.20/day 0.40/week turnover budget; the credit
+  never exceeds the cash in the account and is zero at brake level 2 and under the account stop. Spent credit disappears.
+- **Symbols that cannot be bought today** (stopped out or fast-laned today, or a routine `block` bias) never rise above their current
+  weight (`no_add` clamp line); the weight they cannot take goes to the other symbols with room. A symbol whose proposal was
+  invalidated is avoided first and used only as a last resort (`fill_last_resort`), so cash never idles because of it.
+- **Vol guard never switches off silently.** Order of inputs: live EWMA covariance; the last good one in `v3.cov_last`
+  (at most `cov_max_age_days`, ALLOC clamp `vol_guard_stale_cov`); then a stand-in built from per-asset volatilities at correlation
+  `fallback_rho` (1.0, ALLOC clamp `vol_guard_fallback`). `alloc.vol.cov` in the ALLOC record says which one was used.
+- **Ledger.** The 3-point dust sweep and the 09:30 retries of blocked buys are booked in `v3.ledger`; the exempt part of the sweep is
+  also in `v3.dust` and bounded (`dust_day` 0.03, `dust_week` 0.06 over 5 sessions). The 5-session ledger total is therefore at most
+  `max_turnover_week` plus the dust. While ramping in (idle cash above 10% of the book that is not risk-sell credit) the limits are
+  `ramp_turnover_day` / `ramp_turnover_week` (default 0.20 / 0.40: about 11 sessions from all cash; the owner may raise them).
+- **Caps** gold 1.00 / silver 0.50 / copper 0.25 bind the default (D5-FI) as well, under v3 only.
+- **Parsing.** `sanitize_allocation`, `validate_proposal` and `resolve_advice` never raise (huge integers, wrong types). A proposal
+  written more than 48 hours ago is ignored (Saturdays and Sundays do not count) and the tool refuses to write one.
+- **One switch.** `allocation.phase`: `off` / `shadow` (dormant under `v2_trend`), `live_default` (D5-FI trades, AI only logged,
+  trust not used), `live` (AI tilt trades at `ai_trust`). `strategy.mode: v3_alloc` also turns v3 on; `shadow: false` there is read as
+  `live_default`.
+- **Routine bias.** In v3 live the guidance `block` only means no new buys/adds of that metal; `favour`/`neutral` do nothing.
+
 ## Python interface for the tools (all pure; import from `simgold.allocation`)
 
 ```python

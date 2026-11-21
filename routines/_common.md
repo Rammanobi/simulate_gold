@@ -21,12 +21,20 @@ the engine's last lines, not yours; you never plan around them and never try to 
 
 ## Advice status (read the MODE line first, see S1)
 
-| `strategy.mode` | `allocation.phase` / `ai_trust` | What your output is |
-|---|---|---|
-| `v1_scores` or `v2_trend` | any | **v3 is DORMANT.** The scheduled routines `premarket` and `allocation` hand over to the legacy playbooks (`premarket_v2.md`, `hourly.md`). Anything these v3 playbooks write (desk files, proposals) is **logged only**: the engine ignores it and trades by its v1/v2 rules. |
-| `v3_alloc` | `shadow` | **Logged only.** The engine computes and logs the clamped "would-have" result in its `ALLOC` records, and trades its fully invested default. |
-| `v3_alloc` | `live` and `ai_trust` = 0 | **Logged only.** Same as shadow. |
-| `v3_alloc` | `live` and `ai_trust` > 0 | The engine tilts its default toward your mix by `k = ai_trust x clip((confidence - 0.30) / 0.50, 0, 1)`, then clamps. Still advice: it can be clamped, ignored or replaced by the default. |
+**Effective mode.** v3 is ON when `strategy.mode` is `v3_alloc` OR `allocation.phase` is `live_default` or `live` (the owner's single
+switch; `strategy.mode` may still read `v2_trend`). The MODE line prints the raw values; apply that rule to them.
+
+| MODE line (`mode phase ai_trust`) | What your output is |
+|---|---|
+| `v1_scores` any; or `v2_trend` with phase `None`, `off` or `shadow` | **v3 is DORMANT.** The scheduled routines `premarket` and `allocation` hand over to the legacy playbooks (`premarket_v2.md`, `hourly.md`). Anything these v3 playbooks write (desk files, proposals) is **logged only**: the engine ignores it and trades by its v1/v2 rules. |
+| `v3_alloc` with phase `off` or `shadow` | **Logged only.** The engine computes and logs the clamped "would-have" result in its `ALLOC` records; the v2 rules trade. |
+| phase `live_default` (any `strategy.mode` that is not `v1_scores`) | **Logged only.** The engine trades its fully invested default and logs the tilt that WOULD have traded; `ai_trust` is not used. |
+| phase `live` and `ai_trust` = 0 | **Logged only.** Same as `live_default`. |
+| phase `live` and `ai_trust` > 0 | The engine tilts its default toward your mix by `k = ai_trust x clip((confidence - 0.30) / 0.50, 0, 1)`, then clamps. Still advice: it can be clamped, ignored or replaced by the default. |
+
+**Your bias file in v3.** While v3 trades, `state/guidance.json` bias has one effect: `block` for a metal means no NEW buys or adds of
+that metal (the engine moves its weight to the other metals and never raises exposure); `favour` and `neutral` change nothing. The
+allocation proposal is the only way to ask for more of a metal, and it is advice.
 
 In every row write the proposal exactly as carefully as if it counted: shadow mode exists to measure it. But never describe
 a proposal as "in force", "executed" or "ordered" in a note, a memory line or the final message. Say "proposed".
