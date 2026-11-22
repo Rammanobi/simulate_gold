@@ -46,6 +46,13 @@ def test_sends_one_plain_email_to_the_owner_only(tmp_path):
     assert "2026-11-12" in msg.get_content() and "abcd" not in msg.as_string()
 
 
+def test_the_log_masks_the_recipient_fully(tmp_path):
+    for dry in (False, True):
+        res, out = go(tmp_path / str(dry), dry=dry, now=T0 + (7 if dry else 0))
+        log = "\n".join(out)
+        assert "o***\x40***" in log and "example.com" not in log and "owner" not in log
+
+
 def test_once_per_day_then_again_next_day(tmp_path):
     FakeSMTP.sent = []
     assert go(tmp_path)[0] == "sent"
