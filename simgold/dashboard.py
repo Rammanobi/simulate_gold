@@ -13,6 +13,10 @@ ai_stop?, level_kind (sma200|donchian55), level_raw, level (the ON level incl. t
 level_side (on|off), close (the 15:10 check price), gap_pct (level/close-1 in %), weight_if_on (% of the portfolio)}] adapted from the engine's TARGET records (state, sigma, target_pct, actual_pct, reason) and its
 "Drawdown brake" / "Account stop" decisions.
 
+Optional keys, present only when their data exists: pricegap{date, warn_pct, duty_pct, gaps{SYM{premium_pct, median20_pct, z, warn}}} (India
+price gap, only with pricegap.enabled), allocview{source, phase, conf, advice, weights{default, ai, executed}, clamps[]} (default vs AI vs
+executed) and twins{since, asof, rows[{name, value, ret_pct, dd_pct}]} (paper twins).
+
 Built from the same inputs as the daily report (simgold.report.build_day). The engine writes today's document to
 logs/dashboard-DATE.json at every git sync, so the dashboard page (which reads it from the public repo) shows each
 decision within about 5 minutes. Routines copy it into the artifact's database with tools/dashboard.py.
@@ -295,6 +299,9 @@ def build(date: str, root: Path, now: datetime | None = None) -> dict:
         "targets": [],
         "money": day.get("money_summary"),           # "Your money at a glance" card (`summary` is the one-line banner text)
     }
+    for key, src in (("pricegap", "pricegap_view"), ("allocview", "alloc_view"), ("twins", "twins_view")):
+        if isinstance(day.get(src), dict):           # optional report blocks: keys exist only when their data does (see simgold/reportblocks.py)
+            doc[key] = day[src]
     if strategy is not None:                         # v2 only; v1 documents keep their old shape
         doc["strategy"], doc["targets"] = strategy, targets
         if p.get("v2"):                              # risk-brake facts for the KPI tile (same numbers as the report)

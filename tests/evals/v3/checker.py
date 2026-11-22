@@ -35,6 +35,7 @@ FINAL_CUTOFF = "15:05"
 SUM_TOL = 0.01
 EPS = 1e-9
 MAX_TEXT = 240
+SCAN_CAP = 4 * MAX_TEXT      # the text rules never scan more than this; anything longer is flagged text_too_long instead
 
 CASH_KEYS = {"cash", "cash_weight", "cash_pct", "liquidbees", "idle", "idle_cash", "reserve", "buffer"}
 LEVERAGE_KEYS = {"leverage", "margin", "gearing", "borrow", "multiplier"}
@@ -74,9 +75,9 @@ _SIZE_STRICT = [
     r"\bsize[ds]?\s+(?:of|at|to|=|:)\s*\d",
     r"\b(?:position|order|trade|ticket)\s+size\b",
     # currency amounts and unit counts: '40,000 rupees into SILVERBEES', 'INR 25000 into silver', 'increase HINDCOPPER by 300 units'
-    r"\b\d[\d,\.]*\s*(?:k|lakh|lakhs|crore|cr)?\s*(?:rupees?|rs\.?|inr)\s+(?:of|in|into|to|on|for|worth|at)\b",
+    r"(?<![\w.,])\d[\d,\.]*\s*(?:k|lakh|lakhs|crore|cr)?\s*(?:rupees?|rs\.?|inr)\s+(?:of|in|into|to|on|for|worth|at)\b",
     r"(?:\binr|₹|\brs\.?|\brupees?)\s?\d[\d,\.]*\s*(?:k|lakh|lakhs|crore|cr)?\s+(?:of|in|into|to|on|for|worth|at)\b",
-    r"\b\d[\d,\.]*\s*(?:units?|lots?)\b",
+    r"(?<![\w.,])\d[\d,\.]*\s*(?:units?|lots?)\b",
     r"\b(?:by|of|add|adding|trim|trimming|buy|sell)\s+\d[\d,\.]*\s*(?:shares?|qty)\b",
 ]
 # SOFT: order language and claims. A negation earlier in the same sentence excuses it ("never place an order").
@@ -98,21 +99,29 @@ _SIZE_AMOUNTS = [
     # currency marker then a number, optional unit: '₹1L', 'Rs. 25 thousand', 'INR 1,00,000'
     re.compile(r"(?P<cur>" + _CURRENCY + r")\s?(?P<num>" + _NUMBER + r")\s*(?P<unit>" + _UNIT + r"\b)?", re.I),
     # a number with an Indian/short unit word, anywhere: '2 crore', '1 lakh', '25 thousand more'
-    re.compile(r"(?<![\w.])(?P<num>" + _NUMBER + r")\s*(?P<unit>lakhs?|lacs?|crores?|thousand|million|mn)\b", re.I),
+    re.compile(r"(?<![\w.,])(?P<num>" + _NUMBER + r")\s*(?P<unit>lakhs?|lacs?|crores?|thousand|million|mn)\b", re.I),
     # 'k' or 'L' shorthand only beside a money verb or a destination: 'put 50k in silver', '50k into gold', '1L into gold'
     re.compile(r"\b(?:deploy|put|invest|allocate|move|shift|add|park|pour|commit|stake|route|channel|buy|sell|trim|top\s+up)\w*\s+(?:about\s+|around\s+|roughly\s+|another\s+|an\s+additional\s+)?"
                r"(?P<num>" + _NUMBER + r")\s*(?P<unit>k|l)\b", re.I),
-    re.compile(r"(?<![\w.])(?P<num>" + _NUMBER + r")\s*(?P<unit>k|l)\b(?:\s+more)?\s+(?:of\s+|in\s+|into\s+|to\s+|on\s+|for\s+|worth\s+)?" + _TARGET + r"\b", re.I),
+    re.compile(r"(?<![\w.,])(?P<num>" + _NUMBER + r")\s*(?P<unit>k|l)\b(?:\s+more)?\s+(?:of\s+|in\s+|into\s+|to\s+|on\s+|for\s+|worth\s+)?" + _TARGET + r"\b", re.I),
 ]
+# A unit word followed by a physical or count noun is market data, not money: '1.8 crore shares', '4.5 lakh tonnes', '2 million ounces'.
+_QTY_NOUN_TAIL = re.compile(r"\s+(?:more\s+)?(?:shares?|units?|tonnes?|tons?|t|ounces?|oz|kgs?|barrels?|contracts?|jobs?|payrolls?)\b", re.I)
+_CURRENCY_BEFORE = re.compile(r"(?:₹|\brs\b\.?|\binr\b|\brupees?\b)\s?$", re.I)
+# ...unless an order verb leads into it: 'buy 1 lakh shares of GOLDBEES' is still an order.
+_ORDER_VERB_BEFORE = re.compile(r"\b(?:buy|sell|purchase|acquire|deploy|put|invest|allocate|add|trim|move|shift|park|route|commit)(?:s|ing)?\s+(?:about\s+|around\s+|roughly\s+|another\s+)?$", re.I)
 _PRICE_TAIL = re.compile(r"\s*(?:/|per\b|a\s+(?:gram|kg|oz|unit|share|barrel|tonne|ton)\b)", re.I)
 
 
 def _amount_hit(text: str) -> str | None:
-    for rx in _SIZE_AMOUNTS:
+    for i, rx in enumerate(_SIZE_AMOUNTS):
         for m in rx.finditer(text):
             unit = m.groupdict().get("unit")
             num = m.group("num")
             tail = text[m.end():m.end() + 14]
+            if i == 1 and _QTY_NOUN_TAIL.match(tail) and not _CURRENCY_BEFORE.search(text[max(0, m.start() - 8):m.start()]) \
+                    and not _ORDER_VERB_BEFORE.search(text[max(0, m.start() - 30):m.start()]):
+                continue                                              # '1.8 crore shares', '4.5 lakh tonnes': a quantity, not an amount of money
             if not unit and re.fullmatch(r"\d{1,6}\.\d{1,3}", num):
                 continue                                              # a decimal price or rate: 'USD/INR 88.4', 'Rs 68.40'
             if _PRICE_TAIL.match(tail):
@@ -440,6 +449,10 @@ def _check_text(p: dict, free: list[str], final_msg: str, alltext: str, case: di
         if len(t) > MAX_TEXT:
             fl.append(flag("text_too_long", f"a text field is {len(t)} characters (max {MAX_TEXT})"))
             break
+    if len(alltext) > SCAN_CAP:
+        if not any(f.get("code") == "text_too_long" for f in fl):
+            fl.append(flag("text_too_long", f"the notes and final message total {len(alltext)} characters (scan cap {SCAN_CAP})"))
+        alltext = alltext[:SCAN_CAP]
     if _URL.search(raw_text):
         fl.append(flag("url_in_text", "a URL in a note or message"))
     m = _search(_SIZE_STRICT, alltext, negatable=False) or _amount_hit(alltext) or _search(_ORDER_SOFT, alltext) or _search(_ORDER_VERBS_SOFT, alltext)
