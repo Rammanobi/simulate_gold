@@ -1,20 +1,20 @@
 {
- "date": "2026-11-13",
+ "date": "2026-11-20",
  "market": [
   {
-   "name": "Gold (COMEX)",
-   "move_pct": 0.0,
-   "note": "n/a, no reliable overnight quote found"
+   "name": "GOLDBEES (19 Nov close)",
+   "move_pct": -1.43,
+   "note": "Overnight COMEX data n/a"
   },
   {
-   "name": "Silver (COMEX)",
-   "move_pct": 0.0,
-   "note": "n/a, no reliable overnight quote found"
+   "name": "SILVERBEES (19 Nov close)",
+   "move_pct": -1.82,
+   "note": "Overnight COMEX data n/a"
   },
   {
-   "name": "Copper",
-   "move_pct": 0.0,
-   "note": "n/a, no reliable overnight quote found"
+   "name": "HINDCOPPER (19 Nov close)",
+   "move_pct": 1.59,
+   "note": "Results out 11 Nov; no overnight copper data"
   }
  ]
 }

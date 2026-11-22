@@ -1,7 +1,7 @@
 {
- "updated": "2026-11-17T09:28:34+05:30",
+ "updated": "2026-11-20T09:16:23+05:30",
  "GOLDBEES": {
-  "tighten_stop": 109.4
+  "tighten_stop": 101.0
  },
- "note": "Gold fell about 1.5% as the US dollar strengthened on Fed rate-hike expectations, so a protective stop is set at 109.40 on the gold holding."
+ "note": "Gold ETF fell about 5% at the open with no confirmed news found, so a protective stop was set at 101.0."
 }

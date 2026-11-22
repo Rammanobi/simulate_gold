@@ -3,12 +3,14 @@
 
   python tools/evaluate.py --month 2026-10 [--format json|md|html]
   python tools/evaluate.py --all
+  python tools/evaluate.py --week 2026-W47 [--format json|md]   # strategy v3 (dormant): default vs final weights, turnover, clamps, desk Brier
   python tools/evaluate.py --month 2026-10 --write       # also writes reports/monthly/2026-10.json and .md
   python tools/evaluate.py --month 2026-10 --benchmarks closes.csv   # optional CSV: date,GOLDBEES,SILVERBEES
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -23,12 +25,22 @@ def main(argv=None) -> int:
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--month", help="YYYY-MM (default: current IST month)")
     g.add_argument("--all", action="store_true", help="since inception")
+    g.add_argument("--week", help="ISO week such as 2026-W47: allocation stats (code only, tools/calibration.py)")
     ap.add_argument("--format", choices=("json", "md", "html"), default="md")
     ap.add_argument("--benchmarks", default=None, help="optional CSV of closes: date,GOLDBEES,SILVERBEES")
     ap.add_argument("--no-weekly", action="store_true", help="skip the 'This week: live vs rules alone' line (it fetches price data)")
     ap.add_argument("--write", action="store_true", help="write reports/monthly/YYYY-MM.json and .md (needs a month)")
     a = ap.parse_args(argv)
     utf8_stdout()
+    if a.week:
+        import calibration
+        try:
+            w = calibration.week_stats(a.root, a.week)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(calibration.week_md(w) if a.format == "md" else json.dumps(w, indent=1))
+        return 0
     month = None if a.all else (a.month or now_ist().strftime("%Y-%m"))
     if month and (len(month) != 7 or month[4] != "-" or not (month[:4] + month[5:]).isdigit()
                   or not 1 <= int(month[5:]) <= 12):

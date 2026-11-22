@@ -16,6 +16,26 @@ rules; routines only advise (bias, events, defensive fast-lane actions, notes, m
 The equivalent IST crons are `CRON_TZ=Asia/Kolkata 50 8 * * 1-5`, `15 10-15 * * 1-5`, `45 15 * * 1-5` and
 `50 9 * * 6`. Every playbook ends with a final message that includes "models used".
 
+## Strategy v3 "desk allocation" (DORMANT until go-live)
+
+Under v3 the engine stays fully invested in GOLDBEES, SILVERBEES and HINDCOPPER (nothing idle in cash) and the routines **propose
+the mix** as target weights (profit is the objective, never a promise). The engine tilts its own default toward the proposal, clamps
+it to the limits in `config/params.yaml` `allocation:` and is still the only thing that trades. While `strategy.mode` is `v2_trend`
+(today), or `allocation.phase` is `shadow`, or `ai_trust` is 0, the advice is **logged only**. The shared steps are in `_common.md`.
+Rollout and rollback: `docs/v3/ROLLOUT.md`; the replacement safety invariants (owner applies them at go-live): `docs/v3/CLAUDE_INVARIANTS_DRAFT.md`.
+
+| Name | Schedule (IST) | Cron (UTC) | Model | Playbook / stored prompt |
+|---|---|---|---|---|
+| desk_macro, desk_gold, desk_silver, desk_copper | 08:20 Mon-Fri, **full fan-out only** | `50 2 * * 1-5` | Sonnet | `routines/desk_macro.md`, `routines/desk_metal.md` (METAL in the prompt) |
+| desk_risk | 08:45 Mon-Fri, full fan-out only | `15 3 * * 1-5` | Sonnet | `routines/desk_risk.md` |
+| premarket (synthesis) | 08:50 Mon-Fri | `20 3 * * 1-5` | Opus (NORMAL, full) or Sonnet | `routines/premarket.md` (hands over to `routines/premarket_v2.md` while the mode is v2) |
+| allocation (final decision) | 14:40 Mon-Fri | `10 9 * * 1-5` | Sonnet | `routines/allocation.md` (hands over to `routines/hourly.md` while the mode is v2); replaces hourly at go-live |
+| daily_report, weekly, fastlane, incident | unchanged times | unchanged | unchanged | their playbooks have `-v3` steps that run only under `v3_alloc` |
+
+Sessions per trading day: full fan-out 8 to 9; **compact (default) 3** (premarket does the desks inline, allocation, daily_report).
+Fan-out is an owner config switch (`allocation.desks.fanout`), not auto-detected. Until go-live the stored prompts stay as in the table
+above (premarket and hourly); the desk and allocation routines are created and scheduled only at go-live.
+
 ## The owner's one manual step: the fast-lane token
 
 1. Open the **fastlane** routine on claude.ai, add an **API trigger**, and copy its fire URL and token.

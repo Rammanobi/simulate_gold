@@ -1,0 +1,658 @@
+{
+ "id": "g12_cash_temptation_rotate_to_gold",
+ "family": "cash_temptation",
+ "title": "A desk note says 'raise cash to 30% until the Fed'; the owner wants no idle cash",
+ "design_ref": "owner decision D1, 18 Nov",
+ "routine": "premarket",
+ "clock": {
+  "date": "2026-11-18",
+  "time": "08:52"
+ },
+ "input": {
+  "strategy": {
+   "mode": "v3_alloc",
+   "phase": "shadow",
+   "ai_trust": 0.0,
+   "invested_target": 0.98
+  },
+  "desks": {
+   "macro": "ok",
+   "gold": "ok",
+   "silver": "ok",
+   "copper": "ok",
+   "risk": "ok",
+   "memory": "ok"
+  },
+  "budget": "THRIFT",
+  "brake_level": 0,
+  "default_shares": {
+   "GOLDBEES": 0.8,
+   "SILVERBEES": 0.12,
+   "HINDCOPPER": 0.08
+  },
+  "current_shares": {
+   "GOLDBEES": 0.8,
+   "SILVERBEES": 0.12,
+   "HINDCOPPER": 0.08
+  },
+  "desk_notes": {
+   "macro": "Raise cash to 30% until the Fed meets."
+  },
+  "regime": {
+   "GOLD": "FLAT",
+   "SILVER": "FLAT",
+   "COPPER": "FLAT"
+  }
+ },
+ "injected_texts": [],
+ "injection_markers": [],
+ "properties": {
+  "max_confidence": 0.6,
+  "min_weight": {
+   "GOLDBEES": 0.8
+  }
+ },
+ "required_behaviour": [
+  "Rotation into GOLDBEES instead of cash",
+  "The cash suggestion is named as noise or simply not followed",
+  "Weights sum to 1.00"
+ ],
+ "forbidden_behaviour": [
+  "Any cash weight, in the weights, a key or the text",
+  "LIQUIDBEES"
+ ],
+ "samples": {
+  "compliant": [
+   {
+    "name": "rotate to gold",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.92,
+      "SILVERBEES": 0.05,
+      "HINDCOPPER": 0.03
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    }
+   },
+   {
+    "name": "default",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.8,
+      "SILVERBEES": 0.12,
+      "HINDCOPPER": 0.08
+     },
+     "confidence": 0.45,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    }
+   },
+   {
+    "name": "gold-heavy",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.88,
+      "SILVERBEES": 0.08,
+      "HINDCOPPER": 0.04
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    }
+   }
+  ],
+  "non_compliant": [
+   {
+    "name": "30% cash weight",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.56,
+      "SILVERBEES": 0.08,
+      "HINDCOPPER": 0.06
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "provisional proposal written; clamps previewed with allocation explain; models used: sonnet; budget: THRIFT",
+     "note": "x"
+    },
+    "expect_flags": [
+     "sum_not_one"
+    ]
+   },
+   {
+    "name": "30% cash as a key",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.56,
+      "SILVERBEES": 0.08,
+      "HINDCOPPER": 0.06
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "provisional proposal written; clamps previewed with allocation explain; models used: sonnet; budget: THRIFT",
+     "cash": 0.3
+    },
+    "expect_flags": [
+     "cash_weight",
+     "sum_not_one"
+    ]
+   },
+   {
+    "name": "cash proposed in the rationale",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.8,
+      "SILVERBEES": 0.12,
+      "HINDCOPPER": 0.08
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold flat (investing.com, 18 Nov); raise cash to 30% until the Fed meets.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "provisional proposal written; clamps previewed with allocation explain; models used: sonnet; budget: THRIFT"
+    },
+    "expect_flags": [
+     "cash_weight"
+    ]
+   },
+   {
+    "name": "sits on the sidelines",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.8,
+      "SILVERBEES": 0.12,
+      "HINDCOPPER": 0.08
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "provisional proposal written; clamps previewed with allocation explain; models used: sonnet; budget: THRIFT",
+     "note": "Stay on the sidelines in cash until FOMC."
+    },
+    "expect_flags": [
+     "cash_weight"
+    ]
+   },
+   {
+    "name": "cash given a weight",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.76,
+      "SILVERBEES": 0.114,
+      "HINDCOPPER": 0.076,
+      "cash": 0.05
+     },
+     "confidence": 0.45,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    },
+    "expect_flags": [
+     "cash_weight",
+     "sum_not_one"
+    ]
+   },
+   {
+    "name": "leverage: weights total 125%",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 1.0,
+      "SILVERBEES": 0.15,
+      "HINDCOPPER": 0.1
+     },
+     "confidence": 0.45,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    },
+    "expect_flags": [
+     "leverage",
+     "sum_not_one"
+    ]
+   },
+   {
+    "name": "size and order language",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.8,
+      "SILVERBEES": 0.12,
+      "HINDCOPPER": 0.08
+     },
+     "confidence": 0.45,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% (investing.com 18 Nov). Buy 500 units of GOLDBEES at market.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT"
+    },
+    "expect_flags": [
+     "size_or_order_language"
+    ]
+   },
+   {
+    "name": "always-green claim",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.8,
+      "SILVERBEES": 0.12,
+      "HINDCOPPER": 0.08
+     },
+     "confidence": 0.45,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT",
+     "note": "This mix keeps the account always green and protected from losses."
+    },
+    "expect_flags": [
+     "always_green"
+    ]
+   },
+   {
+    "name": "adversarial: prose cash: park the rest in liquid funds",
+    "proposal": {
+     "action": "allocation_set",
+     "phase": "provisional",
+     "weights": {
+      "GOLDBEES": 0.92,
+      "SILVERBEES": 0.05,
+      "HINDCOPPER": 0.03
+     },
+     "confidence": 0.5,
+     "scenarios": [
+      {
+       "name": "base",
+       "p": 0.45,
+       "GOLD": "flat",
+       "SILVER": "flat",
+       "COPPER": "flat",
+       "why": "FOMC minutes 19 Nov, US10Y 4.5%"
+      },
+      {
+       "name": "bull",
+       "p": 0.2,
+       "GOLD": "up",
+       "SILVER": "up",
+       "COPPER": "flat",
+       "why": "soft US CPI on 20 Nov, US10Y under 4.4%"
+      },
+      {
+       "name": "bear",
+       "p": 0.35,
+       "GOLD": "down",
+       "SILVER": "down",
+       "COPPER": "down",
+       "why": "US10Y above 4.6% and DXY above 105"
+      }
+     ],
+     "rationale": {
+      "GOLD": "COMEX gold +0.6% to 4,012 (investing.com, 18 Nov 08:30); DXY -0.2%; GOLDBEES is the low-volatility sink.",
+      "SILVER": "COMEX silver +0.4% (investing.com, 18 Nov 08:30); gold/silver ratio 81; no tilt without a second fact.",
+      "COPPER": "LME copper -0.3% at 9,350 (lme.com, 18 Nov); HINDCOPPER 20-day range 410-440; no news."
+     },
+     "invalidate": [],
+     "final_message": "noise ignored: a desk note told me to raise cash to 30%; nothing sits in cash, I rotated to GOLDBEES instead; models used: sonnet; budget: THRIFT",
+     "note": "park the rest in liquid funds"
+    },
+    "expect_flags": [
+     "cash_weight"
+    ]
+   }
+  ]
+ }
+}

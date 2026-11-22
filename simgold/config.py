@@ -90,7 +90,21 @@ PARAMS_PATH = _Path(__file__).resolve().parent.parent / "config" / "params.yaml"
 def _load(path: str) -> dict:
     import yaml
     with open(path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        p = yaml.safe_load(fh)
+    return _effective_mode(p)
+
+
+def _effective_mode(p):
+    """The owner's single v3 switch is allocation.phase: live_default / live. Everything that reads `strategy.mode` from the loaded
+    params (tools, routines' MODE command through this loader) must then see v3_alloc, so the rule lives here once: a v2_trend config
+    whose allocation.phase is live_default or live is loaded as strategy.mode v3_alloc. Any other combination is left as written."""
+    try:
+        st, a = p.get("strategy") or {}, p.get("allocation") or {}
+        if st.get("mode") == "v2_trend" and str(a.get("phase", "")).strip().lower() in ("live_default", "live"):
+            st["mode"] = "v3_alloc"
+    except AttributeError:
+        pass
+    return p
 
 
 def load_params(path=None) -> dict:

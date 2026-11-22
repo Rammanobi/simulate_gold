@@ -122,10 +122,30 @@ def apply_overrides(p: dict, sets: list[str] | None) -> dict:
     return q
 
 
+def load_wide_frames(data_dir, symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """Research data as four wide CSVs (close.csv, high.csv, low.csv, open.csv; a Date column and one column per symbol), the layout of
+    the strategy research folder. SILVERBEES before its listing is the proxy already spliced into the file."""
+    d = _Path(data_dir)
+    out = {}
+    for f in ("close", "high", "low", "open"):
+        df = pd.read_csv(d / f"{f}.csv", parse_dates=["Date"], index_col="Date")[symbols].astype(float)
+        out[f] = df
+    out["close"] = out["close"].ffill()
+    for f in ("high", "low"):
+        out[f] = out[f].where(out[f] > 0).fillna(out["close"])
+    out["high"] = np.maximum(out["high"], out["close"])
+    out["low"] = np.minimum(out["low"], out["close"])
+    out["open"] = out["open"].where(out["open"] > 0)
+    return out
+
+
 def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | pd.Timestamp = "2010-06-01",
-           end: str | pd.Timestamp | None = None, init: dict | None = None) -> dict:
+           end: str | pd.Timestamp | None = None, init: dict | None = None, v3: dict | None = None) -> dict:
     """Replay strategy v2 on daily bars. frames: {"close","high","low"}, columns = symbols. Returns
     {"equity": Series, "gross": Series, "trades": DataFrame(date, sym, dv, kind), "brake": Series, "weights": DataFrame}.
+    v3: None (strategy v2), or {"cfg": allocation settings, "noise_seed": int | None, "noise_conf": float, "noise_sd": float}: the v3
+    allocation pipeline (simgold/allocation.py): D5-FI default with the owner caps, then (with noise_seed) a seeded random "AI" mix
+    tilted in at the configured ai_trust, the clamp, the turnover ledger and the risk-sell credit. Costs and fills are unchanged.
     init: optional opening book {"cash": rupees, "hold": {sym: rupees at the first bar's close}} instead of all cash. The first bar
     is then the day the book is struck: it is valued, but takes no orders (they are already in the book) and earns no return."""
     p = p or config.load_params()
@@ -159,6 +179,14 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
                 hold[s_] = float(v_)
     eq, gross, wlog, blog, tlog = [], [], [], [], []
     prev = None
+    from . import allocation as _alloc
+    a3 = v3["cfg"] if v3 else None
+    ledger3: dict[str, float] = {}
+    credit3 = 0.0
+    rng3 = np.random.default_rng(v3["noise_seed"]) if v3 and v3.get("noise_seed") is not None else None
+    dst = dict(st, rebalance_threshold=a3["rebalance_threshold"]) if v3 else st
+    iso = [x.date().isoformat() for x in c.index]
+    pos3 = {x: i for i, x in enumerate(c.index)}
 
     def execute(d, orders, V):
         nonlocal cash
@@ -194,6 +222,8 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
                     continue
                 proceeds = hold[s] * fill * (1 - extra_slip) / c.at[prev, s]
                 cash += proceeds * (1 - cost[s])
+                if v3:                                                  # a risk sell: its cash may be re-invested outside the turnover budget
+                    credit3 += proceeds * (1 - cost[s]) / max(cash + sum(hold.values()) - hold[s], 1.0)
                 tlog.append((d, s, -hold[s], "stop"))
                 hold[s] = 0.0
                 stopped.add(s)
@@ -221,14 +251,44 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
                     on[s] = False                                       # stopped out: no re-entry yet
         brake = _trend.brake_update(brake, V, on, st, cap0)
         mult = _trend.brake_mult(brake["level"], st)
-        w, _scale = _trend.target_weights({s: (on[s], rows[s]["sigma"]) for s in syms}, st, mult, brake["reconfirm"])
+        if v3 is None:
+            w, _scale = _trend.target_weights({s: (on[s], rows[s]["sigma"]) for s in syms}, st, mult, brake["reconfirm"])
+        else:
+            avail = [s for s in syms if valid[s]]
+            infos3 = {s: (on[s], float(rows[s]["sigma"])) for s in avail}
+            dflt, _det = _alloc.default_d5fi(infos3, st, a3, brake["reconfirm"])
+            cur3 = {s: (hold[s] / V if V > 0 else 0.0) for s in syms}
+            adv3, conf3 = None, 0.0
+            if rng3 is not None and avail:                               # seeded noise "AI": the default plus random tilts, as shares of the book
+                raw = np.array([max(0.0, dflt[s] + rng3.normal(0.0, v3.get("noise_sd", 0.15))) for s in syms])
+                raw = raw / raw.sum() if raw.sum() > 0 else np.array([1.0, 0.0, 0.0])
+                adv3, conf3 = {s: float(x) for s, x in zip(syms, raw)}, float(v3.get("noise_conf", 0.6))
+            lo = max(0, pos3[d] - 90)
+            ser = {s: {iso[j]: float(c.iat[j, k]) for j in range(lo, pos3[d] + 1)} for k, s in enumerate(syms)
+                   if not np.isnan(c.iloc[lo:pos3[d] + 1, k].to_numpy()).any()}
+            led_day = d.date()
+            dl, wl = _alloc.turnover_left(ledger3, led_day, a3)
+            idle3 = max(0.0, 1.0 - sum(cur3.values()) - min(credit3, max(cash, 0.0) / max(V, 1.0)))
+            if idle3 > _alloc.RAMP_MIN_IDLE:                              # ramp-in: the ramp limits (default = the normal ones)
+                dl, wl = _alloc.turnover_left(ledger3, led_day, dict(a3, max_turnover_day=a3["ramp_turnover_day"],
+                                                                      max_turnover_week=a3["ramp_turnover_week"]))
+            res3 = _alloc.clamp(default=dflt, advice=adv3, confidence=conf3, current=cur3, on=on, cfg=a3,
+                                cov=_alloc.ewma_cov(ser, int(st.get("vol_span", 60))) if ser else None,
+                                ineligible=brake["reconfirm"], brake_level=brake["level"], brake_mult=mult,
+                                day_left=dl, week_left=wl, underwater=V < cap0, credit=min(credit3, max(cash, 0.0) / max(V, 1.0)),
+                                sigmas={s: float(rows[s]["sigma"]) for s in avail},
+                                advice_source="noise" if adv3 else "none")
+            w = {s: (res3.final[s] if valid[s] else 0.0) for s in syms}
+            ledger3[led_day.isoformat()] = ledger3.get(led_day.isoformat(), 0.0) + res3.discretionary_turnover
+            for k in sorted(ledger3)[:-10]:
+                ledger3.pop(k, None)
         orders = []
         for s in syms:
             if np.isnan(c.at[d, s]):
                 continue
             cur = hold[s] / V if V > 0 else 0.0
             dec = _trend.decide(on=on[s], target=w[s], cur=cur, flat=hold[s] < 1e-6,
-                                rsi_val=None if np.isnan(rows[s]["rsi"]) else float(rows[s]["rsi"]), bias="neutral", st=st,
+                                rsi_val=None if np.isnan(rows[s]["rsi"]) else float(rows[s]["rsi"]), bias="neutral", st=dst,
                                 brake_level=brake["level"], eligible=s not in brake["reconfirm"], sigma_ok=not np.isnan(rows[s]["sigma"]))
             if dec.action in ("BUY", "SELL"):
                 orders.append((s, dec.to_w, dec.kind))
@@ -239,6 +299,8 @@ def run_v2(frames: dict[str, pd.DataFrame], p: dict | None = None, start: str | 
             V = cash + sum(hold.values())
         else:
             pending = orders
+        if v3:
+            credit3 = min(credit3, max(cash, 0.0) / max(V, 1.0))
         eq.append(V)
         gross.append(sum(hold.values()) / V if V > 0 else 0.0)
         blog.append(brake["level"])
@@ -286,3 +348,31 @@ def v2_report(frames: dict[str, pd.DataFrame], p: dict, start: str, end: str | N
             "in_sample": period_stats(res, None, oos_start, y) if not short else None, "oos": period_stats(res, oos_start, None, y),
             "full": period_stats(res, None, None, y),
             "bh_in_sample": period_stats(bh_res, None, oos_start, y) if not short else None, "bh_oos": period_stats(bh_res, oos_start, None, y)}
+
+
+def v3_report(frames: dict[str, pd.DataFrame], p: dict, start: str, end: str | None = None, seed: int = 7, noise_sd: float = 0.15,
+              noise_conf: float = 0.6, ai_trust: float = 1.0) -> dict:
+    """Strategy v3 on daily bars, three variants on the same data: the v2 rules as shipped, v3 D5-FI (fully invested, owner caps,
+    0.20/0.40 turnover, no AI) and v3 with a seeded noise "AI" tilted in at `ai_trust` (a stress test of the clamp: the noise has no
+    edge, so this shows what a worthless AI costs). Each is split into in-sample and the last oos_years like v2_report."""
+    from . import allocation as _alloc
+    cfg = _alloc.settings(p)
+    out = {"v2": run_v2(frames, p, start, end)}
+    out["v3_default"] = run_v2(frames, p, start, end, v3={"cfg": dict(cfg, ai_trust=0.0), "noise_seed": None})
+    out["v3_noise_ai"] = run_v2(frames, p, start, end, v3={"cfg": dict(cfg, ai_trust=float(ai_trust)), "noise_seed": seed,
+                                                           "noise_sd": noise_sd, "noise_conf": noise_conf})
+    y = p["capital"]["liquid_yield_annual"]
+    last = out["v2"]["equity"].index[-1]
+    oos = last - pd.DateOffset(years=int(p["strategy"]["backtest"]["oos_years"]))
+    rep = {"oos_start": oos, "runs": out, "stats": {}}
+    for k, r in out.items():
+        short = r["equity"].index[0] >= oos
+        rep["stats"][k] = {"full": period_stats(r, None, None, y), "oos": period_stats(r, oos, None, y),
+                           "in_sample": None if short else period_stats(r, None, oos, y)}
+    bh = p["capital"]["start"] * frames["close"]["GOLDBEES"].reindex(out["v2"]["equity"].index).ffill()
+    bh = bh / bh.iloc[0]
+    bh_res = {"equity": bh * p["capital"]["start"], "gross": pd.Series(1.0, index=bh.index),
+              "trades": pd.DataFrame(columns=["date", "sym", "dv", "kind"])}
+    rep["stats"]["buy_hold_gold"] = {"full": period_stats(bh_res, None, None, y), "oos": period_stats(bh_res, oos, None, y),
+                                     "in_sample": None if out["v2"]["equity"].index[0] >= oos else period_stats(bh_res, None, oos, y)}
+    return rep

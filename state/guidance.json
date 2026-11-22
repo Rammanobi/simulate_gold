@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-17T08:53:29+05:30",
+ "updated": "2026-11-20T14:17:01+05:30",
  "bias": {
-  "GOLD": "neutral",
+  "GOLD": "block",
   "SILVER": "block",
-  "COPPER": "neutral"
+  "COPPER": "block"
  },
- "note": "GOLD[WEAKENING]: no overnight data (web unverified), alignment default; r21 -6.9%, 2 shock blocks 16 Nov. SILVER[DEFENSIVE]: no overnight data, kept at block per alignment; SILVERBEES -4.87% 16 Nov. COPPER[DOWNTREND]: no overnight data, alignment default; HINDCOPPER -2.24% 16 Nov.",
+ "note": "[fallback: DeepSeek] Gold and silver show sharp declines from previous close warranting blocks, while copper's modest decline supports a neutral stance. | CEILING: downgraded COPPER neutral->block: DEFENSIVE",
  "prices_at_update": {
-  "GOLDBEES": 110.1,
-  "SILVERBEES": 160.54,
-  "HINDCOPPER": 430.0
+  "GOLDBEES": 102.06,
+  "SILVERBEES": 146.21,
+  "HINDCOPPER": 417.35
  },
  "alignment": {
-  "GOLD": "WEAKENING",
-  "SILVER": "DEFENSIVE",
-  "COPPER": "DOWNTREND"
+  "GOLD": "DEFENSIVE_SHOCK",
+  "SILVER": "DEFENSIVE_SHOCK",
+  "COPPER": "DEFENSIVE"
  }
 }

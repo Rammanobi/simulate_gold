@@ -54,6 +54,22 @@ INSTRUCTION_PATTERNS = [
     r"\[\s*(?:owner|admin|system|operator)\b", r"\bexfiltrat", r"\bpromote\s+(?:this|it)\s+(?:to|as)\s+lesson\b",
 ]
 _INSTR = [re.compile(p, re.I) for p in INSTRUCTION_PATTERNS]
+# a chat-role prefix at the start of a LINE ("system: ...", "[assistant]: ...", "### User:") is an attempt to pose as another speaker
+ROLE_PREFIX_RE = re.compile(
+    r"^[\s#>*_`\-\[\(<]*(?:system|assistant|user|human|developer|tool|function|ai|bot)[\s\]\)>*_`]*:", re.I)
+
+
+def role_prefix(s) -> str | None:
+    """The offending line start when any line of `s` begins with a chat-role prefix such as "system:", else None. Checked on the raw
+    text (before whitespace is collapsed) and on its NFKC form, so a newline cannot hide the prefix and full-width letters count."""
+    if not isinstance(s, str):
+        return None
+    for form in (s, unicodedata.normalize("NFKC", s)):
+        for ln in form.splitlines() or [form]:
+            m = ROLE_PREFIX_RE.match(ln)
+            if m:
+                return m.group(0).strip()
+    return None
 # an encoded blob (base64-like: 24+ chars mixing upper case, lower case and digits) can smuggle an instruction past the
 # patterns above; a fact never needs one (a git sha is lower-case hex)
 B64_RE = re.compile(r"(?=[A-Za-z0-9+/]*[0-9])(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[a-z])[A-Za-z0-9+/]{24,}={0,2}")
@@ -105,6 +121,9 @@ def check_text(s, kind: str = "note", *, one_line: bool = True) -> str:
         raise Refused(f"{kind} must be text")
     if one_line and ("\n" in s.strip() or "\r" in s.strip()):
         raise Refused(f"{kind} must be one line")
+    rp = role_prefix(s)
+    if rp:
+        raise Refused(f"{kind} starts a line with a chat-role prefix ({rp!r}); memory holds facts and sources only")
     t = " ".join(s.split())
     if not t:
         raise Refused(f"{kind} is empty")
@@ -137,6 +156,9 @@ def check_multiline(s: str, kind: str = "note", max_lines: int = 15, max_bytes: 
     if len((s or "").encode("utf-8")) > max_bytes:
         raise Refused("text is too long")
     for ln in lines:
+        rp = role_prefix(ln)
+        if rp:
+            raise Refused(f"line starts with a chat-role prefix ({rp!r}): {ln.strip()[:60]}")
         body = ln.lstrip("#-*0123456789. ").strip()
         if not body:
             continue

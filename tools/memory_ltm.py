@@ -707,14 +707,28 @@ def perf_rows(root: Path) -> dict:
         gold = next((x for x in allr["benchmarks"] if x["name"] == "Buy-and-hold GOLDBEES"), {})
         trial = {"start": allr["start_value"], "end": allr["end_value"], "pct": allr["return_pct"],
                  "green": allr["green"], "bh_goldbees_pct": gold.get("return_pct") if gold.get("available") else None}
-    return {"updated": None, "months": rows, "trial": trial}
+    out = {"updated": None, "months": rows, "trial": trial}
+    try:                                    # strategy v3 (dormant): calibration rows exist only once the ledger exists
+        import calibration
+        cal = calibration.summary(root)
+    except Exception:                       # noqa: BLE001 - perf must never fail because of the ledger
+        cal = None
+    if cal:
+        out["desk_brier"], out["ai_vs_default"] = cal["desk_brier"], cal["ai_vs_default"]
+    return out
 
 
 def cmd_perf(a, root: Path, now: datetime) -> str:
+    if a.write:
+        try:                                # score what is due first (network only when something is due); never fails perf
+            import calibration
+            calibration.score(root, now, write=True)
+        except Exception:                   # noqa: BLE001
+            pass
     obj = perf_rows(root)
     obj["updated"] = now.isoformat(timespec="seconds")
     text = json.dumps(obj, ensure_ascii=False, indent=1) + "\n"
-    while len(text.encode()) > 4096 and len(obj["months"]) > 1:
+    while len(text.encode()) > 4096 + (1400 if "desk_brier" in obj else 0) and len(obj["months"]) > 1:
         obj["months"][0].pop("by_alignment", None)
         if len(json.dumps(obj, indent=1).encode()) > 4096:
             obj["months"] = obj["months"][1:]
