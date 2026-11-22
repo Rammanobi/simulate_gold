@@ -144,7 +144,7 @@ def _paired_section(allrows: list[dict], window_dates: set[str]) -> list[str]:
                 continue
             ci = ps["ci"]
             body.append([tid, str(ps["n"]), f"{ps['mean'] * 1e4:+.1f}", f"{ps['std'] * 1e4:.1f}", "-" if ps["t"] is None else f"{ps['t']:+.2f}",
-                         f"{ci[0] * 1e4:+.1f}..{ci[1] * 1e4:+.1f}", f"{ps['mde_year_pp']:.0f}"])
+                         "n/a (under 2 blocks)" if ci is None else f"{ci[0] * 1e4:+.1f}..{ci[1] * 1e4:+.1f}", f"{ps['mde_year_pp']:.0f}"])
         if body:
             out += ["", f"Daily paired difference vs {ref} ({twins.LABELS[ref]}): twin minus {ref}, basis points a day",
                     *_fmt(["id", "n", "mean bp", "std bp", "t", "95% block-bootstrap CI bp", "min detectable pp/yr"], body, left=(0,))]

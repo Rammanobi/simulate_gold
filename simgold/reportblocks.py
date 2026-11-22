@@ -259,7 +259,17 @@ def _twin_rows(items: list[tuple[str, dict]]) -> list[dict]:
     return rows
 
 
-def twins_view(root) -> dict | None:
+def twins_view(root, date: str | None = None, params: dict | None = None) -> dict | None:
+    """Hidden unless `twins.enabled` is true in the params (the loaded config when none are given), and hidden when the file's `asof` is AFTER the
+    report's day (a 13 Nov report must not show twins "as of 20 Nov"). `date` None skips the date rule."""
+    if params is None:
+        try:
+            from . import config
+            params = config.load_params()
+        except Exception:  # noqa: BLE001
+            params = {}
+    if (params.get("twins") or {}).get("enabled") is not True:
+        return None
     raw = _read(Path(root) / "state" / "twins.json")
     if not isinstance(raw, dict):
         return None
@@ -269,6 +279,8 @@ def twins_view(root) -> dict | None:
     since = str(raw.get("since") or raw.get("start_day") or raw.get("start_date") or "")[:10]
     asof = str(raw.get("asof") or raw.get("last_day") or raw.get("updated") or "")[:10]
     ok = lambda s: bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", s))      # noqa: E731
+    if date and ok(asof) and ok(str(date)) and asof > str(date):
+        return None
     return {"since": since if ok(since) else None, "asof": asof if ok(asof) else None, "rows": rows[:MAX_TWINS]}
 
 
@@ -298,7 +310,7 @@ def attach(day: dict, date: str, root, params: dict | None = None) -> None:
         except Exception:  # noqa: BLE001
             params = {}
     for key, fn in (("pricegap_view", lambda: pricegap_view(date, root, params)), ("alloc_view", lambda: alloc_view(date, root, params)),
-                    ("twins_view", lambda: twins_view(root))):
+                    ("twins_view", lambda: twins_view(root, date, params))):
         v = _safe(fn)
         if v:
             day[key] = v
