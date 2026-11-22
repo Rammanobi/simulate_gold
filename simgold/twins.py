@@ -366,7 +366,7 @@ def target_weights(tid: str, inp: DayInputs, cfg: Mapping, level: int, reconfirm
 def _rebalance(book: dict, targets: Mapping[str, float], px: Mapping[str, float], cfg: Mapping, inp: DayInputs, res=None, day: str = "") -> float:
     """The engine's band rules (trend.decide): a move to or from zero always trades; otherwise only a gap above the band; a new
     entry needs the minimum size. Sells first, then buys with the sink last, then leftover cash goes to the sink (simple mode: all of it;
-    v3 mode: dust only, at most dust_day / dust_week of the book, gold within its ceiling, never under a brake 2 or the account stop).
+    v3 mode: the engine's dust sweep, at most dust_day / dust_week of the book into GOLDBEES within its ceiling, whatever the target).
     Returns the dust swept as a share of the book (0 in simple mode)."""
     thr = float(inp.acfg["rebalance_threshold"])
     min_entry = float(inp.st.get("min_entry_weight", 0.01))
@@ -392,33 +392,38 @@ def _rebalance(book: dict, targets: Mapping[str, float], px: Mapping[str, float]
             continue
         if (held and t - c > thr) or (not held and t >= min_entry):
             buy(book, s, int((t - c) * v / px[s]), px[s], cfg)
-    # leftover cash beyond the cash the target itself keeps goes to the sink leg that is furthest below its target
+    # leftover cash goes to the sink. Simple mode: all of it, beyond the cash the target itself keeps, into the sink leg furthest below its target.
+    # v3 mode: exactly the engine's dust sweep (Engine.v3_sweep): up to dust_day / dust_week of the book into GOLDBEES whatever the target is
+    # (so it also runs during the ramp-in), within the gold ceiling, never under a brake 2 or the account stop; no cash is "kept".
+    if res is not None:
+        if res.brake_level >= 2 or res.halted or inp.infos.get(GOLD) is None or not px.get(GOLD):
+            return 0.0
+        s = GOLD
+        if targets.get(NIFTY, 0.0) > EPS and px.get(NIFTY):                    # T2: the sink is gold + NIFTYBEES, the sweep goes to the leg furthest below target
+            s = max((GOLD, NIFTY), key=lambda x: targets.get(x, 0.0) - int(book["units"].get(x, 0)) * px[x] / v)
+        spend = book["cash"]
+        if s == GOLD:
+            spend = min(spend, max(0.0, res.caps[GOLD] - int(book["units"].get(GOLD, 0)) * px[GOLD] / v) * v)
+        dust = book.setdefault("dust", {})
+        used_week = allocation.window_total(dust, date.fromisoformat(day), market.prev_trading_day)
+        left = max(0.0, min(float(inp.acfg["dust_day"]) - float(dust.get(day, 0.0)), float(inp.acfg["dust_week"]) - used_week))
+        spend = min(spend, left * v)
+        before = book["traded"]
+        buy(book, s, int(spend / fill_price(px[s], "BUY", cfg)), px[s], cfg)
+        sw = (book["traded"] - before) / v
+        if sw > 0:
+            dust[day] = float(dust.get(day, 0.0)) + sw
+            for k in sorted(dust)[:-10]:
+                dust.pop(k, None)
+        return sw
     keep = max(0.0, 1.0 - sum(targets.values())) * v
     legs = [s for s in (GOLD, NIFTY) if targets.get(s, 0.0) > EPS and s in cur]
     if not legs or book["cash"] - keep <= 0:
         return 0.0
     legs.sort(key=lambda s: targets[s] - int(book["units"].get(s, 0)) * px[s] / v, reverse=True)
     s = legs[0]
-    spend = book["cash"] - keep
-    if res is None:
-        buy(book, s, int(spend / fill_price(px[s], "BUY", cfg)), px[s], cfg)
-        return 0.0
-    if res.brake_level >= 2 or res.halted:
-        return 0.0
-    if s == GOLD:
-        spend = min(spend, max(0.0, res.caps[GOLD] - int(book["units"].get(GOLD, 0)) * px[GOLD] / v) * v)
-    dust = book.setdefault("dust", {})
-    used_week = allocation.window_total(dust, date.fromisoformat(day), market.prev_trading_day)
-    left = max(0.0, min(float(inp.acfg["dust_day"]) - float(dust.get(day, 0.0)), float(inp.acfg["dust_week"]) - used_week))
-    spend = min(spend, left * v)
-    before = book["traded"]
-    buy(book, s, int(spend / fill_price(px[s], "BUY", cfg)), px[s], cfg)
-    sw = (book["traded"] - before) / v
-    if sw > 0:
-        dust[day] = float(dust.get(day, 0.0)) + sw
-        for k in sorted(dust)[:-10]:
-            dust.pop(k, None)
-    return sw
+    buy(book, s, int((book["cash"] - keep) / fill_price(px[s], "BUY", cfg)), px[s], cfg)
+    return 0.0
 
 
 # ---------------------------------------------------------------- state
@@ -807,7 +812,7 @@ def daily_returns(rows: list[dict]) -> dict[str, dict[str, float]]:
 
 def paired_stats(rets: Mapping[str, Mapping[str, float]], twin: str, ref: str, block: int = 5, n_boot: int = 1000, seed: int = 7) -> dict | None:
     """Daily paired difference (twin minus ref) on the dates both have: n, mean, std, t-stat, a moving-block bootstrap 95% interval of the
-    mean (block length `block`, seeded, deterministic) and the smallest mean difference a sample this size could separate from zero
+    mean (block length `block`, seeded, deterministic; None with fewer than 2 blocks of data) and the smallest mean difference a sample this size could separate from zero
     (about 2 standard errors) in percentage points a year. None when either series is missing."""
     a, b = rets.get(twin), rets.get(ref)
     if not a or not b or twin == ref:
@@ -820,8 +825,10 @@ def paired_stats(rets: Mapping[str, Mapping[str, float]], twin: str, ref: str, b
     mean = sum(d) / n
     sd = math.sqrt(sum((x - mean) ** 2 for x in d) / (n - 1))
     out.update(mean=mean, std=sd, t=(mean / (sd / math.sqrt(n)) if sd > 1e-12 else None), mde_year_pp=2 * sd / math.sqrt(n) * 252 * 100)
+    bl = max(1, int(block))
+    if n < 2 * bl:                                       # fewer than two blocks: every resample is the same data, so no interval is honest
+        return out
     rng = random.Random(seed)
-    bl = max(1, min(int(block), n))
     means = []
     for _ in range(int(n_boot)):
         sample: list[float] = []

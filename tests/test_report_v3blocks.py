@@ -67,6 +67,7 @@ def root(tmp_path, cfg):
 def on(cfg):
     with pytest.MonkeyPatch.context() as mp:
         mp.setitem(cfg, "pricegap", {"enabled": True})
+        mp.setitem(cfg, "twins", {"enabled": True})
         yield cfg
 
 
@@ -427,17 +428,17 @@ def books_state(**over):
 
 
 def test_twins_from_the_raw_books_structure(root, on):
-    w_twins(root, books_state())
+    w_twins(root, books_state(since="2026-11-02", asof="2026-11-06"))          # dated on or before the report's day, or the block is hidden
     v = report.build_day(DAY, root)["twins_view"]
     assert [r["name"] for r in v["rows"]] == ["Real book", "Always-invested default", "Gold+NIFTY sink", "No silver rule", "Gold–silver ratio tilt", "Buy&hold gold", "Buy&hold gold+NIFTY"]
     assert len(v["rows"]) == 7 == RB.MAX_TWINS
     t1 = v["rows"][1]
     assert t1["value"] == 101234.5 and t1["ret_pct"] == pytest.approx(1.2345) and t1["dd_pct"] == pytest.approx(-3.4)
     assert v["rows"][0]["dd_pct"] == 0.0 or v["rows"][0]["dd_pct"] == -0.0
-    assert v["since"] == "2026-11-23" and v["asof"] == "2026-11-27"
+    assert v["since"] == "2026-11-02" and v["asof"] == "2026-11-06"
     _, h, t = render(root)
     for x in (visible(h), t):
-        assert "PAPER TWINS · since 2026-11-23 · as of 2026-11-27" in x and "Buy&hold gold+NIFTY" in x and "Always-invested default" in x
+        assert "PAPER TWINS · since 2026-11-02 · as of 2026-11-06" in x and "Buy&hold gold+NIFTY" in x and "Always-invested default" in x
         assert "₹1,01,235" in x and "+1.2%" in x and "−3.4%" in x
     assert "Buy&amp;hold gold" in h and "Gold–silver ratio tilt" in h
     rules_ok(h, t)
@@ -451,7 +452,7 @@ def test_twins_books_robust_to_bad_books(root, on):
     st["books"]["T4"]["max_dd"] = "x"
     st["books"]["T9"] = book("T9")                             # an unknown id is shown by its id, after the known ones
     w_twins(root, st)
-    rows = report.build_day(DAY, root)["twins_view"]["rows"]
+    rows = RB.twins_view(root, "2026-11-30")["rows"]
     assert [r["name"] for r in rows] == ["Real book", "Always-invested default", "Gold–silver ratio tilt", "Buy&hold gold", "Buy&hold gold+NIFTY", "T9"]
     assert rows[1]["ret_pct"] is None and rows[2]["dd_pct"] is None
 
@@ -462,14 +463,14 @@ def test_twins_summary_keys_are_preferred_over_the_books(root, on):
         "T5": {"value": 99999.0, "return_pct": -0.001, "max_dd_pct": 1.0, "days": 4, "label": "x"},
         "Tx": {"value": 5.0, "return_pct": 0.0, "max_dd_pct": 0.0, "label": "Custom <b>label</b>"}})
     w_twins(root, st)
-    v = report.build_day(DAY, root)["twins_view"]
+    v = RB.twins_view(root, "2026-11-30")
     assert [r["name"] for r in v["rows"]] == ["Always-invested default", "Buy&hold gold", "Custom blabel/b"]
     assert v["rows"][0]["value"] == 111111.0 and v["rows"][0]["dd_pct"] == -2.0 and v["asof"] == "2026-11-26"
 
 
 def test_twins_summary_unusable_falls_back_to_the_books(root, on):
     w_twins(root, books_state(twins={"T1": "junk", "T2": {"label": "no numbers"}}))
-    assert len(report.build_day(DAY, root)["twins_view"]["rows"]) == 7
+    assert len(RB.twins_view(root, "2026-11-30")["rows"]) == 7
 
 
 def test_twins_view_reads_the_real_twins_module_output(root, on):
@@ -480,5 +481,30 @@ def test_twins_view_reads_the_real_twins_module_output(root, on):
     st["books"]["T5"]["value"] = 100800.0
     st["last_day"] = "2026-11-24"
     w_twins(root, st)
-    rows = report.build_day(DAY, root)["twins_view"]["rows"]
+    rows = RB.twins_view(root, "2026-11-30")["rows"]
     assert [r["name"] for r in rows] == ["Real book", "Buy&hold gold"] and rows[1]["ret_pct"] == pytest.approx(0.8)
+
+
+# ------------------------------------------------------------------ twins block follows twins.enabled and the report's date
+def test_twins_block_is_hidden_when_twins_are_not_enabled(root, cfg):
+    w_twins(root)
+    assert cfg["twins"]["enabled"] is False
+    day, h, t = render(root)
+    assert "twins_view" not in day and (sha(h), sha(t)) == (GOLDEN["evening_html"], GOLDEN["evening_text"])      # byte-identical to no file at all
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(cfg, "twins", {"enabled": "true"})                    # only a literal true switches it on
+        assert "twins_view" not in render(root)[0]
+        mp.setitem(cfg, "twins", {"enabled": True})
+        assert "twins_view" in render(root)[0]
+
+
+def test_twins_block_is_hidden_when_its_asof_is_after_the_report_date(root, on):
+    w_twins(root, {"since": "2026-11-13", "asof": "2026-11-20", "twins": {"T1": {"value": 101000, "return_pct": 1.0, "max_dd_pct": -1.0}}})
+    day, h, t = render(root, "2026-11-13")
+    assert "twins_view" not in day and "PAPER TWINS" not in t and "PAPER TWINS" not in visible(h)         # a 13 Nov report cannot show 20 Nov
+    for d in ("2026-11-20", "2026-11-21"):                                # the same day, or later: shown
+        assert report.build_day(d, root)["twins_view"]["asof"] == "2026-11-20"
+    assert "twins_view" not in report.build_day("2026-11-19", root)
+    w_twins(root, {"since": "2026-11-13", "twins": {"T1": {"value": 101000, "return_pct": 1.0}}})       # no asof: the date rule cannot apply
+    assert "twins_view" in report.build_day("2026-11-13", root)
+    assert RB.twins_view(root) is not None and RB.twins_view(root, "2026-11-13", {"twins": {"enabled": False}}) is None

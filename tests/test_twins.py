@@ -537,7 +537,7 @@ def test_v3_mode_ramps_in_like_the_real_book_and_simple_mode_does_not():
     assert book_w(simple, "T1")["cash"] < 0.01 and book_w(v3, "T1")["cash"] > 0.7                  # day 1: 20% turnover limit, not 100% invested
     assert book_w(v3, "T5")["cash"] < 0.01                                                          # buy and hold is fully invested at once
     b = v3["books"]["T1"]
-    assert 0.19 <= b["ledger"]["2026-11-13"] <= 0.21 and b["dust"]["2026-11-13"] <= ACFG["dust_day"] + 1e-6
+    assert 0.19 <= b["ledger"]["2026-11-13"] <= 0.20 + ACFG["dust_day"] + 1e-6 and b["dust"]["2026-11-13"] <= ACFG["dust_day"] + 1e-6
 
 
 def test_v3_mode_respects_the_day_and_week_turnover_limits_and_ends_fully_invested():
@@ -926,3 +926,48 @@ def test_summary_prints_the_fairness_tables_and_changes_nothing(tmp_path, capsys
         assert needle in out, needle
     assert tree(tmp_path) == before
     assert tool.main(["--root", str(tmp_path), "show"]) == 0 and "green%(own start)" in capsys.readouterr().out
+
+
+# ================================================================= follow-ups after the joint review
+def test_the_sweep_in_v3_mode_runs_during_the_ramp_in_like_the_engine():
+    s, _ = twins.run_day(None, inputs(), CFG3)
+    b = s["books"]["T1"]
+    w = book_w(s, "T1")
+    assert w[G] + w[S] + w[C] == pytest.approx(0.20 + ACFG["dust_day"], abs=0.01)                      # 20% ramp limit + the 3% dust allowance
+    assert 0.9 * ACFG["dust_day"] < b["dust"]["2026-11-13"] <= ACFG["dust_day"] + 1e-6
+    s2, _ = twins.run_day(s, inputs(day="2026-11-16"), CFG3)
+    assert s2["books"]["T1"]["dust"]["2026-11-16"] <= ACFG["dust_day"] + 1e-6
+    assert sum(s2["books"]["T1"]["dust"].values()) <= ACFG["dust_week"] + 1e-6                         # and the rolling week cap
+
+
+def test_the_v3_sweep_stops_at_a_brake_2_and_the_account_stop():
+    s = None
+    for d in ("2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25"):
+        s, _ = twins.run_day(s, inputs(day=d, cash=0.0, units={G: 1000}), CFG3)                     # ramp in to about 80% invested
+    s, _ = twins.run_day(s, inputs(day="2026-11-26", prices={G: 10.0, S: 40.0, C: 100.0}, cash=0.0, units={G: 1000}), CFG3)
+    b = s["books"]["T1"]
+    assert b["latched"] is True and b["units"] == {}                                                    # latched: all cash, nothing swept back in
+    assert b["dust"].get("2026-11-26", 0.0) == 0.0
+
+
+def test_the_simple_mode_sweep_is_unchanged():
+    s, _ = twins.run_day(None, inputs(), CFG)
+    assert book_w(s, "T1")["cash"] < 0.01 and not s["books"]["T1"]["dust"]
+
+
+def test_the_bootstrap_interval_needs_two_blocks_of_data():
+    rets = {"A": {day_n(i): 0.001 * i for i in range(12)}, "B": {day_n(i): 0.0 for i in range(12)}}
+    few = {t: {k: v for k, v in m.items() if k < day_n(5)} for t, m in rets.items()}
+    p5 = twins.paired_stats(few, "A", "B")
+    assert p5["n"] == 5 and p5["mean"] is not None and p5["ci"] is None                                 # was a collapsed '-123.7..-123.7'
+    assert twins.paired_stats({t: {k: v for k, v in m.items() if k < day_n(9)} for t, m in rets.items()}, "A", "B")["ci"] is None    # 9 days < 2 blocks of 5
+    p10 = twins.paired_stats({t: {k: v for k, v in m.items() if k < day_n(10)} for t, m in rets.items()}, "A", "B")
+    assert p10["n"] == 10 and p10["ci"] is not None and p10["ci"][0] < p10["ci"][1]
+
+
+def test_the_summary_prints_n_a_for_a_short_interval(tmp_path, capsys):
+    import twins as tool
+    populate(tmp_path, n=6)
+    assert tool.main(["--root", str(tmp_path), "summary", "--days", "6"]) == 0
+    out = capsys.readouterr().out
+    assert "n/a (under 2 blocks)" in out and not __import__("re").search(r"-?\d+\.\d\.\.-?\d+\.\d", out)
