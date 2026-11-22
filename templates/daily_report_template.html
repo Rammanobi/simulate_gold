@@ -207,6 +207,7 @@ footer{padding-top:18px;border-top:1px solid var(--line);font-size:.82rem;color:
     <section class="sec" aria-labelledby="h-wf"><div class="sech"><h2 id="h-wf"></h2></div><div class="panel"><div class="wf" id="wf"></div></div></section>
   </div>
   <section class="sec" aria-labelledby="h-hold"><div class="sech"><h2 id="h-hold">Holdings now</h2><span class="hint" id="holdhint"></span></div><div class="panel" id="hold"></div></section>
+  <section class="sec" id="v3sec" aria-labelledby="h-v3" hidden><div class="sech"><h2 id="h-v3">India price gap, allocation and twins</h2></div><div class="panel" id="v3"></div></section>
   <section class="sec" aria-labelledby="h-tom"><div class="sech"><h2 id="h-tom">Tomorrow</h2></div><div class="tomorrow"><p id="tom"></p></div></section>
   <footer>Paper trading simulation. No real money used.</footer>
 </main>
@@ -399,5 +400,21 @@ $('hold').innerHTML=(H0.length?'':'<p class="cash" style="border:0;margin:0;padd
  '<p class="cash">Cash parked in LIQUIDBEES: <b>'+rs(P.cash_in_liquidbees)+'</b>, earning '+rs(P.liquidbees_income)+' today.</p>';
 $('holdhint').textContent=H0.length?H0.length+(H0.length===1?' position':' positions')+' held overnight':'';
 $('tom').textContent=D.tomorrow;
+/* optional blocks (only when their data exists; any problem leaves the section hidden) */
+try{
+  const sgn=x=>(Math.round(x*10)/10>0?'+':Math.round(x*10)/10<0?'−':'')+Math.abs(x).toFixed(1);
+  let h='';
+  const pg=D.pricegap_view;
+  if(pg&&pg.gaps)h+='<p class="cash" style="border:0;margin:0 0 8px;padding:0"><b>India price gap</b> over parity (estimate): '+Object.keys(pg.gaps).map(k=>{const g=pg.gaps[k];
+    return esc(k)+' '+sgn(g.premium_pct)+'%'+(g.median20_pct==null?'':' (20d median '+sgn(g.median20_pct)+'%)')+(g.warn?' – above the '+pg.warn_pct+'% band':'')}).join(' · ')+'</p>';
+  const av=D.alloc_view;
+  if(av&&av.weights){const w=av.weights,f=(c,s)=>w[c]&&w[c][s]!=null?w[c][s]+'%':'–';
+    h+='<p class="cash" style="border:0;margin:0 0 8px;padding:0"><b>Default vs AI vs executed</b> (phase '+esc(av.phase)+(av.conf!=null?', AI confidence '+av.conf.toFixed(2):'')+')</p>'+
+    '<dl class="hold">'+['GOLDBEES','SILVERBEES','HINDCOPPER'].map(s=>'<div><dt>'+esc(s)+'</dt><dd>'+f('default',s)+' / '+f('ai',s)+' / '+f('executed',s)+'</dd></div>').join('')+'</dl>'+
+    (av.clamps&&av.clamps.length?'<p class="cash" style="border:0;margin:0 0 8px;padding:0">Clamp changed: '+av.clamps.map(esc).join('; ')+'</p>':'');}
+  const tw=D.twins_view;
+  if(tw&&tw.rows&&tw.rows.length)h+='<p class="cash" style="border:0;margin:0 0 4px;padding:0"><b>Paper twins</b> '+(tw.since?'since '+esc(tw.since):'since start')+'</p>'+tw.rows.map(r=>'<p class="cash" style="border:0;margin:0;padding:0">'+esc(r.name)+': '+(r.value==null?'–':rs(r.value))+', return '+(r.ret_pct==null?'–':sgn(r.ret_pct)+'%')+', max drawdown '+(r.dd_pct==null?'–':sgn(r.dd_pct)+'%')+'</p>').join('');
+  if(h){$('v3').innerHTML=h;$('v3sec').hidden=false}
+}catch(e){}
 })();
 </script>
