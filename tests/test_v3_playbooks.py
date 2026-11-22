@@ -86,16 +86,20 @@ def test_premarket_and_allocation_hand_over_to_the_v2_playbooks_while_dormant():
 
 
 def test_the_mode_line_commands_run_and_say_v2_trend_today():
+    """Every playbook's MODE command is `python tools/mode.py [--full]` (the effective mode), never a raw read of params.yaml."""
     spans = []
     for name in V3_ALL:
-        spans += [(name, m) for m in re.findall(r"`(python -c \"import yaml[^`]*)`", raw(name))]
-    assert len(spans) >= 4
+        assert "safe_load(open('config/params.yaml'" not in raw(name), name
+        spans += [(name, m) for m in re.findall(r"`(python tools/mode\.py[^`]*)`", raw(name))]
+    assert {n for n, _ in spans} >= {"_common", "daily_report", "fastlane", "weekly"}
     for name, span in spans:
         argv = shlex.split(span)
         argv[0] = sys.executable
+        argv[1] = str(ROOT / "tools" / "mode.py")
         out = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=60)
         assert out.returncode == 0, (name, out.stderr)
-        assert out.stdout.split()[0] in ("v2_trend", "v3_alloc"), (name, out.stdout)
+        m = re.match(r"MODE=(\S+) PHASE=(\S+)", out.stdout)
+        assert m and m.group(1) in ("v2_trend", "v3_alloc"), (name, out.stdout)
 
 
 def test_every_allocation_cli_form_is_one_the_design_defines():
