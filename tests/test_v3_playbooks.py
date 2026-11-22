@@ -108,7 +108,7 @@ def test_every_allocation_cli_form_is_one_the_design_defines():
         for flag in ("--phase", "--weights GOLDBEES=", "SILVERBEES=", "HINDCOPPER=", "--confidence", "--scenario", "--rationale GOLD="):
             assert any(flag in f for f in full), (name, flag)
     c = raw("_common")
-    for flag in ("--invalidate close_below:", "allocation explain", "allocation show", "allocation hold-default --note", "FINAL after 15:05"):
+    for flag in ("--invalidate close_below:", "allocation explain", "allocation show", "allocation hold-default --phase provisional|final --note", "FINAL for today after 15:05"):
         assert flag in c, flag
 
 
@@ -182,7 +182,7 @@ def test_invariants_draft_replaces_only_invariant_one_with_the_required_clauses(
                    "never touch the floor", "caps, gaps or limits", "leverage", "a short", "outside the three", "cash", "account stop", "latch",
                    "untrusted data", "always green", "profit", "rotate between the three metals", "tools/desk.py write",
                    "the tools refuse buys, favour in the fast lane, sizes and looser stops", "`v2_trend` or `v1_scores`",
-                   "`allocation.phase` is `shadow`", "`allocation.ai_trust` is 0", "shares summing to 1.00 (within 0.01)", "after 15:05"):
+                   "`allocation.phase` is `shadow`", "`allocation.ai_trust` is 0", "shares totalling 1.00 (within 0.02", "after 15:05"):
         assert needle in low, needle
     # several allocations a day are allowed: provisional + final (+ a defensive fast-lane final); never "ONE per day"
     assert "one target allocation per trading day" not in low and "ONE" not in body
@@ -352,15 +352,18 @@ def test_weights_are_shares_summing_to_one_within_one_hundredth_in_every_documen
         s = text(name)
         assert "invested_target` minus" not in s and "0.93" not in s, name
     c = text("_common")
-    assert "total 1.00 within 0.01" in c and "outside 0.99 to 1.01" in c
-    assert "(within 0.01)" in text("premarket") and "(within 0.01)" in text("allocation")
-    assert K.SUM_TOL == 0.01
+    assert "total 1.00 within 0.02" in c and "below 0.98" in c and "above 1.02" in c and "aim for exactly 1.00" in c.lower()
+    for name in ("_common", "premarket", "allocation", "fastlane"):
+        assert "within 0.01" not in text(name) and "0.99 to 1.01" not in text(name), name          # the tool's window is 0.98 to 1.02
+    assert "aim for exactly 1.00" in text("premarket") and "aim for exactly 1.00" in text("allocation")
+    assert "0.98 to 1.02" in text("premarket")
+    assert K.SUM_TOL == 0.01                      # the eval checker is deliberately stricter than the tool: it flags a total off by 0.015
     ok = {"GOLDBEES": 0.85, "SILVERBEES": 0.10, "HINDCOPPER": 0.0501}
     bad = {"GOLDBEES": 0.85, "SILVERBEES": 0.10, "HINDCOPPER": 0.07}
     probe = {"action": "allocation_set", "weights": ok}
     assert "sum_not_one" not in K.codes(K.check_proposal({}, probe))
     assert "sum_not_one" in K.codes(K.check_proposal({}, {"action": "allocation_set", "weights": bad}))
-    assert "100%" in doc("CLAUDE_INVARIANTS_DRAFT.md") or "1.00 (within 0.01)" in doc("CLAUDE_INVARIANTS_DRAFT.md")
+    assert "100%" in doc("CLAUDE_INVARIANTS_DRAFT.md") or "1.00 (within 0.02" in doc("CLAUDE_INVARIANTS_DRAFT.md")
 
 
 def test_the_golden_bar_names_12_cases_and_the_safety_codes_are_the_checkers():

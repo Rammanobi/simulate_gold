@@ -85,10 +85,12 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    ```
    Under v3 also run step 2b. Also read `memory/daily/*.md` for this week's dates (≤ 5 small files) for facts and lesson candidates.
    If you need one more number, compute it with a short Python snippet; never estimate.
-2b. **Allocation stats by Python, never by hand (v3 only).** `python tools/evaluate.py --week WEEK --format json` gives, per day: default vs
-    final vs held weights; the P&L of the account, of the engine's default alone, of D5 (the v2 rule) and of GOLDBEES buy-and-hold;
-    turnover used (budget 0.20 a day, 0.40 a week); clamp counts by rule; and each desk's Brier score on its 5-day direction calls
-    and the synthesis's scenario calibration. Numbers you need beyond that: a short Python snippet; never estimate.
+2b. **Allocation stats by Python, never by hand (v3 only).** `python tools/evaluate.py --week WEEK --format json` gives, per day: the default
+    and final weights and the advice used; the account's P&L in rupees; the default's one-day return; turnover used (budget 0.20 a day, 0.40
+    a week); clamp counts by rule; the week's AI-vs-default pairs; and each desk's Brier score on its 5-day direction calls and the
+    synthesis's scenario calibration. It has NO `held` weights per day (only `held_now`, the positions today) and NO D5 or GOLDBEES
+    buy-and-hold P&L: take those from `python tools/evaluate.py --month YYYY-MM` (the scorecard). Numbers you need beyond that: a short Python
+    snippet; never estimate.
 3. **Weekly note** `memory/weekly/WEEK.md`, ≤ 25 lines: the numbers (week %, vs GOLDBEES % and its source,
    trades, wins/losses, realised P&L, max intraweek drawdown in ₹, floor and cushion under v1; under v2 the drawdown from peak, brake level, trend targets vs actual and the result vs GOLDBEES buy-and-hold), which bias calls helped
    or hurt (with dates), events that mattered, and data or system problems.
@@ -117,7 +119,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 3-v3. **Weekly note under v3** (adds to step 3, still at most 25 lines): AI tilt P&L against the default (Rs and percentage points) with
     which metal's tilts helped or hurt and on which dates; clamp counts; turnover used against 0.40; rotation into GOLDBEES and
     out of it, and what it earned or cost; days the default ran because the routines were silent; desk calibration (Brier);
-    the same plain comparison with GOLDBEES buy-and-hold. No promise, no "always green".
+    the same plain comparison with GOLDBEES buy-and-hold (from `evaluate.py --month` or the step 2 snippet, not from `--week`). No promise,
+    no "always green".
 4d. **LTM review: performance and alignment scorecard.** Read `performance.json` and its `by_alignment` table. After 4+ weeks
    of data you may PROPOSE (step 6) a change to a core multiplier or ceiling with the numbers; you never apply one.
    **First Saturday of the month:** write `memory/monthly/YYYY-MM.md` (≤ 15 lines, the previous month): numbers copied from

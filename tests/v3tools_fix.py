@@ -56,6 +56,18 @@ def mkroot(tmp_path, monkeypatch, fetch=fake_daily, level=0, positions=None, gui
     return root
 
 
+def go_live(monkeypatch, **alloc):
+    """Make every tool see strategy.mode v3_alloc with the AI tilt trading (shadow false, phase live, ai_trust 0.5)."""
+    import copy
+
+    from simgold import config
+    p = copy.deepcopy(config.load_params())
+    p["strategy"]["mode"] = "v3_alloc"
+    p["allocation"].update(dict({"shadow": False, "phase": "live", "ai_trust": 0.5}, **alloc))
+    monkeypatch.setattr(config, "load_params", lambda path=None: p)
+    return p
+
+
 def tree(root: Path) -> dict[str, str]:
     """{relative path: sha1} of every file under root (to prove what a tool did and did not write)."""
     return {str(f.relative_to(root)): hashlib.sha1(f.read_bytes()).hexdigest() for f in sorted(Path(root).rglob("*")) if f.is_file()}

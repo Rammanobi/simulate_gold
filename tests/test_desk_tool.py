@@ -32,22 +32,21 @@ def write(root, tmp_path, name, obj, **kw):
     return run(root, "write", "--desk", name, "--file", put(tmp_path, obj), *sum(([f"--{k}", v] for k, v in kw.items()), []))
 
 
-def test_write_valid_file_is_canonical_small_and_recorded(root, tmp_path, capsys):
+def test_write_valid_file_is_canonical_small_and_never_touches_the_ledger(root, tmp_path, capsys):
     assert write(root, tmp_path, "gold", good_desk("gold")) == 0
     f = Path(root) / "analysis" / TODAY / "gold.json"
     raw = f.read_text()
     assert len(raw.encode()) <= 2560 and raw.count("\n") == 1 and json.loads(raw)["view"]["GOLD"]["dir_5d"] == "up"
-    assert "ledger: desk gold 1 call(s) recorded" in capsys.readouterr().out
-    led = json.loads((Path(root) / "memory/ltm/calibration.json").read_text())
-    assert led["calls"] == [{"d": TODAY, "k": "gold", "m": "GOLD", "o": "u", "u": 0.5, "n": 0.2}]
+    assert "derived from the committed desk files" in capsys.readouterr().out
+    assert not (Path(root) / "memory/ltm/calibration.json").exists()               # parallel desks must not all edit one JSON file
     assert write(root, tmp_path, "gold", good_desk("gold")) == 0                  # idempotent: replaced, not duplicated
-    assert len(json.loads((Path(root) / "memory/ltm/calibration.json").read_text())["calls"]) == 1
+    assert not (Path(root) / "memory/ltm/calibration.json").exists()
 
 
-def test_only_analysis_and_the_ledger_are_written(root, tmp_path):
+def test_only_analysis_is_written(root, tmp_path):
     before = tree(root)
     assert write(root, tmp_path, "macro", good_desk("macro", view={"GOLD": good_desk()["view"]["GOLD"]})) == 0
-    assert changed(before, tree(root)) == {f"analysis/{TODAY}/macro.json", "memory/ltm/calibration.json"}
+    assert changed(before, tree(root)) == {f"analysis/{TODAY}/macro.json"}
 
 
 def refuse(root, tmp_path, capsys, obj, name="gold", **kw):
@@ -120,10 +119,9 @@ def test_date_option_window(root, tmp_path, capsys):
     assert write(root, tmp_path, "gold", good_desk("gold", date="2026-11-19"), date="2026-11-19") == 0
 
 
-def test_abstaining_desk_may_have_an_empty_view_and_records_nothing(root, tmp_path, capsys):
+def test_abstaining_desk_may_have_an_empty_view_and_gives_no_calls(root, tmp_path, capsys):
     d = good_desk("copper", view={}, abstain=True, confidence=0.1)
     assert write(root, tmp_path, "copper", d) == 0
-    assert "abstaining desk" in capsys.readouterr().out
     assert desk.read_status(root, TODAY, "copper")[0] == "abstain"
 
 

@@ -31,7 +31,12 @@ def fetch_daily(tickers: list[str], period: str):
 
 
 def _num(x):
-    return x if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return None
+    try:
+        return x if math.isfinite(x) else None             # an int too large for a float raises OverflowError: not a number here
+    except OverflowError:
+        return None
 
 
 def _mem_cache(root, day: str) -> dict | None:
@@ -207,12 +212,12 @@ def render_preview(snap: dict, res_cfg, res_full, label: str = "") -> list[str]:
 
 
 def desk_statuses(root, day: str, p: dict | None = None) -> dict[str, str]:
-    """{desk: ok|abstain|invalid|missing} for the five LLM desks plus `memory` (ok|missing). Reads analysis/D/ only."""
+    """{desk: ok|abstain|invalid|missing} for the five LLM desks plus `memory` (ok|degraded|invalid|missing). Reads analysis/D/ only."""
     import desk as _desk
     out = {}
     for d in LLM_DESKS:
         out[d] = _desk.read_status(root, day, d)[0]
-    out["memory"] = "ok" if (analysis_dir(root, day) / "memory.json").exists() else "missing"
+    out["memory"] = _desk.memory_status(root, day)
     return out
 
 

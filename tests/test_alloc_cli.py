@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from v3tools_fix import NOW, RAT, ROOT, SC, TODAY, changed, mkroot, no_network, tree
+from v3tools_fix import NOW, RAT, ROOT, SC, TODAY, changed, go_live, mkroot, no_network, tree
 
 import guidance as gd
 from simgold import allocation
@@ -58,16 +58,19 @@ def test_set_final_before_the_cutoff_and_weights_are_normalised(root):
     assert a["phase"] == "final" and a["by"] == "allocation" and abs(sum(a["weights"].values()) - 1.0) < 1e-12
 
 
-def test_set_derives_a_bias_for_the_v2_rollback_and_never_favours(root):
+def test_set_derives_a_bias_for_the_v2_rollback_and_never_favours(root, monkeypatch):
+    go_live(monkeypatch)
     (Path(root) / "state" / "guidance.json").write_text(json.dumps({"updated": NOW.isoformat(), "bias": {"GOLD": "favour", "SILVER": "favour", "COPPER": "block"}}))
     assert sett(root) == 0
     g = json.loads((Path(root) / "state" / "guidance.json").read_text())
     assert set(g["bias"].values()) <= {"neutral", "block"}
-    assert g["bias"]["GOLD"] == "block"          # 0.70 is more than 0.10 below the ~0.98 default
-    assert g["bias"]["SILVER"] == "neutral" and "allocation provisional" in g["note"]
+    assert g["bias"]["GOLD"] == "neutral"        # 0.70 is far below the ~0.98 default, but GOLDBEES is the sink: never blocked
+    assert g["bias"]["SILVER"] == "neutral" and g["bias"]["COPPER"] == "block"          # the existing block is kept
+    assert "allocation provisional" in g["note"]
 
 
 def test_bias_without_a_default_lowers_favour_and_keeps_block(tmp_path, monkeypatch):
+    go_live(monkeypatch)
     root = mkroot(tmp_path, monkeypatch, fetch=no_network,
                   guidance={"updated": NOW.isoformat(), "bias": {"GOLD": "favour", "SILVER": "block", "COPPER": "neutral"}})
     assert sett(root) == 0
@@ -92,8 +95,8 @@ def test_next_trading_day_proposal_does_not_touch_the_bias(root):
 
 def test_the_write_touches_only_routine_owned_paths_and_never_config(root):
     before, cfg = tree(root), hashlib.sha1((ROOT / "config" / "params.yaml").read_bytes()).hexdigest()
-    assert sett(root) == 0
-    assert changed(before, tree(root)) == {"state/allocation.json", "state/guidance.json", "memory/ltm/calibration.json"}
+    assert sett(root) == 0                          # shipped config = dormant: logged only, so the bias file is NOT touched
+    assert changed(before, tree(root)) == {"state/allocation.json", "memory/ltm/calibration.json"}
     assert hashlib.sha1((ROOT / "config" / "params.yaml").read_bytes()).hexdigest() == cfg
 
 
@@ -202,7 +205,8 @@ def test_for_date_window(root, capsys, d, frag):
 
 
 # ------------------------------------------------------------------ hold-default
-def test_hold_default_writes_no_view_and_keeps_the_bias(root, capsys):
+def test_hold_default_writes_no_view_and_keeps_the_bias(root, capsys, monkeypatch):
+    go_live(monkeypatch)
     (Path(root) / "state" / "guidance.json").write_text(json.dumps({"updated": "2026-11-18T09:00:00+05:30", "bias": {"GOLD": "neutral", "SILVER": "block", "COPPER": "block"}, "note": "x"}))
     assert run(root, "hold-default", "--phase", "final", "--note", "no usable research today") == 0
     a = alloc(root)

@@ -96,17 +96,19 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
      on the affected metals, HINDCOPPER 0 in its results window.
    - Never favour a metal to win back today's or this month's loss; the loss is not a reason, only evidence is.
    - Never after 15:05 IST: the tool refuses a FINAL then and the provisional stands (final message `provisional stands`).
-   Weights are shares that sum to 1.00 (within 0.01) across the three symbols, no cash weight (`_common.md` A6). Before any tilt run the
+   Weights are shares that total 1.00 across the three symbols (aim for exactly 1.00; the tool refuses below 0.98 and above 1.02), no cash
+   weight (`_common.md` A6). Before any tilt run the
    edge and cost test (A5: 0.15% a side, minimum edge) and the 0.05 no-trade band from the current shares (the provisional as executed, plus
    today's fills); confidence per A7 including the calibration cap (your `desk_brier` and `ai_vs_default`). Defensive moves are exempt.
 6. **Write the FINAL.** `python tools/guidance.py allocation set --phase final --weights ... --confidence ... --scenario ... --rationale ...` (the same arguments as in `premarket.md` step 7; forms in `_common.md`, "The
    allocation CLI"), then `python tools/guidance.py allocation explain` and read the clamped result. No change from the provisional:
-   still write it (it refreshes `written`) and let `--rationale` say "unchanged: <the deciding fact>". No view: `python tools/guidance.py allocation hold-default --note "<why>"`.
+   still write it (it refreshes `written`) and let `--rationale` say "unchanged: <the deciding fact>". No view:
+   `python tools/guidance.py allocation hold-default --phase final --note "<why>"`.
 7. **Memory note and push.** At most one STM note, only when you learned something the next run should know (a fact and a bare domain):
    `python tools/memory_stm.py note --who allocation --metal SILVER --text "SILVERBEES +0.9% since 11:15, no new news" --source reuters.com`
    Then `_common.md` S4:
    ```bash
-   git add -- $(git ls-files -mo --exclude-standard -- state/allocation.json state/guidance.json state/budget.json memory/stm/today.jsonl analysis)
+   git add -- $(git ls-files -mo --exclude-standard -- state/allocation.json state/guidance.json state/budget.json memory/ltm/calibration.json memory/stm/today.jsonl analysis)
    git diff --cached --quiet || git commit -qm "routine(allocation): HH:MM final G=... S=... C=..."
    ```
    Push, one command per Bash call: `git pull --rebase --autostash -q`, then `git push origin HEAD:main`; at most 3 tries; a pull failure:
@@ -114,7 +116,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 ## Output contract
 
-Writes only `state/allocation.json`, `state/guidance.json` (derived bias), `analysis/D/*.json` and `memory/stm/today.jsonl` (via tools);
+Writes only `state/allocation.json`, `state/guidance.json` (derived bias, only when the tilt trades live), `memory/ltm/calibration.json` (the
+FINAL row of the ledger, via `allocation set`; this session is its single writer for the FINAL and stages it in step 7), `analysis/D/*.json`
+and `memory/stm/today.jsonl` (via tools);
 decision handling (step 2b) may also write incident files and `memory/ltm/lesson_ledger.json` as `incident.md` section D says.
 Final message, at most 3 lines:
 ```
