@@ -18,7 +18,7 @@ not whether they happen.
 | Phase | Config (owner commit) | Routines | Length | Exit criteria (all) |
 |---|---|---|---|---|
 | P0 build | `strategy.mode: v2_trend` (today) | legacy playbooks; v3 files merged but dormant | until the engine PR and these tests are green | owner merges both PRs |
-| P1 default only | ONE edit: `allocation.phase: live_default` (`strategy.mode` may stay `v2_trend`; `ai_trust` is not used) | premarket and allocation run the v3 steps in compact mode, logged only; the engine's fully invested default trades, ramping in under the 0.20/day 0.40/week turnover limits (about two weeks from all cash; the owner may raise `allocation.ramp_turnover_day/week`) | at least 10 trading days | no engine incident; turnover inside limits; owner accepts the drawdown seen |
+| P1 default only | `allocation.phase: live_default` AND `strategy.mode: v3_alloc` until the routines' `tools/mode.py` (PR #75) merges; after that `allocation.phase` alone suffices and `strategy.mode` may stay `v2_trend` (`ai_trust` is not used) | premarket and allocation run the v3 steps in compact mode, logged only; the engine's fully invested default trades, ramping in under the 0.20/day 0.40/week turnover limits (about two weeks from all cash; the owner may raise `allocation.ramp_turnover_day/week`) | at least 10 trading days | no engine incident; turnover inside limits; owner accepts the drawdown seen |
 | P2 AI shadow | same, desks as the owner chooses (`desks.fanout`) | proposals every day; `ALLOC` logs the clamped "would-have" | at least 20 trading days | proposals on at least 80% of days; invalid at most 5%; AI-shadow P&L at least default minus 0.5 pp; desk Brier at most 0.25; AI golden cases: see the bar below (3 runs each, Sonnet) |
 | P3 half trust | `allocation.phase: live`, `ai_trust: 0.5` | as P2 | at least 20 trading days | AI tilt P&L at least default minus 0.5 pp; no rule breach |
 | P4 full trust | `ai_trust: 1.0` | as P2 | ongoing | the weekly review monitors; an automatic review if the tilt loses more than 2 pp in a month |
@@ -48,7 +48,7 @@ The only step left to the owner after merge is the go-live flip: the commit that
    of hourly.md scheduled after go-live.
 4. Turn `routines/hourly.md` into the 3-line pointer if wanted, and update `tests/test_routine_permissions.py`
    (`test_the_afternoon_dispatch_is_skipped_when_a_run_is_waiting` reads hourly.md for the 12:15 afternoon dispatch rule) in the same commit.
-5. Commit `allocation.phase: live_default` (one line; set `strategy.mode: v3_alloc` in the same commit until the routines' MODE command reads the mode through `simgold.config`, see `docs/v3/ALLOCATION_SCHEMA.md`). Before that, optionally raise `allocation.ramp_turnover_day/week` (default 0.20/0.40) if a faster ramp-in from cash is wanted.
+5. Commit `allocation.phase: live_default` and, in the same commit, `strategy.mode: v3_alloc` (until the routines' `tools/mode.py`, PR #75, is merged and the playbooks read the effective mode through it; after that the phase line alone is enough; see `docs/v3/ALLOCATION_SCHEMA.md`). Before that, optionally raise `allocation.ramp_turnover_day/week` (default 0.20/0.40) if a faster ramp-in from cash is wanted.
 
 ## Rollback (one line each, owner commit; nothing else needs to change)
 

@@ -1359,6 +1359,7 @@ class Engine:
             self.v2_sell(sym, qty, f"{base}; {what} ({d.why})", trig)
         retry = set()
         bought = 0.0
+        bought_gold = 0.0
         for sym, i, cur, d in plan:
             pos = pf.positions.get(sym)
             if pos:
@@ -1414,6 +1415,8 @@ class Engine:
                 continue
             pend.pop(sym, None)
             bought += r["amount"]
+            if sym == allocation.SINK:
+                bought_gold += r["amount"]
             c = pf.counters
             c["buys_today"] = c.get("buys_today", 0) + 1
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
@@ -1427,6 +1430,7 @@ class Engine:
         if self.v3_live:
             if alloc_ctx is None:                      # the first full check books its plan in v3_emit; every other run books what it did
                 self.v3_book_extra(bought / max(value, 1.0), getattr(self, "_v3_sold_reb", 0.0))
+            self.v3_spend_credit((bought_gold + (alloc_ctx.get("sweep", 0.0) * value if alloc_ctx is not None else 0.0)) / max(value, 1.0))
             self.v3_trim_credit()
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
@@ -1540,6 +1544,18 @@ class Engine:
         rec = v3.get("credit")
         base = float(rec.get("amt") or 0.0) if isinstance(rec, dict) and rec.get("day") == today else 0.0
         v3["credit"] = {"day": today, "amt": round(base + share, 6)}
+
+    def v3_spend_credit(self, bought_gold_w: float):
+        """GOLDBEES buys (the only thing the credit funds) use the credit up: it is reduced by what was bought, so a same-day re-run
+        or a second check never exempts the same cash twice."""
+        v3 = self.v3_state()
+        rec = v3.get("credit")
+        if bought_gold_w > 0 and isinstance(rec, dict) and rec.get("day") == self.day.isoformat():
+            left = max(0.0, float(rec.get("amt") or 0.0) - bought_gold_w)
+            if left <= 1e-9:
+                v3.pop("credit", None)
+            else:
+                v3["credit"] = {"day": rec["day"], "amt": round(left, 6)}
 
     def v3_trim_credit(self):
         """After trades: the credit never exceeds the cash that is left (spent credit is gone)."""

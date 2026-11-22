@@ -74,7 +74,7 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
    GOLDBEES) -> portfolio vol guard (0.30, or 0.24 while the account is under the starting capital; moves weight to GOLDBEES,
    never to cash) -> brakes (level 1 at -15%: silver and copper x0.5, the freed weight rotates to GOLDBEES, no cash; level 2 at
    -25% and the 75,000 account stop: all cash, latched) -> turnover limiter (0.20 a day, 0.40 over 5 sessions, one-way; risk
-   sells and their reinvestment are exempt) -> 3-point rebalance band. A cap never pushes a weight below the default.
+   sells, and the cash from today's risk sells re-invested in GOLDBEES only, are exempt) -> 3-point rebalance band. A cap never pushes a weight below the default.
 4. One `ALLOC` record per daily check in `logs/decisions-D.jsonl` (default, proposal, k, every stage, clamps, executed).
 5. Shadow (shipped: `allocation.shadow: true`): the v2 decision trades and the v3 target is only logged.
 
@@ -94,9 +94,11 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
 - **Idle cash after risk sells (credit).** Every sell except the discretionary Rebalance, the brake sells, the account stop and the v1 tripwire
   adds its proceeds, as a share of the book, to `v3.credit = {day, amt}`. It is valid for that trading day only, never exceeds the cash in
   the account, and is zero and deleted at brake level 2 and under the account stop (so a brake release re-enters under the normal day
-  limit, not all at once). At the next check `clamp(credit=...)` does not count credit-funded buys against the 0.20/0.40 budget, but only
-  for the GOLDBEES sink and for another symbol only up to ITS default weight: a fast-lane gold sale never becomes exempt silver or copper
-  buys above default, and credit never funds an AI tilt. (Budget the credit frees can still be spent on tilts, inside the limits.)
+  limit, not all at once). At the next check `clamp(credit=...)` does not count GOLDBEES buys funded by it against the 0.20/0.40 budget.
+  **Only the GOLDBEES sink** (owner decision): a fast-lane gold sale never becomes exempt silver or copper buys; every non-gold buy,
+  a metal back up to its default included, goes through the normal turnover budget and is booked. The credit never funds an AI tilt.
+  Spent credit is subtracted after use (`v3_spend_credit`, from the GOLDBEES buys executed), so a same-day re-run or a second check
+  never exempts the same cash twice; the pure clamp reports `credit_used` for the caller to subtract.
 - **Blocked symbols.** Symbols that cannot be bought today (stopped out or fast-laned today, or a routine `block` bias) never rise above their
   current weight (`no_add`). The leftover goes to the GOLDBEES sink; if gold is the blocked one it goes to other metals only up to their default
   weight, otherwise it waits as cash. A symbol whose proposal was invalidated is avoided first and used only as a last resort
@@ -116,6 +118,12 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
   `clamp` never raises either: an internal failure (for example an overflow from a huge credit) returns the repaired default (no AI, no
   credit, zero under the stop or level 2) with a `clamp_failed` note. A proposal written more than 48 hours ago is ignored (weekends do
   not count) and the tool refuses to write one.
+- **Brake level 1 with GOLDBEES blocked.** The rotation into gold is not shown or traded when gold cannot be bought today: silver and
+  copper are cut, gold is kept, the freed weight waits in cash (clamp note `brake_rotation_blocked`; idle cash under a block is accepted).
+  The ALLOC record therefore shows the executed target.
+- **If the pipeline fails.** `clamp` re-runs once without covariance, credit and the original brake inputs (note `clamp_retry`; every limit
+  still applies). Only if that fails too is the repaired default returned, with the turnover limit applied to it, zero under the stop or
+  level 2 (note `clamp_failed`).
 - **Routine bias.** In v3 live the guidance `block` only means no new buys or adds of that metal; it never moves weight into another
   metal above its default. `favour` and `neutral` do nothing.
 

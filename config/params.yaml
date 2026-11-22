@@ -229,13 +229,13 @@ allocation:
   ai_caps:        {GOLDBEES: 1.00, SILVERBEES: 0.50, HINDCOPPER: 0.25}     # D3 (a cap never pushes below the engine's own default)
   off_trend_caps: {GOLDBEES: 1.00, SILVERBEES: 0.20, HINDCOPPER: 0.10}     # D4 (halved when DEFENSIVE or the thesis is cautious)
   max_tilt: 0.30                 # the AI moves a weight at most this far from the default
-  max_turnover_day: 0.20         # D5 one-way, discretionary moves only (risk sells and their reinvestment in gold are exempt)
+  max_turnover_day: 0.20         # D5 one-way, discretionary moves only (risk sells are exempt; the cash from today's risk sells may be re-invested in GOLDBEES only, outside the budget; every other buy uses the budget)
   max_turnover_week: 0.40        # rolling 5 sessions
   rebalance_threshold: 0.03      # v3 band (v2 uses strategy.rebalance_threshold 0.05)
   ramp_turnover_day: 0.20        # turnover limits used ONLY while the book is ramping in (idle cash above 10% of the book that did NOT come from
   ramp_turnover_week: 0.40       # risk sells). Default = the normal limits: all cash to fully invested then takes about two weeks (11 sessions).
                                  # The owner may raise these (e.g. 0.50 / 1.00 = invested in 2 checks); nothing exceeds them silently
-  dust_day: 0.03                 # exempt, recorded "dust sweep" of leftover cash into GOLDBEES past the turnover budget: at most this much a day ...
+  dust_day: 0.03                 # recorded "dust sweep" of leftover cash into GOLDBEES (the only thing it buys), strictly at most this much a day ...
   dust_week: 0.06                # ... and this much over the rolling 5 sessions (booked in state runtime v3.ledger and v3.dust)
   cov_max_age_days: 10           # vol guard: a stored last-good covariance is used this long when today's cannot be computed (then a conservative stand-in)
   fallback_rho: 1.0              # correlation of that stand-in (1.0 = volatilities add: the conservative bound)

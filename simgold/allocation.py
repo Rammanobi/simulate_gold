@@ -727,6 +727,7 @@ class AllocResult:
     halted: bool
     vol_before: float | None = None
     vol_after: float | None = None
+    credit_used: float = 0.0               # the part of `credit` this result spent (exempt GOLDBEES buys); the caller subtracts it
     credit: float = 0.0                    # risk-sell proceeds (share of the book) that were available to exempt gold buys
     exempt_buy: float = 0.0                # buys the limiter did not count (funded by risk sells today or by the credit)
     cov_source: str = "live"               # live | last_good | fallback (the vol guard's input)
@@ -740,7 +741,8 @@ class AllocResult:
                              "budget": None if not math.isfinite(self.turnover_budget) else round(self.turnover_budget, 4)},
                 "vol": {"before": None if self.vol_before is None else round(self.vol_before, 4),
                         "after": None if self.vol_after is None else round(self.vol_after, 4), "cov": self.cov_source},
-                "credit": {"available": round(self.credit, 4), "exempt_buy": round(self.exempt_buy, 4)},
+                "credit": {"available": round(self.credit, 4), "exempt_buy": round(self.exempt_buy, 4),
+                           "used": round(self.credit_used, 4)},
                 "clamps": [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in c.items()} for c in self.clamps]}
 
 
@@ -806,7 +808,9 @@ def _brake(w: Mapping[str, float], syms: Sequence[str], level: int, halted: bool
         return {s: 0.0 for s in w}
     if level == 1:
         m = _clip(_num(mult) if _num(mult) is not None else 0.5, 0.0, 1.0)
-        if mode == "cash" or SINK not in syms:
+        if mode == "trim" and SINK in syms:               # gold cannot be bought today: silver / copper are cut, gold is kept, the rest waits in cash
+            return {s: (v if s == SINK else v * m) for s, v in w.items()}
+        if mode == "cash" or mode == "trim" or SINK not in syms:
             return {s: v * m for s, v in w.items()}
         out = {s: (v if s == SINK else v * m) for s, v in w.items()}
         freed = sum(w[s] - out[s] for s in syms if s != SINK)
@@ -989,6 +993,10 @@ def _clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, co
 
     # ---- step 8 (computed before 7, see the docstring): brakes and the account stop
     bmode = cfg["brake_mode"] if (SINK in S and SINK not in zero) else "cash"      # no usable sink: the old multiply-to-cash
+    if bmode != "cash" and SINK in bar and brake_level == 1 and not halted:
+        bmode = "trim"                                  # rotating into a GOLDBEES that cannot be bought today would show a target the engine never trades
+        log("brake_rotation_blocked", SINK, None, None, "drawdown brake level 1: GOLDBEES is not bought today (blocked), so silver / copper are "
+                                                        "cut without rotating the weight into gold; it waits in cash")
     f_t = _brake(t, S, brake_level, halted, bmode, brake_mult)
     if halted or brake_level >= 2 or brake_level == 1:
         rule = "account_stop" if halted else ("brake_level2" if brake_level >= 2 else "brake_level1")
@@ -997,7 +1005,7 @@ def _clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, co
                 log(rule, s, t[s], f_t[s], {"account_stop": "the account stop is in force: everything to cash",
                                             "brake_level2": "drawdown brake level 2: everything to cash",
                                             "brake_level1": ("drawdown brake level 1: silver/copper cut, weight rotated to GOLDBEES"
-                                                             if bmode != "cash" else "drawdown brake level 1: weights cut")}[rule])
+                                                             if bmode == "rotate_to_gold" else "drawdown brake level 1: weights cut")}[rule])
     after_brake = snap(f_t)
     # the risk baseline: what the default alone would hold after the same risk rules (no AI)
     base = _fill(d, capf, fill_to, S)
@@ -1024,19 +1032,20 @@ def _clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, co
     cr = 0.0 if (halted or brake_level >= 2) else _budget(credit)               # may be inf (a huge number): bounded below
     X_E = min(P, sumE)
     e = {s: (delta[s] * X_E / P if delta[s] > 0 and P > EPS else 0.0) for s in S}
-    # The credit (cash from today's risk sells) re-funds only what the engine's own default would hold: any buy of the GOLDBEES sink,
-    # and a buy of another symbol only up to ITS default weight. It never lifts a metal above its default and never funds an AI tilt.
+    # The credit (cash from today's risk sells) re-funds ONLY the GOLDBEES sink (owner decision). Every other buy, a metal back up to its
+    # default included, goes through the normal turnover budget and is booked. It never funds an AI tilt.
     elig = {}
     for s in S:
         rem = delta[s] - e[s]
-        if rem > EPS:
-            elig[s] = rem if s == SINK else min(rem, max(0.0, d[s] - b[s]))
+        if rem > EPS and s == SINK:
+            elig[s] = rem
     tot_el = sum(elig.values())
     X_C = min(cr, tot_el) if tot_el > EPS else 0.0
     if X_C > EPS:
         for s, v in elig.items():
             e[s] += v * X_C / tot_el
     X = X_E + X_C
+    credit_used = X_C
     cr = min(cr, 1.0)
     D = max(P - X, N)                                       # one-way: the larger of the discretionary buys and sells
     budget = max(0.0, min(_budget(day_left), _budget(week_left)))
@@ -1080,30 +1089,67 @@ def _clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, co
                 "after_brake": after_brake, "after_turnover": after_turnover},
         final=final, caps=snap(cap), clamps=clamps, baseline=snap(base), exempt_sell=sumE, discretionary_turnover=used,
         turnover_budget=budget, brake_level=int(brake_level), halted=bool(halted), vol_before=v_before, vol_after=v_after,
-        credit=cr, exempt_buy=X, cov_source=cvsrc)
+        credit=cr, exempt_buy=X, credit_used=credit_used, cov_source=cvsrc)
 
 
 def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, confidence: float, current: Mapping[str, float],
           on: Mapping[str, bool], cfg: Mapping, **kw) -> AllocResult:
-    """The pipeline (see _clamp for the arguments). Total: if anything in it ever raises (an overflow from a huge number, a bad
-    type), the result is the engine's own repaired default (no AI, no credit, no turnover shaping), zero under the account stop or
-    brake level 2, with a `clamp_failed` note. The engine then trades what v2 would have traded, never an exception."""
+    """The pipeline (see _clamp for the arguments). Total, in three steps:
+      1. the normal pipeline;
+      2. if it raises, once more with the inputs most likely to be the cause replaced by safe ones: no covariance and no per-asset
+         volatilities (the conservative stand-in runs), a valid brake multiplier, a plain integer brake level, no credit. The turnover
+         limiter, caps, brakes and the account stop all still apply; a `clamp_retry` note says so;
+      3. if that raises too, the engine's repaired default with the turnover limit applied to it (never an unlimited trade of the
+         default), zero under the account stop or brake level 2, and a `clamp_failed` note."""
     try:
         return _clamp(default=default, advice=advice, confidence=confidence, current=current, on=on, cfg=cfg, **kw)
     except Exception as e:      # noqa: BLE001
-        stop = bool(kw.get("halted")) or (_num(kw.get("brake_level")) or 0) >= 2
-        top = _num(cfg.get("invested_max")) if isinstance(cfg, Mapping) else None
-        top = 1.0 if top is None else _clip(top, 0.0, 1.0)
-        d = {s: _w(default.get(s)) if isinstance(default, Mapping) else 0.0 for s in SYMS}
-        tot = sum(d.values())
-        if tot > top and tot > 0:
-            d = {s: v * top / tot for s, v in d.items()}
-        if stop:
-            d = {s: 0.0 for s in SYMS}
-        z = {s: 0.0 for s in SYMS}
-        stages = {k: dict(d) for k in ("after_tilt", "after_caps", "after_fill", "after_vol", "after_brake", "after_turnover")}
-        return AllocResult(default=dict(d), proposal=None, confidence=0.0, k=0.0, advice_source="none", stages=stages, final=dict(d),
-                           caps=dict(z), clamps=[{"rule": "clamp_failed", "sym": "ALL", "from": None, "to": None,
-                                                  "why": f"the allocation pipeline failed ({type(e).__name__}): the default runs"}],
-                           baseline=dict(d), exempt_sell=0.0, discretionary_turnover=0.0, turnover_budget=0.0,
-                           brake_level=int(_num(kw.get("brake_level")) or 0), halted=bool(kw.get("halted")))
+        first = e
+    try:
+        safe = dict(kw)
+        for k in ("cov", "sigmas"):
+            safe.pop(k, None)
+        safe.pop("cov_source", None)
+        bl = _num(safe.get("brake_level"))
+        safe["brake_level"] = int(bl) if bl is not None and bl < 10 ** 6 else 0
+        bm = _num(safe.get("brake_mult"))
+        safe["brake_mult"] = bm if bm is not None and 0.0 <= bm <= 1.0 else 0.5
+        safe["credit"] = 0.0
+        safe["notes"] = list(safe.get("notes") or []) + [{"rule": "clamp_retry", "sym": "ALL",
+                                                          "why": f"the pipeline failed ({type(first).__name__}): re-run without covariance, "
+                                                                 "credit or the original brake inputs; every limit still applies"}]
+        return _clamp(default=default, advice=advice, confidence=confidence, current=current, on=on, cfg=cfg, **safe)
+    except Exception:       # noqa: BLE001
+        pass
+    stop = bool(kw.get("halted")) or (_num(kw.get("brake_level")) or 0) >= 2
+    top = _num(cfg.get("invested_max")) if isinstance(cfg, Mapping) else None
+    top = 1.0 if top is None else _clip(top, 0.0, 1.0)
+    d = {s: _w(default.get(s)) if isinstance(default, Mapping) else 0.0 for s in SYMS}
+    tot = sum(d.values())
+    if tot > top and tot > 0:
+        d = {s: v * top / tot for s, v in d.items()}
+    budget = 0.0
+    if stop:
+        d = {s: 0.0 for s in SYMS}
+        final, used = dict(d), 0.0
+    else:
+        try:
+            c = {s: _w(current.get(s)) for s in SYMS} if isinstance(current, Mapping) else {s: 0.0 for s in SYMS}
+        except Exception:       # noqa: BLE001
+            c = {s: 0.0 for s in SYMS}
+        budget = max(0.0, min(_budget(kw.get("day_left", math.inf)), _budget(kw.get("week_left", math.inf))))
+        buys = sum(max(d[s] - c[s], 0.0) for s in SYMS)
+        sells = sum(max(c[s] - d[s], 0.0) for s in SYMS)
+        D = max(buys, sells)
+        lam = 1.0 if D <= EPS or D <= budget else budget / D          # the same one-way limit the pipeline uses
+        final = {s: c[s] + lam * (d[s] - c[s]) for s in SYMS}
+        used = lam * D
+    z = {s: 0.0 for s in SYMS}
+    stages = {k: dict(d) for k in ("after_tilt", "after_caps", "after_fill", "after_vol", "after_brake")}
+    stages["after_turnover"] = dict(final)
+    return AllocResult(default=dict(d), proposal=None, confidence=0.0, k=0.0, advice_source="none", stages=stages, final=dict(final),
+                       caps=dict(z), clamps=[{"rule": "clamp_failed", "sym": "ALL", "from": None, "to": None,
+                                              "why": f"the allocation pipeline failed ({type(first).__name__}): the default runs, "
+                                                     "limited by the turnover budget"}],
+                       baseline=dict(d), exempt_sell=0.0, discretionary_turnover=used, turnover_budget=budget,
+                       brake_level=int(_num(kw.get("brake_level")) or 0), halted=bool(kw.get("halted")))

@@ -754,6 +754,74 @@ def test_property_effective_credit_random():
             assert e == 0.0
 
 
+# ------------------------------------------------------------------ final re-check of PR 73 (F1, F2, F3, F5)
+def test_credit_funds_only_the_gold_sink_never_a_metal_back_to_its_default():
+    """F1 (owner decision): a fast-lane gold sale must not become exempt silver / copper buys; they use the normal budget."""
+    d = mix(0.5, 0.3, 0.2)
+    cur = mix(0.1, 0.1, 0.1)                       # 70 points of cash
+    r = run(d, None, current=cur, cfg=cfg(ai_trust=0.0), day_left=0.20, week_left=0.40, credit=0.7)
+    assert r.credit_used == pytest.approx(r.exempt_buy) and r.credit_used > 0
+    gold_buy = r.final[G] - cur[G]
+    assert r.credit_used <= gold_buy + 1e-9                                      # only the sink was exempt
+    assert r.discretionary_turnover > 0 or r.final[S] == cur[S] == r.final[C]     # silver / copper went through the budget
+    nogold = run(d, None, current=cur, cfg=cfg(ai_trust=0.0), day_left=0.20, week_left=0.40, credit=0.7, no_add=[G])
+    assert nogold.credit_used == 0.0 and nogold.exempt_buy == 0.0
+    assert sum(max(nogold.final[s] - cur[s], 0) for s in (S, C)) <= 0.20 + 1e-9      # limited by the 0.20 day budget
+    # replay of the review's case: gold sold 60% (cash 60), gold blocked, silver 9.6% wants to go to 28.4%
+    r2 = run(mix(0.5, 0.284, 0.2), None, current=mix(0.3, 0.096, 0.1), cfg=cfg(ai_trust=0.0), day_left=0.20, week_left=0.40, credit=0.6, no_add=[G])
+    assert r2.final[S] - 0.096 <= 0.20 + 1e-9 and r2.exempt_buy == 0.0 and r2.discretionary_turnover > 0.15
+
+
+def test_spent_credit_is_reported_so_a_second_run_cannot_exempt_it_again():
+    """F2 (pure side): credit_used is what the caller subtracts; re-running with the remainder exempts nothing more."""
+    d = mix(0.8, 0.1, 0.1)
+    cur = mix(0.4, 0.1, 0.1)
+    first = run(d, None, current=cur, cfg=cfg(ai_trust=0.0), day_left=0.0, week_left=0.0, credit=0.3)
+    assert first.credit_used == pytest.approx(0.3) and first.final[G] == pytest.approx(0.7)
+    second = run(d, None, current=mix(0.7, 0.1, 0.1), cfg=cfg(ai_trust=0.0), day_left=0.0, week_left=0.0, credit=0.3 - first.credit_used)
+    assert second.credit_used == 0.0 and second.final[G] == pytest.approx(0.7)
+    assert first.as_record()["credit"]["used"] == pytest.approx(0.3)
+
+
+def test_brake_level_1_with_gold_blocked_shows_the_executed_target():
+    """F3: no rotation into a GOLDBEES that cannot be bought: silver / copper are cut, gold is kept, the rest waits in cash."""
+    d = mix(0.5, 0.3, 0.2)
+    cur = mix(0.5, 0.3, 0.2)
+    r = run(d, None, current=cur, cfg=cfg(ai_trust=0.0), brake_level=1, brake_mult=0.5, no_add=[G])
+    assert r.final[G] == pytest.approx(0.5) and r.final[S] == pytest.approx(0.15) and r.final[C] == pytest.approx(0.10)
+    assert any(c["rule"] == "brake_rotation_blocked" for c in r.clamps) and sum(r.final.values()) < 0.8
+    free = run(d, None, current=cur, cfg=cfg(ai_trust=0.0), brake_level=1, brake_mult=0.5)
+    assert free.final[G] == pytest.approx(0.5 + 0.15 + 0.10) and sum(free.final.values()) == pytest.approx(1.0)     # unblocked: the rotation
+
+
+class _BoomCov(dict):
+    def get(self, *a, **k):
+        raise RuntimeError("boom")
+
+    def __bool__(self):
+        return True
+
+
+def test_clamp_failure_keeps_the_turnover_limit():
+    """F5: a failure in the covariance / brake inputs re-runs the pipeline with safe ones (limits intact); a total failure returns the
+    default WITH the turnover limit, never an unlimited trade."""
+    d = mix(0.6, 0.3, 0.1)
+    r = A.clamp(default=d, advice=None, confidence=0.0, current=mix(0.0), on={s: True for s in A.SYMS}, cfg=cfg(ai_trust=0.0),
+                cov=_BoomCov(), day_left=0.20, week_left=0.40)
+    assert any(c["rule"] == "clamp_retry" for c in r.clamps) and not any(c["rule"] == "clamp_failed" for c in r.clamps)
+    assert sum(r.final.values()) <= 0.20 + 1e-9                                # the day limit still applies
+    r = A.clamp(default=d, advice=None, confidence=0.0, current=mix(0.0), on={s: True for s in A.SYMS}, cfg=cfg(ai_trust=0.0),
+                brake_level=object(), brake_mult="x", day_left=0.20, week_left=0.40)
+    assert sum(r.final.values()) <= 0.20 + 1e-9
+    # total failure: broken `on` and `current` make every attempt fail
+    r = A.clamp(default=d, advice=None, confidence=0.0, current=mix(0.0), on=5, cfg=cfg(ai_trust=0.0), day_left=0.10, week_left=0.40)
+    assert r.clamps[0]["rule"] == "clamp_failed" and sum(r.final.values()) == pytest.approx(0.10) and r.discretionary_turnover == pytest.approx(0.10)
+    r = A.clamp(default=d, advice=None, confidence=0.0, current=mix(0.5, 0.3, 0.2), on=5, cfg=cfg(ai_trust=0.0), day_left=0.10, week_left=0.40)
+    assert r.final[G] == pytest.approx(0.5 + 0.1 * (0.6 - 0.5) / 0.2, abs=1e-9) or sum(abs(r.final[s] - c) for s, c in zip(A.SYMS, (0.5, 0.3, 0.2))) <= 0.2 + 1e-9
+    stop = A.clamp(default=d, advice=None, confidence=0.0, current=mix(0.5), on=5, cfg=cfg(), halted=True, day_left=0.1)
+    assert all(v == 0 for v in stop.final.values())
+
+
 def test_fallback_end_to_end_default_trades_when_advice_is_unusable():
     d = mix(0.8, 0.2, 0.0)
     ref = run(d, None, current=d)
@@ -884,13 +952,18 @@ def test_property_20000_random_proposals(subtests=None):
             if any(f[s] > eps for s in free):
                 problems.append("account stop / brake level 2 left a position")
         if level == 1 and not halted:
-            if c["brake_mode"] == "rotate_to_gold" and G not in frozen and G not in zero:
+            if c["brake_mode"] == "rotate_to_gold" and G not in frozen and G not in zero and G not in no_add:
                 if sum(r.stages["after_brake"].values()) < sum(r.stages["after_vol"].values()) - 1e-8:
                     problems.append("brake level 1 created cash in rotate mode")
             elif c["brake_mode"] == "cash" or G in frozen or G in zero:
                 for s in free:
                     if abs(r.stages["after_brake"][s] - mult * r.stages["after_vol"][s]) > 1e-8:
                         problems.append("brake level 1 cash mode is not x mult")
+            elif G in no_add:                                   # gold cannot be bought: silver / copper cut, gold kept, no rotation
+                for s in free:
+                    want = r.stages["after_vol"][s] * (1.0 if s == G else mult)
+                    if abs(r.stages["after_brake"][s] - want) > 1e-8:
+                        problems.append("brake level 1 with gold blocked is not a trim")
         budget = min(day_left, week_left)
         cs = {s: min(max(current[s], 0.0), 1.0) for s in free}
         if sum(cs.values()) + sum(frozen.values()) > 1.0 + 1e-9:

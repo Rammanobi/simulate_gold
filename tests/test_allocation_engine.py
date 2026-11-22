@@ -955,3 +955,75 @@ def test_the_sweep_alone_buys_at_most_the_dust_allowance_even_with_budget_to_spa
     assert pf.runtime["v3"]["dust"][DAYS[i].date().isoformat()] == pytest.approx(spent / value, abs=2e-3)
     eng.v3_sweep(infos, eng.value(), {"res": res, "sweep": 0.0})                # a second sweep the same day: the day allowance is used up
     assert 100000.0 - pf.cash <= 0.03 * value + 130.0
+
+
+# ------------------------------------------------------------------ final re-check of PR 73 (F1 to F3)
+def test_a_fast_lane_gold_sale_is_not_re_invested_in_silver_outside_the_budget(tmp_path):
+    """F1 replay: gold sold intraday (about 60% of the book), gold not re-bought today. At 15:10 silver may rise only through the normal
+    0.20/day budget and the rise is booked in the ledger (the review's case: 9.6% to 28.4% with nothing booked)."""
+    rng = np.random.default_rng(1)
+    closes = make_path(rng, "up")
+    i = 330
+    env = v3_env(tmp_path)
+    pf = invested_book(closes, 299, split=(0.9, 0.07, 0.03))
+    _settle(pf, env, closes, 300, i)
+    px, v = book(pf, closes, i)
+    w0 = {s: (pf.positions[s].qty * px[s] / v if s in pf.positions else 0.0) for s in SYMS}
+    day = DAYS[i].date().isoformat()
+    pf.positions["GOLDBEES"].ai_stop = px["GOLDBEES"] * 1.05
+    v3_tick(pf, env, closes, i, hh=10, mm=0)
+    v3_tick(pf, env, closes, i, hh=10, mm=1)
+    px, v = book(pf, closes, i)
+    sold = w0["GOLDBEES"] - pf.positions["GOLDBEES"].qty * px["GOLDBEES"] / v
+    assert sold > 0.25                                                          # a big fast-lane gold sale
+    led0 = float(pf.runtime["v3"].get("ledger", {}).get(day, 0.0))
+    v3_tick(pf, env, closes, i)
+    px, v = book(pf, closes, i)
+    w1 = {s: (pf.positions[s].qty * px[s] / v if s in pf.positions else 0.0) for s in SYMS}
+    rise = (w1["SILVERBEES"] - w0["SILVERBEES"]) + (w1["HINDCOPPER"] - w0["HINDCOPPER"])
+    al = [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
+    assert al["credit"]["used"] == 0.0 and al["credit"]["exempt_buy"] == 0.0     # gold is blocked: the credit funded nothing
+    assert rise <= 0.20 + 0.03 + 0.005                                          # the normal day budget (plus dust), not the sold gold
+    booked = float(pf.runtime["v3"]["ledger"].get(day, 0.0)) - led0
+    assert booked >= rise - 0.01                                                # and it is booked
+
+
+def test_spent_credit_is_subtracted_even_when_other_cash_remains(tmp_path):
+    """F2: after GOLDBEES buys use the credit it is reduced by what was bought; a same-day re-plan sees no credit left, whatever the cash."""
+    pf, env, closes, i = _level2_book(tmp_path)
+    day = DAYS[i].date().isoformat()
+    pf.cash = 50000.0                                                           # plenty of other cash
+    pf.runtime["v3"]["credit"] = {"day": day, "amt": 0.30}
+    eng = _engine(pf, env, closes, i)
+    assert eng.v3_credit() == pytest.approx(min(0.30, eng.v3_cash_weight(eng.value())))
+    eng.v3_spend_credit(0.10)
+    assert pf.runtime["v3"]["credit"]["amt"] == pytest.approx(0.20)
+    eng.v3_spend_credit(0.25)
+    assert "credit" not in pf.runtime["v3"] and eng.v3_credit() == 0.0
+    # end to end: the silver-stop day leaves no credit to re-use at 15:12
+    pf2, env2, closes2, day2 = _silver_stop_day(tmp_path / "x") if (tmp_path / "x").mkdir() is None else (None,) * 4
+    eng2 = _engine(pf2, env2, closes2, 330, 15, 12)
+    res, _ = eng2.v3_plan(eng2.v2_infos(), 0, [])
+    assert res.credit < 0.02 and res.credit_used == 0.0
+
+
+def test_brake_level_1_with_gold_blocked_does_not_show_an_untradeable_rotation(tmp_path):
+    """F3 at the engine: the ALLOC record's final gold is what can be executed (no jump to 0.79 that the engine never buys)."""
+    rng = np.random.default_rng(3)
+    closes = make_path(rng, "up")
+    env = v3_env(tmp_path)
+    pf = invested_book(closes, 299)
+    for i in range(300, 330):
+        v3_tick(pf, env, closes, i)
+    px, v = book(pf, closes, 330)
+    pf.runtime["v2"]["brake"].update({"level": 1, "peak": v / 0.84, "days": 5, "rebase_value": None, "brake_day": None})
+    pf.runtime["v2"]["brake_day"] = None
+    g_w = pf.positions["GOLDBEES"].qty * px["GOLDBEES"] / v
+    _bias_file(env, 330, {"GOLD": "block"})
+    v3_tick(pf, env, closes, 330)
+    day = DAYS[330].date().isoformat()
+    al = [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
+    assert al["brake_level"] == 1 and al["final"]["GOLDBEES"] <= g_w + 0.03
+    assert any(c["rule"] == "brake_rotation_blocked" for c in al["clamps"])
+    px, v = book(pf, closes, 330)
+    assert pf.positions["GOLDBEES"].qty * px["GOLDBEES"] / v <= g_w + 0.03
