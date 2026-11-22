@@ -3,6 +3,7 @@
 
   python tools/context.py                      # unchanged default (everything, 25 KB cap)
   python tools/context.py --view hourly|fastlane|premarket|daily|weekly   # per-routine view with per-section caps
+  python tools/context.py --view desk|allocation   # strategy v3 (dormant): the desks' and the allocation routines' views (code-computed numbers)
 Default order: memory/brief.md, memory/lessons.md, the last 3 memory/daily/*.md (oldest first), the latest memory/weekly/*.md.
 Over routines.context_max_bytes (25 KB) the oldest daily note is dropped first, then the weekly note and the lessons
 are shortened, and only as a last resort the brief.
@@ -90,6 +91,12 @@ VIEWS: dict[str, tuple[int, list[tuple[str, int]]]] = {
                           ("stm_window_full", 2000), ("daily_2", 2000), ("lessons", 4000), ("brief", 3000)]),
     "daily": (10000, [("stm_day", 1500), ("notes_today", 1300), ("daily_2", 2000), ("brief", 3000),
                       ("lesson_titles", 1500)]),
+    # strategy v3 (dormant): numbers come from code (tools/alloc_ctx.py, offline here); the default weights need today's memory desk
+    "desk": (10000, [("alignment", 1000), ("alloc_state", 2400), ("calibration", 600), ("regime", 1400), ("theses", 1800),
+                     ("calendar_14d", 900), ("stm_window_full", 1700)]),
+    "allocation": (16000, [("alignment", 1000), ("alloc_state", 3600), ("desks_summary", 1400), ("calibration", 800),
+                           ("regime", 1500), ("thesis_lines", 1200), ("calendar_14d", 1000), ("stm_window_full", 2000),
+                           ("notes_today", 1300), ("lessons_tactical", 1200)]),
     "weekly": (25000, [("performance", 4000), ("alignment", 1000), ("regime", 2500), ("theses", 3500),
                        ("calendar_8w", 5000), ("lessons", 4000), ("ledger", 3000), ("stm_window_full", 2000),
                        ("daily_week", 4000), ("weekly_last", 2000)]),
@@ -286,7 +293,61 @@ def _s_weekly_last(root, now, p):
     return _read(w[-1]) if w else ""
 
 
+def _pc(m) -> str:
+    return "n/a" if not m else "/".join(f"{m[s] * 100:.0f}" for s in ("GOLDBEES", "SILVERBEES", "HINDCOPPER"))
+
+
+def _s_alloc_state(root, now, p):
+    import alloc_ctx
+    import guidance
+    sn = alloc_ctx.snapshot(root, now, p, fetch=False)
+    cfg = sn["cfg"]
+    mode = p["strategy"]["mode"]
+    live = mode == "v3_alloc" and not cfg["shadow"] and cfg["phase"] == "live" and cfg["ai_trust"] > 0
+    L = [f"MODE {mode} | allocation shadow {cfg['shadow']} phase {cfg['phase']} ai_trust {cfg['ai_trust']:g} fanout "
+         f"{cfg['desks'].get('fanout')} invested_target {cfg['invested_target']:g} -> "
+         + ("your proposal tilts the default" if live else "v3 is DORMANT or logged only: your proposal is scored, not traded"),
+         f"default D5-FI G/S/C %: {_pc(sn['default'])}" + ("" if sn["default"] else f" ({sn['warnings'][-1] if sn['warnings'] else 'n/a'})"),
+         f"current G/S/C %: {_pc(sn['cur'])} cash {max(0.0, 1 - sum(sn['cur'].values())) * 100:.1f}%",
+         f"account: value {sn['value']:,.0f} peak {sn['peak']:,.0f} drawdown {sn['dd'] * 100:.1f}% brake level {sn['level']} "
+         f"halted {sn['halted']} | distance to Rs {sn['stop']:,.0f} stop: Rs {sn['stop_dist']:,.0f} ({sn['stop_dist'] / sn['value'] * 100 if sn['value'] else 0:.1f}%)",
+         f"turnover left (one-way): today {sn['day_left']:.2f}, this week {sn['week_left']:.2f}; max_tilt {cfg['max_tilt']:g}; caps "
+         f"{_pc(cfg['ai_caps'])}, OFF-trend caps {_pc(cfg['off_trend_caps'])}"]
+    on = sn.get("on") or {}
+    for s_, m in (("GOLDBEES", "GOLD"), ("SILVERBEES", "SILVER"), ("HINDCOPPER", "COPPER")):
+        t = "n/a" if s_ not in on else ("ON" if on[s_] else "OFF")
+        L.append(f"trend {m}: {t} | alignment {(sn.get('align') or {}).get(m)}" + (" | cap halved" if s_ in sn["halve"] else "")
+                 + (" | results window: weight 0" if s_ in sn["zero"] else ""))
+    L.append("today's file: " + guidance._alloc_show(Path(root) / "state" / "allocation.json", now, cfg).splitlines()[0])      # noqa: SLF001
+    last = alloc_ctx.last_alloc(root, now)
+    if last:
+        a = last["alloc"]
+        L.append(f"last ALLOC {last['date']} ({last['mode']}): default {_pc(a.get('default'))} proposal {_pc(a.get('proposal'))} "
+                 f"final {_pc(a.get('final'))} advice {a.get('advice')} k {a.get('k')} clamps {len(a.get('clamps') or [])}")
+    return "\n".join(L)
+
+
+def _s_calibration(root, now, p):
+    import calibration
+    return "\n".join(calibration.brier_text(calibration.summary(root, now)))
+
+
+def _s_desks_summary(root, now, p):
+    import desk
+    day = now.date().isoformat()
+    L = []
+    for d in desk.DESKS:
+        r = desk._row(root, day, d)                                                      # noqa: SLF001
+        L.append(f"{d}: {r['status']}" + (f" conf {r['confidence']:g} " + "; ".join(f"{m} {v}" for m, v in r["view"].items())
+                                          if r.get("confidence") is not None else "") + (f" ({r['why']})" if r.get("why") else ""))
+    q = desk.quorum(root, day, p)
+    L.append(f"quorum {'OK' if q['ok'] else 'NOT OK'} (fanout {q['fanout']}, memory desk {'ok' if q['memory'] else 'missing'}); "
+             f"missing {','.join(q['missing']) or 'none'}")
+    return "\n".join(L)
+
+
 SECTIONS = {
+    "alloc_state": _s_alloc_state, "calibration": _s_calibration, "desks_summary": _s_desks_summary,
     "alignment": _s_alignment, "brief": _s_brief, "stm_window": lambda r, n, p: _window_lines(r, False),
     "stm_window_full": lambda r, n, p: _window_lines(r, True), "notes_today": _s_notes_today,
     "events_3d": _s_calendar(3), "calendar_14d": _s_calendar(14), "calendar_8w": _s_calendar(56),
@@ -295,7 +356,8 @@ SECTIONS = {
     "lesson_titles": _s_lesson_titles, "stm_day": _s_stm_day, "performance": _s_performance,
     "ledger": _s_ledger, "weekly_last": _s_weekly_last,
 }
-NAMES = {"alignment": "alignment (code: LTM x STM)", "brief": "memory/brief.md", "stm_window": "STM window (compact)",
+NAMES = {"alloc_state": "allocation state (code)", "calibration": "calibration (desk_brier, ai_vs_default)",
+         "desks_summary": "desk files today", "alignment": "alignment (code: LTM x STM)", "brief": "memory/brief.md", "stm_window": "STM window (compact)",
          "stm_window_full": "STM window (10 sessions)", "notes_today": "today's routine notes",
          "events_3d": "events next 3 days", "calendar_14d": "calendar next 14 days", "calendar_8w": "calendar next 8 weeks",
          "lessons_tactical": "lessons tagged tactical", "thesis_lines": "thesis invalidation lines",
