@@ -13,8 +13,11 @@ code; this tool applies the same rule itself when the loader has not (idempotent
   v2_trend + live_default | live           -> v3_alloc
   v3_alloc + any phase                     -> v3_alloc (PHASE still shown)
 
-Exit 0 and one line on stdout. If the config cannot be read or has no `strategy.mode`, nothing goes to stdout, a reason goes to
-stderr and the exit code is 2; the playbooks treat that exactly like v2_trend (legacy playbooks, v3 dormant). It never writes anything.
+Exit 0 and one line on stdout. The RAW `strategy.mode` must be exactly v1_scores, v2_trend or v3_alloc (no case-folding, no trimming:
+`V3_ALLOC` is not v3_alloc). If the config cannot be read, or the mode is missing, null, empty or anything else, nothing goes to stdout,
+a reason goes to stderr and the exit code is 2; the playbooks treat that exactly like v2_trend (legacy playbooks, v3 dormant).
+The phase is matched case-insensitively and trimmed, exactly as simgold.config's loader does, so the effective mode is the same on every
+input the loader accepts (tests/test_mode_tool.py checks parity cell by cell). It never writes anything.
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ import sys
 from _common import ROOT, utf8_stdout  # noqa: F401  (puts the repo root on sys.path)
 
 LIVE_PHASES = ("live_default", "live")
+VALID_MODES = ("v1_scores", "v2_trend", "v3_alloc")
 
 
 def _clean(v) -> str:
@@ -35,8 +39,11 @@ def _clean(v) -> str:
 
 
 def effective_mode(params: dict) -> str:
-    """Raw strategy.mode with the go-live mapping applied. Does not change `params`. Raises KeyError/TypeError when there is no mode."""
+    """Raw strategy.mode with the go-live mapping applied. Does not change `params`. Raises ValueError unless the raw mode is exactly one
+    of VALID_MODES (KeyError/TypeError when there is no strategy.mode at all)."""
     mode = params["strategy"]["mode"]
+    if not isinstance(mode, str) or mode not in VALID_MODES:
+        raise ValueError(f"strategy.mode {str(mode)[:24]!r} is not one of {', '.join(VALID_MODES)}")
     phase = str((params.get("allocation") or {}).get("phase", "")).strip().lower()
     if mode == "v2_trend" and phase in LIVE_PHASES:
         return "v3_alloc"

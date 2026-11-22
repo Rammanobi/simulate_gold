@@ -25,6 +25,7 @@ the engine's last lines, not yours; you never plan around them and never try to 
 |---|---|---|
 | `v1_scores` or `v2_trend` | any | **v3 is DORMANT.** The scheduled routines `premarket` and `allocation` hand over to the legacy playbooks (`premarket_v2.md`, `hourly.md`). Anything these v3 playbooks write (desk files, proposals) is **logged only**: the engine ignores it and trades by its v1/v2 rules. |
 | `v3_alloc` | `shadow` | **Logged only.** The engine computes and logs the clamped "would-have" result in its `ALLOC` records, and trades its D5-FI default (with `allocation.shadow: true` the v2 rule trades). Your proposal is scored later (Brier, AI vs default) and changes no trade. |
+| `v3_alloc` | `live_default` | **Logged only.** The engine trades its fully invested default; your proposal is scored but never tilts the book (the owner's first go-live step). |
 | `v3_alloc` | `live` and `ai_trust` = 0 | **Logged only.** Same as shadow. |
 | `v3_alloc` | `live` and `ai_trust` > 0 | The engine tilts its default toward your mix by `k = ai_trust x clip((confidence - 0.30) / 0.50, 0, 1)`, then clamps. Still advice: it can be clamped, ignored or replaced by the default. |
 
@@ -56,10 +57,10 @@ Thrift mode only changes how much you spend (fewer web calls, no subagents, Sonn
    prints today, whether NSE trades today, and the next 5 trading days.
 4. **MODE line:** `python tools/mode.py --full`
    prints `MODE=<mode> PHASE=<phase> AI_TRUST=<x> FANOUT=<x> INVESTED_TARGET=<x>` (`none` for an absent value), for example
-   `MODE=v2_trend PHASE=none AI_TRUST=none FANOUT=none INVESTED_TARGET=none` today, or
-   `MODE=v3_alloc PHASE=shadow AI_TRUST=0.0 FANOUT=compact INVESTED_TARGET=0.98` in the shadow phase. Read-only. `MODE` is the
+   `MODE=v2_trend PHASE=shadow AI_TRUST=0.0 FANOUT=compact INVESTED_TARGET=0.98` today (v2 trades, v3 dormant), or
+   `MODE=v3_alloc PHASE=shadow AI_TRUST=0.0 FANOUT=compact INVESTED_TARGET=0.98` after the owner sets `strategy.mode: v3_alloc`. Read-only. `MODE` is the
    EFFECTIVE mode the engine trades under: a `v2_trend` config with `allocation.phase` `live_default` or `live` prints `v3_alloc`
-   (the tool applies the go-live mapping itself, so never read `strategy.mode` from `config/params.yaml` directly). Use it for the
+   (the tool applies the go-live mapping itself, so never read `strategy.mode` from `config/params.yaml` directly; the raw `strategy.mode` must be exactly `v1_scores`, `v2_trend` or `v3_alloc`, otherwise the command fails). Use it for the
    advice-status table above and for the compact or full fan-out decision (`FANOUT=none` counts as `compact`). If the command fails
    (non-zero exit, no `MODE=` line), treat the mode as `v2_trend` (dormant).
 

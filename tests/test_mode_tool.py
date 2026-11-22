@@ -105,6 +105,14 @@ def test_output_is_one_safe_line_even_for_hostile_values(tmp_path):
     "allocation:\n  phase: live\n",        # no strategy.mode
     "",                                    # empty file
     "- just\n- a list\n",
+    "strategy:\n  mode: V3_ALLOC\n",                      # no case-folding of the raw mode
+    "strategy:\n  mode: V2_TREND\nallocation:\n  phase: live\n",
+    "strategy:\n  mode: ' v3_alloc '\n",                   # no trimming either
+    "strategy:\n  mode: null\n",
+    "strategy:\n  mode: ''\n",
+    "strategy:\n  mode: 5\n",
+    "strategy:\n  mode: [v3_alloc]\n",
+    "strategy:\n  mode: v4_future\nallocation:\n  phase: live\n",
     "strategy: v3_alloc\n",                # strategy is not a mapping
 ])
 def test_unreadable_or_mode_less_config_fails_with_no_stdout(tmp_path, text):
@@ -141,3 +149,96 @@ def test_the_playbooks_treat_a_failed_mode_command_as_legacy():
     for name in ("premarket", "allocation"):
         s = (ROOT / "routines" / f"{name}.md").read_text(encoding="utf-8")
         assert "or the MODE command failed: v3 is dormant" in s
+
+
+# ---------------------------------------------------------------------------------------- parity with simgold.config.load_params
+PHASES = [ABSENT, None, "", "off", "shadow", "live_default", "live", "LIVE", " Live_Default ", "bogus", 7]
+RAW_MODES = ["v1_scores", "v2_trend", "v3_alloc", "V3_ALLOC", "V2_TREND", " v2_trend", "", None, "v4"]
+
+
+@pytest.mark.parametrize("raw_mode", RAW_MODES)
+@pytest.mark.parametrize("phase", PHASES, ids=repr)
+def test_parity_with_the_engine_loader_on_every_cell(tmp_path, capsys, raw_mode, phase):
+    """tools/mode.py and simgold.config.load_params() agree on the effective mode wherever the tool answers; the tool answers only
+    for the three exact raw modes and exits 2 for anything else (which the loader would pass through untouched)."""
+    import yaml
+    from simgold import config
+    doc = {"strategy": {"mode": raw_mode}}
+    if phase is not ABSENT:
+        doc["allocation"] = {"phase": phase}
+    f = tmp_path / "params.yaml"
+    f.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    loaded = config.load_params(f)["strategy"]["mode"]
+    rc = mode.main(["--params", str(f)])
+    out = capsys.readouterr().out
+    if raw_mode in ("v1_scores", "v2_trend", "v3_alloc"):
+        assert rc == 0, raw_mode
+        assert out.split()[0] == f"MODE={loaded}", (raw_mode, phase, out, loaded)
+        if loaded == "v3_alloc" and raw_mode == "v2_trend":                      # the go-live mapping, nothing else
+            assert str(phase).strip().lower() in ("live_default", "live")
+        if loaded != raw_mode:
+            assert raw_mode == "v2_trend" and loaded == "v3_alloc"
+    else:
+        assert rc == 2 and out == "", (raw_mode, phase, out)
+        assert loaded == raw_mode                                              # loader never maps these
+
+
+def test_the_tool_agrees_with_a_mapping_less_loader_too(tmp_path, monkeypatch, capsys):
+    """Current-main loader (no mapping): the tool maps by itself and prints the same effective mode."""
+    import yaml
+    from simgold import config
+    f = tmp_path / "params.yaml"
+    f.write_text(yaml.safe_dump({"strategy": {"mode": "v2_trend"}, "allocation": {"phase": "Live"}}), encoding="utf-8")
+    raw_loader = lambda path=None: yaml.safe_load(open(path, encoding="utf-8"))          # noqa: E731
+    monkeypatch.setattr(config, "load_params", raw_loader)
+    assert mode.main(["--params", str(f)]) == 0
+    assert capsys.readouterr().out == "MODE=v3_alloc PHASE=live\n"
+
+
+# ---------------------------------------------------------------------------------------- the failed-command rule in the playbooks
+FAIL_RULE = {
+    "_common": r"\(non-zero exit, no `MODE=` line\), treat the mode as `v2_trend`",
+    "daily_report": r"no `MODE=` line, means `v2_trend`",
+    "fastlane": r"no `MODE=` line, means `v2_trend`",
+    "weekly": r"no `MODE=` line, means `v2_trend`",
+}
+
+
+def _flat(name: str) -> str:
+    return re.sub(r"\s+", " ", (ROOT / "routines" / f"{name}.md").read_text(encoding="utf-8"))
+
+
+def fail_rule_errors(name: str, flat: str) -> list[str]:
+    errs = []
+    if not re.search(FAIL_RULE[name], flat):
+        errs.append(f"{name}: the 'failed MODE command means v2_trend' wording is missing")
+    if re.search(r"(no `MODE=` line\)?,? (treat the mode as|means) `v3_alloc`)|(failure means `v3_alloc`)", flat):
+        errs.append(f"{name}: a failed MODE command is treated as v3_alloc")
+    return errs
+
+
+@pytest.mark.parametrize("name", sorted(FAIL_RULE))
+def test_every_playbook_says_a_failed_mode_command_means_v2_trend(name):
+    assert fail_rule_errors(name, _flat(name)) == []
+    assert "python tools/mode.py" in _flat(name)
+
+
+@pytest.mark.parametrize("name", sorted(FAIL_RULE))
+def test_a_failed_command_treated_as_v3_is_caught(name):
+    flat = _flat(name)
+    mutant = re.sub(r"(no `MODE=` line\)?,? (?:treat the mode as|means)) `v2_trend`", r"\1 `v3_alloc`", flat)
+    assert mutant != flat and fail_rule_errors(name, mutant)
+    removed = re.sub(r"no `MODE=` line", "", flat)
+    assert removed != flat and fail_rule_errors(name, removed)
+
+
+
+def test_today_s_config_is_legacy_while_the_owner_has_not_gone_live():
+    """Dormancy on the real config: raw v2_trend with a non-live phase prints v2_trend (every gate then takes its legacy branch)."""
+    import yaml
+    c = yaml.safe_load((ROOT / "config" / "params.yaml").read_text(encoding="utf-8"))
+    phase = str((c.get("allocation") or {}).get("phase", "")).strip().lower()
+    if c["strategy"]["mode"] != "v2_trend" or phase in ("live_default", "live"):
+        pytest.skip("the owner has gone live; the gates now continue with v3")
+    out = subprocess.run([sys.executable, str(TOOL)], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert out.stdout.startswith("MODE=v2_trend ")
