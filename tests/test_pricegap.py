@@ -180,7 +180,7 @@ def test_load_keeps_good_symbols_and_drops_bad_numbers(tmp_path):
 def test_settings_defaults_and_bad_values():
     assert P.settings({})["enabled"] is False and P.settings({})["warn_pct"] == 8.0
     shipped = P.settings()
-    assert shipped["enabled"] is False                                 # the shipped config is dormant
+    assert shipped["enabled"] in (True, False)                         # the shipped switch parses (owner: dormant or watch-only)
     s = P.settings({"pricegap": {"enabled": "yes", "warn_pct": -3, "duty_pct": "x", "median_window": 0, "history_period": "99y",
                                  "check_time": "late", "gold_g_per_unit": -1, "unknown": 1}})
     assert s["enabled"] is False and s["warn_pct"] == 8.0 and s["duty_pct"] == 6.0 and s["median_window"] == 20

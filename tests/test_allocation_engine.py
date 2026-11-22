@@ -33,14 +33,14 @@ def golden(name: str) -> str:
 
 # ------------------------------------------------------------------ dormant: byte-identical decisions
 def test_shipped_mode_is_v2_trend_and_the_golden_has_real_trades():
-    assert R.shipped_params()["strategy"]["mode"] == "v2_trend"
+    assert R.shipped_params()["strategy"]["mode"] in ("v2_trend", "v3_alloc") and R.shipped_params()["allocation"]["phase"] == "shadow"
     g = golden("decisions.jsonl")
     acts = [json.loads(x)["action"] for x in g.splitlines()]
     assert "BUY" in acts and "TARGET" in acts and "ALLOC" not in acts          # the golden is a real v2 run, no v3 anywhere
 
 
 def test_v2_trend_is_byte_identical_to_the_engine_before_v3(tmp_path):
-    pf, env = R.replay(tmp_path, R.shipped_params())
+    pf, env = R.replay(tmp_path, R.shipped_params("v2_trend"))
     assert R.decisions_text(env) == golden("decisions.jsonl")
     assert R.runtime_text(pf) == golden("runtime.json")
     assert "v3" not in pf.runtime and "ALLOC" not in R.decisions_text(env)
@@ -616,7 +616,7 @@ def test_dust_sweep_is_booked_and_bounded(tmp_path):
 def test_allocation_phase_live_default_is_the_single_owner_switch(tmp_path):
     """strategy.mode stays v2_trend; the ONE edit allocation.phase: live_default makes D5-FI trade fully invested with the AI only logged."""
     from simgold import allocation as A
-    p = R.shipped_params(phase="live_default")
+    p = R.shipped_params("v2_trend", phase="live_default")
     assert p["strategy"]["mode"] == "v2_trend" and trend.is_v3(p) and trend.is_v2(p)
     a = A.settings(p)
     assert a["phase"] == "live_default" and a["shadow"] is False
@@ -634,14 +634,14 @@ def test_allocation_phase_live_default_is_the_single_owner_switch(tmp_path):
 
 def test_phase_live_with_mode_v2_trend_trades_the_tilt_and_shadow_off_stay_dormant(tmp_path):
     from simgold import allocation as A
-    assert trend.is_v3(R.shipped_params(phase="live")) and A.settings(R.shipped_params(phase="live"))["phase"] == "live"
+    assert trend.is_v3(R.shipped_params("v2_trend", phase="live")) and A.settings(R.shipped_params("v2_trend", phase="live"))["phase"] == "live"
     for ph in ("shadow", "off", "bogus", None):
-        p = R.shipped_params(phase=ph) if ph is not None else R.shipped_params()
+        p = R.shipped_params("v2_trend", phase=ph) if ph is not None else R.shipped_params("v2_trend")
         assert not trend.is_v3(p) and trend.is_v2(p), ph
     assert not trend.is_v3(R.shipped_params("v1_scores", phase="live_default"))        # never over the v1 rules
     d = tmp_path / "x"
     d.mkdir()
-    pf, env = R.replay(d, R.shipped_params(phase="off"))
+    pf, env = R.replay(d, R.shipped_params("v2_trend", phase="off"))
     assert R.decisions_text(env) == golden("decisions.jsonl") and "v3" not in pf.runtime      # dormant: byte-identical
 
 

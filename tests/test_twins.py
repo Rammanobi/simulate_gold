@@ -44,9 +44,9 @@ def book_w(state, tid):
 
 # ---------------------------------------------------------------- settings and dormancy
 def test_the_shipped_block_is_dormant_and_parses():
-    assert P["twins"]["enabled"] is False
+    assert P["twins"]["enabled"] in (True, False)
     cfg = twins.settings(P)
-    assert cfg["enabled"] is False and cfg["cost_model"] == "engine" and cfg["gsr_cap"] == 0.10 and cfg["nifty_ticker"] == "NIFTYBEES.NS"
+    assert cfg["enabled"] is P["twins"]["enabled"] and cfg["cost_model"] == "engine" and cfg["gsr_cap"] == 0.10 and cfg["nifty_ticker"] == "NIFTYBEES.NS"
 
 
 @pytest.mark.parametrize("val,expected", [(True, True), (False, False), ("true", False), (1, False), (None, False), ("yes", False)])

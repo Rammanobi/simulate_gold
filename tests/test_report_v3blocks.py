@@ -246,9 +246,10 @@ def test_twins_limited_to_six_rows(root, on):
 
 def test_pricegap_only_when_enabled_and_dated_the_report_day(root, cfg):
     w_pricegap(root)
-    day = report.build_day(DAY, root)
-    assert "pricegap_view" not in day                                    # enabled: false (the shipped state) hides it even with a file
     with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(cfg, "pricegap", {"enabled": False})
+        day = report.build_day(DAY, root)
+        assert "pricegap_view" not in day                                # enabled: false hides it even with a file
         mp.setitem(cfg, "pricegap", {"enabled": True})
         assert "pricegap_view" in report.build_day(DAY, root)
         w_pricegap(root, date="2026-11-05")
@@ -488,10 +489,10 @@ def test_twins_view_reads_the_real_twins_module_output(root, on):
 # ------------------------------------------------------------------ twins block follows twins.enabled and the report's date
 def test_twins_block_is_hidden_when_twins_are_not_enabled(root, cfg):
     w_twins(root)
-    assert cfg["twins"]["enabled"] is False
-    day, h, t = render(root)
-    assert "twins_view" not in day and (sha(h), sha(t)) == (GOLDEN["evening_html"], GOLDEN["evening_text"])      # byte-identical to no file at all
     with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(cfg, "twins", {"enabled": False})
+        day, h, t = render(root)
+        assert "twins_view" not in day and (sha(h), sha(t)) == (GOLDEN["evening_html"], GOLDEN["evening_text"])  # byte-identical to no file at all
         mp.setitem(cfg, "twins", {"enabled": "true"})                    # only a literal true switches it on
         assert "twins_view" not in render(root)[0]
         mp.setitem(cfg, "twins", {"enabled": True})

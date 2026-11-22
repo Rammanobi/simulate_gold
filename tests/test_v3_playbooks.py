@@ -167,9 +167,10 @@ def doc(name):
     return (ROOT / "docs" / "v3" / name).read_text(encoding="utf-8")
 
 
-def test_claude_md_is_untouched_by_this_branch():
-    c = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "desk allocation" not in c and "allocation set" not in c
+def test_claude_md_carries_the_d12_exception_and_keeps_the_old_invariant_one():
+    c = re.sub(r"\s+", " ", (ROOT / "CLAUDE.md").read_text(encoding="utf-8"))
+    assert "Routines never buy, never set a size, never loosen a stop, never touch the floor, caps, gaps or limits." in c
+    assert "The one exception is the strategy-v3 allocation proposal" in c and "allocation set" in c and "logged only" in c
 
 
 def _draft_body():

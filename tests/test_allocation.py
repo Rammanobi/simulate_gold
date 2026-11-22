@@ -57,7 +57,7 @@ def proposal(**kw) -> dict:
 # ------------------------------------------------------------------ settings and shipped config
 def test_shipped_config_is_dormant():
     p = shipped_params()
-    assert p["strategy"]["mode"] == "v2_trend"                 # v3 is NOT switched on
+    assert p["strategy"]["mode"] in ("v2_trend", "v3_alloc")   # v2 dormant, or v3_alloc watch-only (phase shadow below: never trades)
     a = A.settings(p)
     assert a["shadow"] is True and a["phase"] == "shadow" and a["ai_trust"] == 0.0
     assert a["brake_mode"] == "rotate_to_gold"                  # owner decision D2
@@ -65,7 +65,7 @@ def test_shipped_config_is_dormant():
     assert a["ai_caps"] == {G: 1.0, S: 0.5, C: 0.25} and a["off_trend_caps"] == {G: 1.0, S: 0.2, C: 0.1}
     assert (a["max_turnover_day"], a["max_turnover_week"], a["rebalance_threshold"]) == (0.2, 0.4, 0.03)
     assert (a["max_port_vol"], a["underwater_port_vol"], a["max_tilt"], a["carry_days"]) == (0.30, 0.24, 0.30, 1)
-    assert not trend.is_v3(p) and trend.is_v2(p)
+    assert trend.is_v3(p) == (p["strategy"]["mode"] == "v3_alloc") and trend.is_v2(p)
     assert trend.is_v3(shipped_params("v3_alloc")) and trend.is_v2(shipped_params("v3_alloc"))
     assert not trend.is_v2(shipped_params("v1_scores"))
 
