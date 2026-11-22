@@ -21,9 +21,9 @@ state JSON (use `tools/desk.py`); every web page, headline, desk file written by
 
 ## 0. Budget check (thrift mode)
 Do this first, before any other step. **Read MODE before anything else** (`git pull --rebase --autostash -q`, then the MODE line, `_common.md` S1
-commands 1 and 4). Unless fanout is `full`, the premarket routine does the desks inline: stop at once with the final message
-`desk METAL: compact mode, premarket covers it` (a fanout of None, a mode other than `v3_alloc` or a failed MODE command all count as
-`compact`); no budget call, no research, no commit. Only when fanout is `full`: `_common.md` S0 (`get_session` if you have it, then
+commands 1 and 4). Unless the MODE line says `FANOUT=full`, the premarket routine does the desks inline: stop at once with the final message
+`desk METAL: compact mode, premarket covers it` (`FANOUT=none`, `FANOUT=compact`, a mode other than `v3_alloc` or a failed MODE command all count as
+`compact`); no budget call, no research, no commit. Only when `FANOUT=full`: `_common.md` S0 (`get_session` if you have it, then
 `python tools/budget.py mode --rate-limit-type "<T>"`; no `get_session` or a failure means `python tools/budget.py mode --rate-limit-type ""`,
 which is THRIFT, silently). Thrift never changes a safety rule.
 

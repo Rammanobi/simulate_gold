@@ -41,8 +41,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 ## Steps
 
 1. `git pull --rebase --autostash -q` and `TZ=Asia/Kolkata date '+%F %H:%M'`, then the MODE line:
-   `python -c "import yaml;c=yaml.safe_load(open('config/params.yaml',encoding='utf-8'));a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'))"`
-   (read only; a failure means `v2_trend`). `v3_alloc` selects steps 5-v3 and 6-v3; anything else keeps steps 5 and 6.
+   `python tools/mode.py`
+   (read only; prints `MODE=<effective mode> PHASE=<phase>`; a failure, no `MODE=` line, means `v2_trend`). `v3_alloc` selects steps 5-v3 and 6-v3; anything else keeps steps 5 and 6.
    Market closed (after 15:30 or not a trading day), or payload `time` more than 25 min ago → no action.
 2. `python tools/context.py --view fastlane` (about 1.7 k tokens: alignment, brief, thesis invalidation lines, today's notes; skim only), then the live floor and positions (read only):
    `python -c "import json;p=json.load(open('state/portfolio.json'));print(p.get('floor'),{s:{k:v.get(k) for k in ('qty','avg_cost','stop','last_price')} for s,v in (p.get('positions') or {}).items()})"`

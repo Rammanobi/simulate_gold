@@ -36,7 +36,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 1. `git pull --rebase --autostash -q`; then `python tools/memory_ltm.py regime --write`, `python tools/memory_ltm.py check`,
    `python tools/memory_ltm.py perf --write` (code only, one command per Bash call), then `python tools/context.py --view weekly`
    (performance, alignment, regime, theses, calendar, lessons, ledger, STM window, this week's notes). Also run the MODE line:
-   `python -c "import yaml;c=yaml.safe_load(open('config/params.yaml',encoding='utf-8'));a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'))"` (read only; a failure means `v2_trend`). WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
+   `python tools/mode.py` (read only; prints `MODE=<effective mode> PHASE=<phase>`; a failure, no `MODE=` line, means `v2_trend`). WEEK = `TZ=Asia/Kolkata date +%G-W%V` (Mon–Fri just ended).
 2. **Stats by Python, never by hand.** Run from the repo root and keep the JSON:
    ```bash
    python - <<'EOF'

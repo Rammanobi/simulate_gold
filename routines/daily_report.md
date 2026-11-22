@@ -35,8 +35,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 ## Steps
 
 1. **Clock and mode.** `TZ=Asia/Kolkata date '+%F %a %H:%M'`. Saturday/Sunday → final message `daily_report: weekend, nothing sent.` and stop. D = today.
-   Then (its own call) `python -c "import yaml;c=yaml.safe_load(open('config/params.yaml',encoding='utf-8'));a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'))"`;
-   a failure means `v2_trend`. `v3_alloc` selects the `-v3` steps below.
+   Then (its own call) `python tools/mode.py`
+   (prints `MODE=<effective mode> PHASE=<phase>`; a failure, no `MODE=` line, means `v2_trend`). `v3_alloc` selects the `-v3` steps below.
 2. **Wait for the engine**, then sync. Check for a running market-hours run:
    ```bash
    gh api "repos/Rammanobi/simulate_gold/actions/workflows/market-hours.yml/runs?per_page=10" --jq '[.workflow_runs[] | select(.status == "in_progress")] | length'
