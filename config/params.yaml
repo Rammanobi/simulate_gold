@@ -212,7 +212,8 @@ strategy:
 
 # ---- STRATEGY v3 "desk allocation" (engine part, DORMANT): simgold/allocation.py, docs in the v3 design ----
 # DORMANT while strategy.mode is v2_trend (the shipped value) and allocation.phase is off or shadow: nothing changes then.
-# ONE OWNER SWITCH (P1, "default only"): allocation.phase: live_default. The engine's fully invested D5-FI default trades (ai_trust is not
+# ONE OWNER SWITCH (P1, "default only"): allocation.phase: live_default (allocation.phase is the single source of truth; the legacy
+# `shadow:` key is read only when phase is absent). The engine's fully invested D5-FI default trades (ai_trust is not
 # used), the AI advice is only logged (ALLOC records). strategy.mode may stay v2_trend. phase: live additionally trades the AI tilt at
 # ai_trust. strategy.mode: v3_alloc with phase shadow (and shadow true) = the v2 decision trades, the v3 target is only logged.
 # ROLLBACK (one line each): allocation.phase: shadow (and strategy.mode v2_trend) -> exactly today's D5; phase: live_default -> fully invested
@@ -222,8 +223,6 @@ strategy:
 allocation:
   phase: shadow                  # off | shadow | live_default | live. shadow/off: v2 (D5) trades (v3 target only logged, and only under strategy.mode
                                  # v3_alloc). live_default: D5-FI trades fully invested, AI only logged. live: the AI tilt trades too (ai_trust)
-  shadow: true                   # legacy second switch, kept so older configs keep working: false with strategy.mode v3_alloc = live_default.
-                                 # allocation.phase wins when it is live_default or live
   invested_target: 0.98          # MINIMUM invested share; advice weights must sum to at least this minus 5 points
   invested_max: 1.00             # the engine aims for this: leftover cash is reinvested in whole units at every check
   ai_trust: 0.0                  # 0 = default only; 0.5 then 1.0 after the evals (design section 4.3)

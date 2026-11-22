@@ -150,15 +150,23 @@ def settings(p: Mapping | None = None) -> dict:
     Garbage values fall back to the default; the result always has every key."""
     raw = p.get("allocation") if isinstance(p, Mapping) and isinstance(p.get("allocation"), Mapping) else (
         p if isinstance(p, Mapping) and "invested_target" in p else None)
-    ph = str((raw or {}).get("phase", "shadow")).strip().lower()
-    ph = ph if ph in PHASES else "shadow"
-    # ONE owner switch: allocation.phase. off/shadow = the engine's own rules trade (v3 only logs, and only when strategy.mode is
-    # v3_alloc); live_default = D5-FI trades fully invested, AI advice only logged (trust 0); live = the AI tilt trades too.
-    # The older shadow: false (with strategy.mode v3_alloc) still means "v3 trades" and is read as live_default unless phase is live.
-    trading = ph in ("live_default", "live") or (raw or {}).get("shadow", True) is False
+    # ONE switch, one source of truth: allocation.phase. When it is present it alone decides (the legacy `shadow` key is ignored):
+    #   off / shadow  the engine's own rules trade (v3 only logs, and only under strategy.mode v3_alloc; off does not even log)
+    #   live_default  D5-FI trades fully invested, the AI advice is only logged (trust 0)
+    #   live          the AI tilt trades too, at ai_trust
+    # An unknown phase value is read as shadow (safe). Only when phase is ABSENT does the legacy `shadow: false` (with strategy.mode
+    # v3_alloc) mean "v3 trades", read as live_default.
+    has_phase = raw is not None and raw.get("phase") is not None
+    ph = str(raw["phase"]).strip().lower() if has_phase else ""
+    if has_phase:
+        ph = ph if ph in PHASES else "shadow"
+        trading = ph in ("live_default", "live")
+    else:
+        trading = (raw or {}).get("shadow", True) is False
+        ph = "live_default" if trading else "shadow"
     out = {
         "shadow": not trading,                                              # anything but an explicit switch stays shadow
-        "phase": "live" if ph == "live" else ("live_default" if trading else ph),
+        "phase": ph,
         "invested_target": _bound(raw, "invested_target", DEFAULTS["invested_target"], 0.0, 1.0),
         "ai_trust": _bound(raw, "ai_trust", DEFAULTS["ai_trust"], 0.0, 1.0),
         "ai_caps": _caps(raw, "ai_caps"),
@@ -616,6 +624,41 @@ def vol_guard(w: Mapping[str, float], cov, limit: float, gold_room: float, movab
     return w
 
 
+def vol_cut(w: Mapping[str, float], cov, limit: float, movable: Collection[str], fixed: Mapping[str, float] | None = None
+            ) -> dict[str, float]:
+    """Reduce the highest-volatility movable symbols (weight goes to cash) until the portfolio volatility is at or under `limit`,
+    or until none of them is left. Only ever lowers weights, so the volatility can only fall."""
+    w = dict(w)
+    fx = {s: _w((fixed or {}).get(s)) for s in SYMS}
+    pv = lambda x: port_vol({s: x.get(s, 0.0) + fx[s] for s in SYMS}, cov)      # noqa: E731
+    for s in sorted((x for x in movable if x in w and w[x] > EPS), key=lambda x: -_sigma(cov, x)):
+        cur = pv(w)
+        if cur is None or cur <= limit + 1e-12:
+            break
+        zero = dict(w, **{s: 0.0})
+        vz = pv(zero)
+        if vz is None or vz >= cur - 1e-15:           # cutting this one would not lower the volatility (a hedge): leave it
+            continue
+        if vz > limit:
+            w = zero
+            continue
+        lo, hi = 0.0, 1.0                       # fraction of the weight kept: hi is under the limit, lo is over
+        lo_w = w[s]
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            vm = pv(dict(w, **{s: lo_w * mid}))
+            if vm is not None and vm > limit:
+                hi = mid
+            else:
+                lo = mid
+        cand = dict(w, **{s: lo_w * lo})
+        vc = pv(cand)
+        if vc is not None and vc < cur:
+            w = cand
+        break
+    return w
+
+
 # ---------------------------------------------------------------- turnover ledger
 def _back_trading_days(d: date, n: int, prev_td: Callable[[date], date] | None) -> date:
     for _ in range(n):
@@ -651,6 +694,17 @@ def turnover_left(ledger: Mapping[str, float] | None, today: date, cfg: Mapping,
     cutoff = _back_trading_days(today, 4, prev_td)
     week = sum(v for d, v in led.items() if cutoff <= d <= today)
     return (max(0.0, cfg["max_turnover_day"] - led.get(today, 0.0)), max(0.0, cfg["max_turnover_week"] - week))
+
+
+def effective_credit(stored, cash_weight, level: int = 0, halted: bool = False) -> float:
+    """The re-invest credit that may be used now: what is stored (a share of the book from today's risk sells), never more than the
+    cash actually held, and zero at brake level 2 and under the account stop. Pure; garbage in means 0."""
+    if halted or (_num(level) or 0) >= 2:
+        return 0.0
+    c, cash = _num(stored), _num(cash_weight)
+    if c is None or cash is None:
+        return 0.0
+    return max(0.0, min(c, cash, 1.0))
 
 
 # ---------------------------------------------------------------- the clamp pipeline
@@ -693,10 +747,13 @@ class AllocResult:
 def _budget(x) -> float:
     """A turnover allowance: a finite number (negative counts as 0) or +inf for 'no limit'; anything else is 0."""
     if isinstance(x, (int, float)) and not isinstance(x, bool):
-        if x == math.inf:
-            return math.inf
-        if math.isfinite(x):
-            return max(0.0, float(x))
+        try:
+            if x == math.inf:
+                return math.inf
+            if math.isfinite(x):
+                return max(0.0, float(x))
+        except OverflowError:       # an integer too large for a float: positive = no limit, negative = nothing
+            return math.inf if x > 0 else 0.0
     return 0.0
 
 
@@ -758,7 +815,7 @@ def _brake(w: Mapping[str, float], syms: Sequence[str], level: int, halted: bool
     return dict(w)
 
 
-def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, confidence: float, current: Mapping[str, float],
+def _clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, confidence: float, current: Mapping[str, float],
           on: Mapping[str, bool], cfg: Mapping, cov=None, halve: Collection[str] = (), zero: Collection[str] = (),
           ineligible: Collection[str] = (), invalidated: Collection[str] = (), brake_level: int = 0, brake_mult: float = 0.5,
           halted: bool = False, day_left: float = math.inf, week_left: float = math.inf, underwater: bool = False,
@@ -878,8 +935,10 @@ def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, con
     capf = dict(cap)
     for s in zero:
         capf[s] = 0.0
-    avoid = bar | (invalidated & set(S))            # first pass: the leftover goes to symbols that may still be bought
-    t_fill = _fill(t, {s: (min(capf[s], t[s]) if s in avoid else capf[s]) for s in S}, fill_to, S)
+    avoid = bar | (invalidated & set(S))            # first pass: the leftover goes to symbols that may still be bought, and never
+    # lifts a symbol other than the GOLDBEES sink above its own default weight (no counter-trend silver / copper buys from a leftover)
+    first = {s: (min(capf[s], t[s]) if s in avoid else (capf[s] if s == SINK else min(capf[s], max(d[s], t[s])))) for s in S}
+    t_fill = _fill(t, first, fill_to, S)
     if sum(t_fill[s] for s in S) < fill_to - 1e-6 and (avoid - bar):
         t2 = _fill(t_fill, {s: (min(capf[s], t_fill[s]) if s in bar else capf[s]) for s in S}, fill_to, S)
         if sum(t2.values()) > sum(t_fill.values()) + EPS:
@@ -914,6 +973,17 @@ def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, con
         if abs(t_vol[s] - t[s]) > EPS:
             log("vol_guard", s, t[s], t_vol[s], f"portfolio volatility over {vlimit:.2f}: weight moved to GOLDBEES")
     t = t_vol
+    # GOLDBEES cannot take weight today (not bought today, no room) and the limit is still broken: reduce the riskiest symbols instead
+    # (the weight waits in cash, logged). The limit stays satisfiable whenever the sink alone fits under it.
+    vnow = port_vol(snap({**t, **frozen}), cov_eff)
+    sink_closed = SINK in bar or SINK in zero or SINK not in S or capf.get(SINK, 0.0) - t.get(SINK, 0.0) <= EPS
+    if vnow is not None and vnow > vlimit + 1e-9 and sink_closed:
+        t_cut = vol_cut(t, cov_eff, vlimit, [x for x in S if x != SINK], frozen)
+        for s in S:
+            if abs(t_cut[s] - t[s]) > EPS:
+                log("vol_guard_no_sink", s, t[s], t_cut[s], f"portfolio volatility over {vlimit:.2f} and GOLDBEES cannot be bought today: "
+                                                             "the riskiest symbols are reduced (the weight waits in cash)")
+        t = t_cut
     after_vol = snap(t)
     v_after = port_vol(snap({**t, **frozen}), cov_eff)
 
@@ -951,9 +1021,23 @@ def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, con
     delta = {s: f_t[s] - b[s] for s in S}
     P = sum(v for v in delta.values() if v > 0)
     N = -sum(v for v in delta.values() if v < 0)
-    cr = 0.0 if (halted or brake_level >= 2) else max(0.0, _budget(credit) if math.isfinite(_budget(credit)) else 0.0)
-    X = min(P, sumE + cr)
-    e = {s: (delta[s] * X / P if delta[s] > 0 and P > EPS else 0.0) for s in S}
+    cr = 0.0 if (halted or brake_level >= 2) else _budget(credit)               # may be inf (a huge number): bounded below
+    X_E = min(P, sumE)
+    e = {s: (delta[s] * X_E / P if delta[s] > 0 and P > EPS else 0.0) for s in S}
+    # The credit (cash from today's risk sells) re-funds only what the engine's own default would hold: any buy of the GOLDBEES sink,
+    # and a buy of another symbol only up to ITS default weight. It never lifts a metal above its default and never funds an AI tilt.
+    elig = {}
+    for s in S:
+        rem = delta[s] - e[s]
+        if rem > EPS:
+            elig[s] = rem if s == SINK else min(rem, max(0.0, d[s] - b[s]))
+    tot_el = sum(elig.values())
+    X_C = min(cr, tot_el) if tot_el > EPS else 0.0
+    if X_C > EPS:
+        for s, v in elig.items():
+            e[s] += v * X_C / tot_el
+    X = X_E + X_C
+    cr = min(cr, 1.0)
     D = max(P - X, N)                                       # one-way: the larger of the discretionary buys and sells
     budget = max(0.0, min(_budget(day_left), _budget(week_left)))
     lam = 1.0
@@ -997,3 +1081,29 @@ def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, con
         final=final, caps=snap(cap), clamps=clamps, baseline=snap(base), exempt_sell=sumE, discretionary_turnover=used,
         turnover_budget=budget, brake_level=int(brake_level), halted=bool(halted), vol_before=v_before, vol_after=v_after,
         credit=cr, exempt_buy=X, cov_source=cvsrc)
+
+
+def clamp(*, default: Mapping[str, float], advice: Mapping[str, Any] | None, confidence: float, current: Mapping[str, float],
+          on: Mapping[str, bool], cfg: Mapping, **kw) -> AllocResult:
+    """The pipeline (see _clamp for the arguments). Total: if anything in it ever raises (an overflow from a huge number, a bad
+    type), the result is the engine's own repaired default (no AI, no credit, no turnover shaping), zero under the account stop or
+    brake level 2, with a `clamp_failed` note. The engine then trades what v2 would have traded, never an exception."""
+    try:
+        return _clamp(default=default, advice=advice, confidence=confidence, current=current, on=on, cfg=cfg, **kw)
+    except Exception as e:      # noqa: BLE001
+        stop = bool(kw.get("halted")) or (_num(kw.get("brake_level")) or 0) >= 2
+        top = _num(cfg.get("invested_max")) if isinstance(cfg, Mapping) else None
+        top = 1.0 if top is None else _clip(top, 0.0, 1.0)
+        d = {s: _w(default.get(s)) if isinstance(default, Mapping) else 0.0 for s in SYMS}
+        tot = sum(d.values())
+        if tot > top and tot > 0:
+            d = {s: v * top / tot for s, v in d.items()}
+        if stop:
+            d = {s: 0.0 for s in SYMS}
+        z = {s: 0.0 for s in SYMS}
+        stages = {k: dict(d) for k in ("after_tilt", "after_caps", "after_fill", "after_vol", "after_brake", "after_turnover")}
+        return AllocResult(default=dict(d), proposal=None, confidence=0.0, k=0.0, advice_source="none", stages=stages, final=dict(d),
+                           caps=dict(z), clamps=[{"rule": "clamp_failed", "sym": "ALL", "from": None, "to": None,
+                                                  "why": f"the allocation pipeline failed ({type(e).__name__}): the default runs"}],
+                           baseline=dict(d), exempt_sell=0.0, discretionary_turnover=0.0, turnover_budget=0.0,
+                           brake_level=int(_num(kw.get("brake_level")) or 0), halted=bool(kw.get("halted")))

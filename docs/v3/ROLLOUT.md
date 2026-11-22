@@ -48,7 +48,7 @@ The only step left to the owner after merge is the go-live flip: the commit that
    of hourly.md scheduled after go-live.
 4. Turn `routines/hourly.md` into the 3-line pointer if wanted, and update `tests/test_routine_permissions.py`
    (`test_the_afternoon_dispatch_is_skipped_when_a_run_is_waiting` reads hourly.md for the 12:15 afternoon dispatch rule) in the same commit.
-5. Commit `allocation.phase: live_default` (one line). Before that, optionally raise `allocation.ramp_turnover_day/week` (default 0.20/0.40) if a faster ramp-in from cash is wanted.
+5. Commit `allocation.phase: live_default` (one line; set `strategy.mode: v3_alloc` in the same commit until the routines' MODE command reads the mode through `simgold.config`, see `docs/v3/ALLOCATION_SCHEMA.md`). Before that, optionally raise `allocation.ramp_turnover_day/week` (default 0.20/0.40) if a faster ramp-in from cash is wanted.
 
 ## Rollback (one line each, owner commit; nothing else needs to change)
 

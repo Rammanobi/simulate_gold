@@ -650,10 +650,108 @@ def test_settings_new_keys_and_the_single_phase_switch():
                               ("shadow", True, "shadow"), ("LIVE_DEFAULT ", False, "live_default"), ("nonsense", True, "shadow")):
         x = A.settings({"allocation": {"phase": ph}})
         assert (x["shadow"], x["phase"]) == (shadow, phase), ph
-    assert A.settings({"allocation": {"phase": "shadow", "shadow": False}})["phase"] == "live_default"       # legacy two-key form
+    assert A.settings({"allocation": {"phase": "shadow", "shadow": False}})["shadow"] is True               # phase present: it decides
+    assert A.settings({"allocation": {"shadow": False}})["phase"] == "live_default"                         # phase absent: the legacy key
     assert A.settings({"allocation": {"phase": "live_default", "shadow": True}})["shadow"] is False        # the single switch wins
     assert A.settings({"allocation": {"ramp_turnover_day": "x", "dust_week": 9}})["ramp_turnover_day"] == 0.20
     assert A.settings({"allocation": {"dust_week": 9}})["dust_week"] == 1.0
+
+
+# ------------------------------------------------------------------ review of PR 73 (B2 to B5, O4, O5)
+def test_a_blocked_symbol_never_pushes_weight_into_counter_trend_metals():
+    """B2: gold cannot be bought today. The leftover must not lift silver or copper above their own default weight; it waits as cash."""
+    d = mix(0.5, 0.2, 0.1)
+    r = run(d, None, current=mix(0.2, 0.2, 0.1), cfg=cfg(ai_trust=0.0), no_add=[G])
+    assert r.final[G] == pytest.approx(0.2) and r.final[S] <= 0.2 + 1e-9 and r.final[C] <= 0.1 + 1e-9
+    assert sum(r.final.values()) < 0.55
+    # all three blocked: nothing is bought at all
+    r3 = run(mix(0.5, 0.3, 0.2), None, current=mix(0.0), cfg=cfg(ai_trust=0.0), no_add=[G, S, C])
+    assert all(v == pytest.approx(0.0, abs=1e-9) for v in r3.final.values())
+    # silver blocked: its weight goes to the sink (gold), never to copper above its default
+    r2 = run(mix(0.5, 0.3, 0.2), None, current=mix(0.5, 0.0, 0.2), cfg=cfg(ai_trust=0.0), no_add=[S])
+    assert r2.final[C] <= 0.2 + 1e-9 and r2.final[G] > 0.5
+
+
+def test_credit_only_refunds_the_default_never_a_tilt_or_another_metal_above_default():
+    """B3: cash from a fast-lane gold sell is not a licence to buy silver or copper above their default weight."""
+    d = mix(0.5, 0.3, 0.2)
+    cur = mix(0.1, 0.3, 0.2)                                   # gold was sold: 40 points of cash
+    adv = mix(0.1, 0.6, 0.3)                                   # the AI wants a lot more silver and copper
+    base = run(d, adv, conf=0.8, current=cur, cfg=cfg(ai_trust=1.0, max_tilt=0.3), day_left=0.2, week_left=0.4, no_add=[G])
+    cr = run(d, adv, conf=0.8, current=cur, cfg=cfg(ai_trust=1.0, max_tilt=0.3), day_left=0.2, week_left=0.4, credit=0.4, no_add=[G])
+    assert cr.exempt_buy == pytest.approx(0.0, abs=1e-9)            # gold is blocked and silver / copper are already at their default
+    for s in (S, C):
+        assert cr.final[s] == pytest.approx(base.final[s], abs=1e-9), s
+    cr2 = run(d, adv, conf=0.8, current=cur, cfg=cfg(ai_trust=1.0, max_tilt=0.3), day_left=0.2, week_left=0.4, credit=0.4)
+    assert cr2.final[G] > base.final[G]                        # the sink is re-bought with the credit
+    assert cr2.exempt_buy <= 0.4 + 1e-9 and cr2.credit == pytest.approx(0.4)
+
+
+def test_property_credit_never_lifts_a_non_sink_metal_above_default_or_its_uncredited_weight():
+    """Without an AI tilt (trust 0) the credit can only re-fund the default: silver and copper never end above max(without credit, default)."""
+    rng = np.random.default_rng(99)
+    for _ in range(3000):
+        d = _rand_simplex(rng, 1.0)
+        cur = _rand_simplex(rng, 1.0)
+        adv = None if rng.random() < 0.3 else {s: float(rng.random()) for s in A.SYMS}
+        kw = dict(default=d, advice=adv, confidence=float(rng.random()), current=cur, on={s: bool(rng.random() < 0.7) for s in A.SYMS},
+                  cfg=cfg(ai_trust=0.0, max_turnover_day=float(rng.uniform(0, 0.4)), max_turnover_week=1.0),
+                  cov=CALM, day_left=float(rng.uniform(0, 0.3)), week_left=float(rng.uniform(0, 0.5)),
+                  no_add={s for s in A.SYMS if rng.random() < 0.15})
+        a = A.clamp(**kw)
+        b = A.clamp(credit=float(rng.uniform(0, 1)), **kw)
+        for s in (S, C):
+            assert b.final[s] <= max(a.final[s], a.default[s]) + 1e-7, (s, b.final, a.final, a.default)
+        assert sum(b.final.values()) <= max(1.0, sum(cur.values())) + 1e-7
+
+
+def test_vol_guard_when_gold_cannot_be_bought_reduces_the_riskiest_and_says_so():
+    """B5: with GOLDBEES blocked the guard used to return unchanged. It now cuts the riskiest symbols (logged) and keeps the limit."""
+    risky = mix(0.0, 0.5, 0.5)
+    r = run(risky, None, cov=COV, current=risky, cfg=cfg(ai_trust=0.0, max_port_vol=0.30), no_add=[G])
+    assert A.port_vol(r.final, COV) <= 0.30 + 1e-6
+    assert any(c["rule"] == "vol_guard_no_sink" for c in r.clamps)
+    assert r.final[G] == pytest.approx(0.0) and sum(r.final.values()) < 0.9      # reduced, the weight waits in cash
+    # without the block the same book rotates into gold and keeps full investment
+    ok = run(risky, None, cov=COV, current=risky, cfg=cfg(ai_trust=0.0, max_port_vol=0.30))
+    assert A.port_vol(ok.final, COV) <= 0.30 + 1e-6 and sum(ok.final.values()) == pytest.approx(1.0, abs=1e-6)
+    # the cut only ever lowers the volatility (a hedging symbol is left alone)
+    hedge = {G: {G: 0.04, S: -0.03, C: 0.0}, S: {G: -0.03, S: 0.09, C: 0.0}, C: {G: 0.0, S: 0.0, C: 0.09}}
+    w = A.vol_cut(mix(0.3, 0.5, 0.2), hedge, 0.1, [S, C])
+    assert A.port_vol(w, hedge) <= A.port_vol(mix(0.3, 0.5, 0.2), hedge) + 1e-12
+
+
+def test_huge_numbers_and_internal_failures_never_raise_out_of_clamp():
+    """O4: OverflowError from a huge integer, or any other failure, returns the repaired default with a clamp_failed note or a normal result."""
+    d = mix(0.6, 0.3, 0.1)
+    for kw in ({"credit": 10 ** 400}, {"day_left": 10 ** 500}, {"week_left": -10 ** 500}, {"credit": -10 ** 400, "day_left": 10 ** 400},
+               {"brake_mult": 10 ** 400}):
+        r = run(d, None, current=mix(0.0), **kw)
+        assert all(math.isfinite(v) and v >= 0 for v in r.final.values()) and sum(r.final.values()) <= 1.0 + 1e-9, kw
+    r = A.clamp(default=d, advice=None, confidence=0.0, current=5, on={}, cfg=cfg())            # a broken input: the fallback
+    assert r.final == pytest.approx(d) and r.clamps[0]["rule"] == "clamp_failed" and r.exempt_buy == 0.0
+    stop = A.clamp(default=d, advice=None, confidence=0.0, current=5, on={}, cfg=cfg(), halted=True)
+    assert all(v == 0 for v in stop.final.values())
+
+
+@pytest.mark.parametrize("stored,cash,level,halted,want", [
+    (0.30, 0.10, 0, False, 0.10),             # never more than the cash held
+    (0.30, 0.50, 0, False, 0.30), (0.30, 0.0, 0, False, 0.0), (0.30, 0.50, 2, False, 0.0), (0.30, 0.50, 0, True, 0.0),
+    (0.30, 0.50, 1, False, 0.30), (-1.0, 0.5, 0, False, 0.0), (float("nan"), 0.5, 0, False, 0.0), (10 ** 400, 0.5, 0, False, 0.0),
+    (5.0, 5.0, 0, False, 1.0), ("x", 0.5, 0, False, 0.0), (None, 0.5, 0, False, 0.0), (0.3, None, 0, False, 0.0)])
+def test_effective_credit_is_bounded_by_cash_and_zero_under_the_deep_brake(stored, cash, level, halted, want):
+    assert A.effective_credit(stored, cash, level, halted) == pytest.approx(want)
+
+
+def test_property_effective_credit_random():
+    rng = np.random.default_rng(5)
+    for _ in range(5000):
+        stored, cash = float(rng.uniform(-0.2, 1.5)), float(rng.uniform(-0.1, 1.2))
+        lvl, halted = int(rng.choice([0, 1, 2])), bool(rng.random() < 0.1)
+        e = A.effective_credit(stored, cash, lvl, halted)
+        assert 0.0 <= e <= 1.0 and e <= max(cash, 0.0) + 1e-12 and e <= max(stored, 0.0) + 1e-12
+        if lvl >= 2 or halted:
+            assert e == 0.0
 
 
 def test_fallback_end_to_end_default_trades_when_advice_is_unusable():

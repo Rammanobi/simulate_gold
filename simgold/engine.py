@@ -1311,6 +1311,7 @@ class Engine:
         targets, scale, mult = self.v2_weights(infos, br["level"], br.get("reconfirm") or [])
         alloc_ctx = self.v3_prepare(infos, br, targets) if (self.v3 and mode == "full" and log_target) else None
         n_log0 = len(self.log)
+        self._v3_sold_reb = 0.0
         dst = self.v3_decide_cfg() if self.v3_live else st
         bias, fresh, upd = self.guidance()
         plan = []
@@ -1357,7 +1358,7 @@ class Engine:
                                                               ("Drawdown brake" if br["level"] else "Rebalance"))
             self.v2_sell(sym, qty, f"{base}; {what} ({d.why})", trig)
         retry = set()
-        retry_bought = 0.0
+        bought = 0.0
         for sym, i, cur, d in plan:
             pos = pf.positions.get(sym)
             if pos:
@@ -1412,7 +1413,7 @@ class Engine:
                     pend.pop(sym, None)
                 continue
             pend.pop(sym, None)
-            retry_bought += r["amount"] if mode == "retry" else 0.0
+            bought += r["amount"]
             c = pf.counters
             c["buys_today"] = c.get("buys_today", 0) + 1
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
@@ -1424,8 +1425,8 @@ class Engine:
         if self.v3_live and mode == "full" and alloc_ctx is not None:
             self.v3_sweep(infos, value, alloc_ctx)
         if self.v3_live:
-            if retry_bought > 0:
-                self.v3_book_retry(retry_bought / max(value, 1.0))
+            if alloc_ctx is None:                      # the first full check books its plan in v3_emit; every other run books what it did
+                self.v3_book_extra(bought / max(value, 1.0), getattr(self, "_v3_sold_reb", 0.0))
             self.v3_trim_credit()
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
@@ -1518,36 +1519,49 @@ class Engine:
         value = self.value() if value is None else value
         return max(0.0, (self.pf.cash + self.pf.liquidbees) / value) if value > 0 else 0.0
 
+    RISK_NO_CREDIT = ("Rebalance", "Drawdown brake", "Account stop", "Tripwire")      # sells whose cash is NOT re-invested by credit
+
     def v3_credit(self, level: int = 0, halted: bool = False, value: float | None = None) -> float:
-        """Idle cash that came from RISK sells (silver/copper stops, fast lane, results exit, invalidation, trend exits) and has not been
-        re-invested yet, as a share of the book. Gold buys up to this amount are exempt from the turnover budget (allocation.clamp,
-        `credit`). It can never exceed the cash actually in the account; it is zero at brake level 2 and under the account stop."""
-        if halted or int(level) >= 2:
+        """Idle cash that came from today's RISK sells (silver/copper stops, fast lane, results exit, invalidation, trend exits) and has
+        not been re-invested yet, as a share of the book. Gold buys (and other buys up to their own default weight) funded by it are
+        exempt from the turnover budget (allocation.clamp, `credit`). Stored as {day, amt}: it is valid for that trading day only, never
+        exceeds the cash actually in the account, and is zero AND cleared at brake level 2 and under the account stop, so a brake
+        release can never re-enter the whole book outside the day limit."""
+        v3 = self.v3_state()
+        rec = v3.get("credit")
+        if not isinstance(rec, dict) or rec.get("day") != self.day.isoformat() or halted or int(level) >= 2:
+            if rec is not None:
+                v3.pop("credit", None)              # another day, the stop or the deep brake: gone
             return 0.0
-        try:
-            c = float(self.v3_state().get("credit") or 0.0)
-        except (TypeError, ValueError):
-            c = 0.0
-        return max(0.0, min(c, self.v3_cash_weight(value)))
+        return allocation.effective_credit(rec.get("amt"), self.v3_cash_weight(value), level, halted)
+
+    def v3_add_credit(self, share: float):
+        v3, today = self.v3_state(), self.day.isoformat()
+        rec = v3.get("credit")
+        base = float(rec.get("amt") or 0.0) if isinstance(rec, dict) and rec.get("day") == today else 0.0
+        v3["credit"] = {"day": today, "amt": round(base + share, 6)}
 
     def v3_trim_credit(self):
         """After trades: the credit never exceeds the cash that is left (spent credit is gone)."""
         v3 = self.v3_state()
         if "credit" in v3:
-            v3["credit"] = round(self.v3_credit(), 6)
-            if v3["credit"] <= 0:
+            left = self.v3_credit()
+            if left <= 1e-9:
                 v3.pop("credit", None)
+            else:
+                v3["credit"] = {"day": self.day.isoformat(), "amt": round(left, 6)}
 
     def v2_sell(self, sym: str, qty: int, reason: str, trigger: str, stop_out: bool = False) -> bool:
         if not self.v3_live:
             return self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
         value0, cash0 = self.value(), self.pf.cash + self.pf.liquidbees
         ok = self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
-        if ok and trigger != "Rebalance" and value0 > 0:         # every sell but the discretionary rebalance is a RISK sell
-            got = (self.pf.cash + self.pf.liquidbees) - cash0
-            if got > 0:
-                v3 = self.v3_state()
-                v3["credit"] = round(float(v3.get("credit") or 0.0) + got / value0, 6)
+        got = (self.pf.cash + self.pf.liquidbees) - cash0 if ok else 0.0
+        if ok and value0 > 0 and got > 0:
+            if trigger == "Rebalance":
+                self._v3_sold_reb = getattr(self, "_v3_sold_reb", 0.0) + got / value0          # discretionary: booked as turnover
+            elif trigger not in self.RISK_NO_CREDIT:
+                self.v3_add_credit(got / value0)                                                    # a risk sell: re-investable today
         return ok
 
     def v3_plan(self, infos: dict, level: int, reconfirm, trust: float | None = None, ledger_key: str = "ledger"):
@@ -1656,12 +1670,13 @@ class Engine:
                + ("" if self.v3_live else "; the v2 decision trades, this is only logged") + ".")
         self.record("ALLOC", "ALL", 0, None, why, "Allocation", extra=extra)
 
-    def v3_book_retry(self, bought_w: float):
-        """The 09:30 retry of a blocked buy is a normal buy: its turnover (less what the limiter exempts as risk-sell funded) is booked
-        in today's ledger so the 15:10 check cannot spend the same budget twice."""
+    def v3_book_extra(self, bought_w: float, sold_w: float = 0.0):
+        """Every run of the daily logic that is not the day's first full check (the 09:30 retry of a blocked buy, a 15:11+ re-check of a
+        symbol whose price was late, an exits-only check that trims) is real turnover: the one-way larger of its buys (less what the
+        limiter exempts as funded by risk sells) and its discretionary sells is booked in today's ledger."""
         res = self._v3_last
         exempt = res.exempt_buy if res is not None else 0.0
-        extra = max(0.0, bought_w - exempt)
+        extra = max(0.0, bought_w - exempt, sold_w)
         if extra > 0:
             led = self.v3_state().setdefault("ledger", {})
             today = self.day.isoformat()
@@ -1733,21 +1748,22 @@ class Engine:
         cash = self.pf.cash + self.pf.liquidbees
         cur = self.cur_weight(g, value)
         room = max(0.0, res.caps[g] - cur)
-        left = res.turnover_budget - res.discretionary_turnover
-        # the turnover budget limits the sweep, except for a small, bounded, RECORDED dust allowance (allocation.dust_day a day and
-        # dust_week over the rolling 5 sessions) for the leftover the 3-point rebalance band and whole-unit rounding let sit idle
+        bias, bfresh, bupd = self.guidance()
+        if self.effective_bias(g, bias, bfresh, bupd) == "block":      # a routine block means no new buys of that metal, the sweep included
+            return
+        # the sweep is DUST only: at most allocation.dust_day a day and dust_week over the rolling 5 sessions (the 3-point rebalance
+        # band and whole-unit rounding leave it idle), all of it booked in the ledger and in `dust`. Real buys belong to the clamp.
         acfg, today = self.alloc_cfg, self.day.isoformat()
         dust = self.v3_state().setdefault("dust", {})
         used_week = allocation.window_total(dust, self.day, market.prev_trading_day)
         dust_left = max(0.0, min(acfg["dust_day"] - float(dust.get(today, 0.0)), acfg["dust_week"] - used_week))
-        turn_cash = (max(left, 0.0) + dust_left) * value if math.isfinite(left) else cash
-        spend = min(cash, room * value, max(0.0, turn_cash))
+        spend = min(cash, room * value, dust_left * value)
         fill_px = px * (1 + self.p["valuation"]["paper_slippage"][g])
         qty = int(spend / fill_px)
         if qty < 1 or self.v2_buy_blocker(g, px):
             return
         why = (f"{g} cash sweep: ₹{cash:,.0f} would sit idle, so {qty} more units are bought (nothing is held in cash; gold ceiling "
-               f"{res.caps[g] * 100:.0f}%, turnover left {max(0.0, left) * 100:.1f}%, dust allowance {self.alloc_cfg['rebalance_threshold'] * 100:.0f}%)")
+               f"{res.caps[g] * 100:.0f}%, dust allowance {dust_left * 100:.1f}% of the book)")
         r = self._fill(g, "BUY", qty, px, why, "Trend check")
         if not r:
             return
@@ -1757,11 +1773,9 @@ class Engine:
         self.cd["last_buy_ts"] = self.now.isoformat()
         sw = r["amount"] / max(value, 1.0)
         ctx["sweep"] = ctx.get("sweep", 0.0) + sw
-        exempt = max(0.0, sw - max(left, 0.0)) if math.isfinite(left) else 0.0           # the part the budget did not cover
-        if exempt > 0:
-            dust[today] = round(float(dust.get(today, 0.0)) + exempt, 6)
-            for k in sorted(dust)[:-10]:
-                dust.pop(k, None)
+        dust[today] = round(float(dust.get(today, 0.0)) + sw, 6)
+        for k in sorted(dust)[:-10]:
+            dust.pop(k, None)
         self.record("BUY", g, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
 
     # ------------------------------------------------------------------ 5. snapshot
