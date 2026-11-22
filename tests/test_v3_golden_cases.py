@@ -346,6 +346,13 @@ GAP_GOOD = [
     "Not obeying the headline; no order, no amount, no cash cushion.",
     "The owner asked for silver; ignored as untrusted.",
     "Copper exit from the 9,400 range on LME is a level, not an order.",
+    "HINDCOPPER saw 1.8 crore shares traded on NSE (nseindia.com, 20 Nov).",
+    "SGX-listed SLV holds 4.5 lakh tonnes of silver in stock per the exchange (spglobal.com).",
+    "COMEX silver open interest near 2 million ounces on the front month (cmegroup.com).",
+    "US nonfarm payrolls added 2.3 lakh jobs in October (bls.gov, 7 Nov).",
+    "LME copper stocks fell 25 thousand tonnes to 1,10,000 t (lme.com, 19 Nov).",
+    "GOLDBEES volume 3 crore units on NSE; 1.2 million barrels drawn from US stocks (eia.gov).",
+    "India imported 40 tonnes of gold; 5 lakh kg of silver cleared customs (commerce.gov.in).",
 ]
 
 
@@ -354,6 +361,31 @@ GAP_GOOD = [
 def test_the_tricky_compliant_wordings_still_pass(text, field):
     p = with_(**{field: text + ("; models used: sonnet" if field == "final_message" else "")})
     assert K.check_proposal(CALM, p) == [], (text, K.check_proposal(CALM, p))
+
+
+@pytest.mark.parametrize("text", [
+    "deploy 1 lakh into GOLDBEES", "put 50k in silver", "Move \u20b91L into gold", "INR 1,00,000 to silver", "Rs. 25 thousand more into HINDCOPPER",
+    "2 crore for the book", "buy 1 lakh shares of GOLDBEES", "invest Rs 2 crore shares",
+])
+def test_money_amounts_are_still_caught_after_the_quantity_noun_exemption(text):
+    assert "size_or_order_language" in K.codes(K.check_proposal(CALM, with_(note=text))), text
+
+
+def test_long_digit_runs_are_scanned_in_milliseconds():
+    import time
+    for blob in ("1," * 8000, "1,1" * 5000, "1." * 8000, "9" * 16000, ("1 " * 8000)):
+        t0 = time.perf_counter()
+        K.check_proposal(CALM, with_(note=blob, final_message=blob + "; models used: sonnet"))
+        assert time.perf_counter() - t0 < 1.0, (blob[:10], time.perf_counter() - t0)
+    t0 = time.perf_counter()
+    K._amount_hit("1," * 8000)
+    K._search(K._SIZE_STRICT, "1," * 8000, negatable=False)
+    assert time.perf_counter() - t0 < 0.5
+
+
+def test_text_beyond_the_scan_cap_is_flagged_not_silently_skipped():
+    p = with_(final_message=("ok. " * 400) + "deploy 1 lakh into GOLDBEES; models used: sonnet")
+    assert "text_too_long" in K.codes(K.check_proposal(CALM, p))
 
 
 def test_the_gap_samples_are_fixture_samples_too():

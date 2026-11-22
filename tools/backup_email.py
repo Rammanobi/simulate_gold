@@ -16,7 +16,7 @@ hand with workflow_dispatch force_backup. It:
 Safety (enforced here, tested in tests/test_backup_email.py):
   * exactly one recipient, REPORT_EMAIL; refused if empty or containing a comma, semicolon, whitespace or newline;
   * subject = the normal subject + " · backup (Claude unavailable)", and it must start with "Metals Daybook";
-  * the password and the addresses are never printed (the recipient is shown masked, e.g. r***@gmail.com);
+  * the password and the addresses are never printed (the recipient is shown fully masked, e.g. r***@***: first letter only, the domain is never printed);
   * env: SMTP_USER (sending Gmail address), SMTP_APP_PASSWORD (a Gmail app password), REPORT_EMAIL.
 Exit codes: 0 sent (or dry run built), 2 refused configuration, 1 SMTP failure.
 """
@@ -48,12 +48,12 @@ class Refused(Exception):
 
 
 def mask(addr: str) -> str:
-    """r***@gmail.com style; anything that is not one plain address is shown as '(invalid)'."""
+    """r***@*** style (the domain is hidden too, so a public Actions log never shows a letter plus the domain); anything that is not one plain address is shown as '(invalid)'."""
     a = (addr or "").strip()
     if not ADDRESS.match(a):
         return "(invalid)"
-    local, domain = a.split("\x40", 1)
-    return f"{local[0]}***\x40{domain}"
+    local = a.split("\x40", 1)[0]
+    return f"{local[0]}***\x40***"
 
 
 def check_recipient(addr: str | None) -> str:

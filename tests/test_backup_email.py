@@ -77,7 +77,7 @@ def test_subject_keeps_prefix_and_adds_backup_suffix():
 
 
 def test_mask_hides_the_address():
-    assert BE.mask(f"rammanobi{AT}gmail.com") == f"r***{AT}gmail.com"
+    assert BE.mask(f"rammanobi{AT}gmail.com") == f"r***{AT}***"
     assert BE.mask("") == "(invalid)" and BE.mask(f"a{AT}x.com,b{AT}y.com") == "(invalid)"
 
 
@@ -108,7 +108,7 @@ def test_run_sends_once_to_exactly_one_recipient_and_never_prints_secrets(tmp_pa
     # an ASCII-only body gets a final newline from the MIME layer, so compare without trailing newlines
     assert msg.get_body(("plain",)).get_content().rstrip("\n") == (root / "reports" / "daily" / f"{DAY}.txt").read_text(encoding="utf-8").rstrip("\n")
     out = "\n".join(said)
-    assert PW not in out and TO not in out and USER not in out and f"o***{AT}example.com" in out
+    assert PW not in out and TO not in out and USER not in out and f"o***{AT}***" in out and "example.com" not in out
 
 
 def test_dry_run_builds_but_does_not_send(tmp_path):

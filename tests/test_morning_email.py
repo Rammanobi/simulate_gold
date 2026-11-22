@@ -147,6 +147,7 @@ def test_happy_path_one_send_marker_and_no_secrets_in_output(root):
     assert json.loads((root / ME.MARKER).read_text())["date"] == DAY
     assert any("--kind" in c and "morning" in c and DAY in c for c in runner.calls)
     assert PW not in out and TO not in out and USER not in out
+    assert f"o***{AT}***" in out and "example.com" not in out          # the log never shows a letter plus the domain
     assert go(root, runner=runner)[0] == 0 and len(FakeSMTP.instances) == 1          # second run: once per day
 
 

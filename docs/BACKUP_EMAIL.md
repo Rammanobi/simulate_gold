@@ -22,7 +22,7 @@ GitHub may be late, and any run after 16:30 qualifies because the tool uses real
   (plain text, every number checked against the facts) is put in a labelled banner at the top. If DeepSeek fails,
   the deterministic report still goes.
 - `state/report_retry.json` then gets the status `backup_sent`, so it is never sent twice.
-- Addresses and the password are never printed or committed; logs show the recipient masked (first letter + `***`).
+- Addresses and the password are never printed or committed; logs show the recipient fully masked (first letter + `***` + `@***`; the domain is never shown).
 
 ## Owner steps (one time)
 

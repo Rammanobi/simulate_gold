@@ -87,10 +87,10 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
 - **What other code sees (`strategy.mode` for tools and routines).** `simgold.config.load_params()` loads a `v2_trend` config whose phase
   is `live_default` or `live` as `strategy.mode: v3_alloc`, so `tools/context.py`, `tools/desk.py` and any command that reads the mode
   through `simgold.config` see `v3_alloc` plus the phase. A command that reads `config/params.yaml` with `yaml.safe_load` directly still
-  prints the raw `v2_trend`; the routines' MODE command must use the loader instead:
-  `python -c "from simgold import config;c=config.load_params();a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'),(a.get('desks') or {}).get('fanout'),a.get('invested_target'))"`
-  (same output format). Until the playbooks use it, the safe go-live commit sets BOTH `allocation.phase: live_default` and
-  `strategy.mode: v3_alloc`.
+  prints the raw `v2_trend`; the routines' MODE command is `python tools/mode.py` (PR #75; `--full` adds AI_TRUST, FANOUT and INVESTED_TARGET). It
+  applies the same mapping itself when the loader has not, so its output is identical either way. The phase alone suffices: `allocation.phase:
+  live_default` (or `live`) with `strategy.mode: v2_trend` is mapped to `v3_alloc` by `simgold.config.load_params` and by `tools/mode.py`, so the
+  safe go-live commit sets only the phase; there is no need to also set `strategy.mode: v3_alloc`.
 - **Idle cash after risk sells (credit).** Every sell except the discretionary Rebalance, the brake sells, the account stop and the v1 tripwire
   adds its proceeds, as a share of the book, to `v3.credit = {day, amt}`. It is valid for that trading day only, never exceeds the cash in
   the account, and is zero and deleted at brake level 2 and under the account stop (so a brake release re-enters under the normal day
