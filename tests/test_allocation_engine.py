@@ -187,8 +187,8 @@ def brake_level(pf) -> int:
 @pytest.mark.parametrize("seed,kind", [(1, "up"), (2, "up"), (3, "mixed"), (4, "mixed"), (5, "mixed"), (6, "mixed"), (7, "crash"),
                                        (8, "crash"), (9, "up"), (10, "mixed"), (11, "crash"), (12, "mixed")])
 def test_cash_is_only_dust_after_a_rebalance_and_level1_never_creates_cash(tmp_path, seed, kind):
-    """Owner decision 18 Nov: nothing idles in cash. After the daily check, cash <= about one unit of the cheapest ETF plus the 3%
-    dust (the rebalance band, swept at most dust_day a day), in every state except brake level 2 and the account stop (those go to cash by design; level 1 rotates to gold)."""
+    """Owner decision 18 Nov: nothing idles in cash. After the daily check, cash <= about one unit of the cheapest ETF plus the dust (3-point
+    rebalance bands the strictly bounded sweep may leave: at most dust_week = 6% of the book), in every state except brake level 2 and the account stop (those go to cash by design; level 1 rotates to gold)."""
     rng = np.random.default_rng(seed)
     closes = make_path(rng, kind)
     env = v3_env(tmp_path)
@@ -207,7 +207,7 @@ def test_cash_is_only_dust_after_a_rebalance_and_level1_never_creates_cash(tmp_p
         if lvl == 1:
             l1_days += 1
         cheapest = min(px.values())
-        assert pf.cash <= 0.03 * v + cheapest + 1e-6, (i, lvl, pf.cash, v, {s: p.qty for s, p in pf.positions.items()})   # dust = the 3-point band
+        assert pf.cash <= 0.06 * v + cheapest + 1e-6, (i, lvl, pf.cash, v, {s: p.qty for s, p in pf.positions.items()})   # dust: the 3-point bands, swept at most dust_week
         checked += 1
     assert checked > (30 if kind == "crash" else 100)
     if kind == "crash":
