@@ -12,10 +12,11 @@ import datetime as dt
 import html as _html
 import json
 import re
+import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-from simgold import budget, config, holdings as holdings_mod, trend
+from simgold import budget, config, holdings as holdings_mod, reportblocks, trend
 from simgold.summary import money_summary, read_archive
 from simgold.inboxlink import INBOX_LABEL, daily_item_id, inbox_link
 
@@ -748,6 +749,10 @@ def build_day(date: str, root: Path, holiday: str | None = None) -> dict:
     except Exception:          # the weekly line is extra; never fail the report over it
         pass
     add_compact_data(day, date, root)
+    try:       # optional blocks (India price gap, default vs AI vs executed, paper twins): each only when its data exists
+        reportblocks.attach(day, date, root)
+    except Exception:          # noqa: BLE001 - never fail the report over them
+        pass
     try:
         gap = _unrecorded_gap(date, root, day)
         if gap:
@@ -2200,6 +2205,16 @@ def compact_model(day: dict, report_url: str | None = None, inbox_url: str | Non
     if day.get("thrift"):
         foot.append("thrift")
     m["footer"] = " · ".join(foot)
+    for key, src, fn in (("pricegap", "pricegap_view", lambda v: {"chips": reportblocks.pricegap_chips(v), "note": reportblocks.pricegap_note(v)}),
+                         ("alloc", "alloc_view", lambda v: {"title": reportblocks.alloc_title(v), "rows": reportblocks.alloc_rows(v), "footer": reportblocks.alloc_footer(v)}),
+                         ("twins", "twins_view", lambda v: {"title": reportblocks.twins_title(v), "rows": [reportblocks.twins_cells(r) for r in v["rows"]]})):
+        try:        # an optional block: any problem hides it, never the email
+            if day.get(src):
+                blk = fn(day[src])
+                if blk.get("chips", blk.get("rows")):
+                    m[key] = blk
+        except Exception as e:  # noqa: BLE001
+            print(f"report: {key} block hidden ({type(e).__name__}: {e})", file=sys.stderr)
     return m
 
 
@@ -2421,6 +2436,40 @@ def _footer_html(m: dict) -> str:
     return _block(btn + ib + f'<div style="font-size:13px;line-height:19px;color:#6b7280;padding-top:10px;font-family:{FONT};">{esc(m["footer"])}</div>')
 
 
+def _gap_html(b: dict) -> str:
+    return _block(_wrapt(_section_title("INDIA PRICE GAP")) + f'<div style="padding-top:8px;">{_chips_html([(t, tone) for t, tone in b["chips"]])}</div>'
+                  f'<div style="font-size:13px;line-height:19px;color:#6b7280;font-family:{FONT};">{esc(b["note"])}</div>')
+
+
+def _grid_html(head: list[str], rows: list[tuple]) -> str:
+    """A small left-aligned-first-column table: tables + inline styles only, every cell 13 px or larger."""
+    def cell(t, first=False, bold=False, color="#1f2937"):
+        al = "left" if first else "right"
+        return f'<td align="{al}" style="padding:4px 0;font-family:{FONT};font-size:14px;line-height:20px;color:{color};{"font-weight:700;" if bold else ""}white-space:nowrap;">{esc(t)}</td>'
+    out = "<tr>" + "".join(cell(h, i == 0, True, "#6b7280") for i, h in enumerate(head)) + "</tr>"
+    for r in rows:
+        out += "<tr>" + "".join(cell(c, i == 0, i == 0) for i, c in enumerate(r)) + "</tr>"
+    return _wrapt(out)
+
+
+def _alloc_html(b: dict) -> str:
+    foot = "".join(f'<div style="font-size:14px;line-height:21px;color:#374151;padding-top:4px;font-family:{FONT};">{esc(x)}</div>' for x in b["footer"])
+    return _block(_wrapt(_section_title(b["title"])) + '<div style="padding-top:6px;">' + _grid_html(["", "Default", "AI", "Engine target"], b["rows"]) + "</div>" + foot)
+
+
+def _twins_html(b: dict) -> str:
+    return _block(_wrapt(_section_title(b["title"])) + '<div style="padding-top:6px;">' + _grid_html(["Twin", "Value", "Return", "Max DD"], b["rows"]) + "</div>")
+
+
+def _optional_html(m: dict, key: str, fn) -> str:
+    """One optional block's HTML, or "" when absent or when rendering it fails (the email itself must still go out)."""
+    try:
+        return fn(m[key]) if m.get(key) else ""
+    except Exception as e:  # noqa: BLE001
+        print(f"report: {key} block hidden ({type(e).__name__}: {e})", file=sys.stderr)
+        return ""
+
+
 def render_compact_email(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     m = compact_model(day, report_url, inbox_url, sample)
     badge = ""
@@ -2450,11 +2499,22 @@ def render_compact_email(day: dict, report_url: str | None = None, sample: bool 
         body += _today_html(m["today_block"])
     if m.get("vs"):
         body += _vs_html(m["vs"])
-    body += _safety_html(m["safety"]) + _market_html(m) + _footer_html(m)
+    body += _optional_html(m, "alloc", _alloc_html) + _optional_html(m, "twins", _twins_html)
+    body += _safety_html(m["safety"]) + _market_html(m) + _optional_html(m, "pricegap", _gap_html) + _footer_html(m)
     return head + hd + body + '</table></td></tr></table></body></html>\n'
 
 
 # ---------------------------------------------------------------- plain text
+def _alloc_text(b: dict) -> list[str]:
+    L = ["", b["title"], "          Default   AI   Engine target"]
+    L += [f"{n:<8} {d:>8} {a:>6} {e:>13}" for n, d, a, e in b["rows"]]
+    return L + list(b["footer"])
+
+
+def _twins_text(b: dict) -> list[str]:
+    return ["", b["title"] + " (value, return, max drawdown)"] + ["  ".join(r) for r in b["rows"]]
+
+
 def render_compact_text(day: dict, report_url: str | None = None, sample: bool = False, inbox_url: str | None = None) -> str:
     m = compact_model(day, report_url, inbox_url, sample)
     L = [f"{m['header_left'].upper()} · {m['header_right']}" + (" (sample data, not a real trading day)" if sample else "")]
@@ -2494,10 +2554,20 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
     if m.get("vs"):
         v = m["vs"]
         L += ["", f"YOU VS GOLD · since {v['since']}: {v['chip'][0]}", f"You {v['you_fig']['text']}   Gold B&H {v['gold_fig']['text']}"]
+    for key, fn in (("alloc", _alloc_text), ("twins", _twins_text)):
+        try:
+            L += fn(m[key]) if m.get(key) else []
+        except Exception:  # noqa: BLE001 - an optional block never costs the email
+            pass
     s = m["safety"]
     L += ["", f"SAFETY · now {s['now']} · peak {s['peak']}", s["line"], ""]
     L.append("   ".join(f"{c['name']} {c['price']}" + (f" {c['today']['text']} {c['when']}" if c["today"] else "") for c in m["market"]))
     L.append(m["next_event"])
+    try:
+        if m.get("pricegap"):
+            L += ["", "INDIA PRICE GAP · " + m["pricegap"]["note"]] + reportblocks.chips_text(m["pricegap"]["chips"])
+    except Exception:  # noqa: BLE001
+        pass
     if m["link"]:
         L += ["", f"Open dashboard: {m['link']}"]
     if m.get("inbox"):

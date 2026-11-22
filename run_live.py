@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 
-from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
+from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, pricegap, runguard, summary, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars
@@ -126,6 +126,11 @@ class Live:
         self._publish_live(ts, mkt, True, t0)
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
                  {s: p.qty for s, p in self.pf.positions.items()} or "none", len(decisions))
+        # India price gap (information only, dormant unless pricegap.enabled): after the decisions and the publish, bounded, never raises
+        try:
+            pricegap.run_daily_bounded(STATE, self.p, ts)
+        except Exception:  # noqa: BLE001 - the price gap is advice; it must never fail a tick
+            log.exception("price gap job failed")
 
     def _protective_tick(self, ts, t0=None):
         """Feed down or stale (early close, outage) from 15:15: still run the 15:15 exits and the 15:20 overnight and
