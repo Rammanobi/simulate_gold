@@ -59,3 +59,12 @@ def _no_network_for_weekly_line(monkeypatch):
     def _offline(p, start):
         raise RuntimeError("network disabled in tests")
     monkeypatch.setattr(weekly, "fetch_frames", _offline)
+
+
+@pytest.fixture(autouse=True)
+def _no_session_safe_mode_leak():
+    """run_live.py --safe-mode is process-local (simgold.alerts.set_session_safe_mode); never let it leak between tests."""
+    from simgold import alerts
+    alerts.set_session_safe_mode(None)
+    yield
+    alerts.set_session_safe_mode(None)
