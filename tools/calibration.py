@@ -7,9 +7,17 @@ memory/ltm/calibration.json and is written ONLY by this module through the memor
   python tools/calibration.py score [--write]       # score everything that is due (needs closes: network only if something is due)
   python tools/calibration.py week --week 2026-W47 [--format json|md]   # weekly stats (also: tools/evaluate.py --week)
 
-Nothing is recorded by hand: `tools/guidance.py allocation set|hold-default` records the scenario set and `tools/desk.py write`
-records the desk calls. `tools/memory_ltm.py perf --write` scores what is due and copies the summary into performance.json
-(`ai_vs_default`, `desk_brier`). The ledger holds numbers and symbols only (no free text), so nothing in it can steer a later run.
+Nothing is recorded by hand. WHO WRITES THE LEDGER (single writer per kind, so parallel sessions never edit one file):
+  * the FINAL / PROVISIONAL synthesis rows: `tools/guidance.py allocation set|hold-default`, run only by premarket.md, allocation.md
+    and fastlane.md. Those three sessions `git add memory/ltm/calibration.json` after they write it.
+  * desk calls: NOT recorded by the desk sessions. `tools/desk.py write` only writes analysis/D/<desk>.json. When a score run finds a
+    desk file whose 5-day window has ended it READS that committed file (validated again with desk.read_status) and scores it; a
+    per-date list `dk` remembers which files were already taken. desk_metal.md, desk_risk.md and desk_macro.md never touch the ledger.
+  * scoring: `tools/memory_ltm.py perf --write` (daily_report, weekly) scores what is due and copies the summary into performance.json
+    (`ai_vs_default`, `desk_brier`); those sessions add the ledger too.
+The ledger holds numbers and symbols only (no free text), so nothing in it can steer a later run. A ledger that cannot be read is NEVER
+silently reset: it is moved to memory/ltm/calibration.corrupt.<timestamp>.json and a new one is started with a printed warning; a row of
+the wrong shape is set aside in memory/ltm/calibration.badrows.<timestamp>.json and the rest of the ledger keeps working.
 
 Definitions (every number a routine sees comes from here):
   horizon     a scenario set or desk call is for the h trading days starting on its for_date (h = horizon_days, default 5).
@@ -28,12 +36,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import statistics
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from _common import ROOT, parse_now, utf8_stdout
+from _common import ROOT, iso_day, parse_now, utf8_stdout
 
 from simgold import allocation, brief, market, memstore
 
@@ -43,6 +52,8 @@ KEEP_SETS = 46
 KEEP_PAIRS = 130
 KEEP_SCORES = 40
 KEEP_OPEN_DAYS = 45
+HARVEST_DAYS = 60                    # desk files older than this many calendar days are never taken up (they would have expired anyway)
+KEEP_DK_DAYS = 75                    # `dk` (desk files already taken up) is kept this long: longer than HARVEST_DAYS, so no file is taken twice
 MIN_SCORED = 20                      # "n/a" for the confidence cap until this many scored calls
 DESKS = ("macro", "gold", "silver", "copper", "risk")
 METALS = ("GOLD", "SILVER", "COPPER")
@@ -57,16 +68,134 @@ def path(root) -> Path:
 
 
 def empty() -> dict:
-    return {"v": 1, "updated": None, "sets": [], "calls": [], "pairs": [], "scores": {}}
+    return {"v": 1, "updated": None, "sets": [], "calls": [], "pairs": [], "scores": {}, "dk": {}}
 
 
-def load(root) -> dict:
-    d = brief.load_json(path(root), None)
-    if not isinstance(d, dict) or not isinstance(d.get("sets"), list):
-        return empty()
-    base = empty()
-    base.update({k: d[k] for k in base if k in d and isinstance(d[k], type(base[k]))})
-    return base
+# ---- row shapes (a row of any other shape is set aside, never allowed to block a recording or crash a summary)
+def _isnum(x) -> bool:
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return False
+    try:
+        return math.isfinite(x)
+    except OverflowError:
+        return False
+
+
+def _isday(x) -> bool:
+    try:
+        iso_day(x)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_trip(x, allow_none: bool = True) -> bool:
+    return (x is None and allow_none) or (isinstance(x, list) and len(x) == 3 and all(_isnum(v) for v in x))
+
+
+def _good_set(r) -> bool:
+    if not isinstance(r, dict) or not _isday(r.get("d")) or r.get("ph") not in ("f", "p") or r.get("st") not in ("o", "s"):
+        return False
+    h = r.get("h")
+    if not isinstance(h, int) or isinstance(h, bool) or not 1 <= h <= 60 or not _isnum(r.get("c")):
+        return False
+    if not (_is_trip(r.get("w")) and _is_trip(r.get("dw")) and _is_trip(r.get("px"))):
+        return False
+    sc = r.get("sc")
+    if not isinstance(sc, list) or not all(isinstance(x, list) and len(x) == 4 and _isnum(x[0]) and all(v in ("u", "f", "d") for v in x[1:])
+                                           for x in sc):
+        return False
+    return all(_isnum(r[k]) for k in ("b",) if k in r) and all(isinstance(r[k], int) and not isinstance(r[k], bool) for k in ("sk",) if k in r)
+
+
+def _good_call(r) -> bool:
+    return (isinstance(r, dict) and _isday(r.get("d")) and r.get("k") in DESKS and r.get("m") in METALS and r.get("o") in ("u", "f", "d")
+            and _isnum(r.get("u")) and _isnum(r.get("n")))
+
+
+def _good_pair(r) -> bool:
+    return (isinstance(r, dict) and _isday(r.get("d")) and r.get("f") in ("f", "p") and all(_isnum(r.get(k)) for k in ("pp", "ai", "df"))
+            and (r.get("rs") is None or _isnum(r.get("rs"))))
+
+
+def _good_score(k, r) -> bool:
+    if k == "synthesis":
+        return isinstance(r, list) and len(r) == 2 and _isday(r[0]) and _isnum(r[1])
+    return isinstance(r, list) and len(r) == 3 and _isday(r[0]) and r[1] in METALS and _isnum(r[2])
+
+
+def _stamp(now: datetime | None) -> str:
+    return (now or datetime.now()).strftime("%Y%m%dT%H%M%S")
+
+
+def _move(src: Path, dest: Path) -> None:
+    os.replace(src, dest)
+
+
+def _aside(root, kind: str, stamp: str) -> Path:
+    base = memstore.ltm_path(root, f"calibration.{kind}.{stamp}.json")
+    dest, n = base, 1
+    while dest.exists():
+        n += 1
+        dest = base.with_name(f"calibration.{kind}.{stamp}-{n}.json")
+    return dest
+
+
+def load(root, repair: bool = False, now: datetime | None = None) -> dict:
+    """The ledger, always well-formed. Rows of the wrong shape are dropped from the returned object (never raised on); the dropped
+    count is in `_warn` (a list of plain sentences, not saved). repair=True (the write paths) also acts on a damaged file: an unreadable
+    ledger is moved to memory/ltm/calibration.corrupt.<ts>.json (never silently reset; an OSError while moving it is raised, so nothing
+    is overwritten) and the bad rows are copied to memory/ltm/calibration.badrows.<ts>.json. repair=False never writes anything."""
+    f = path(root)
+    led = empty()
+    led["_warn"] = []
+    if not f.exists():
+        return led
+    d, why = None, None
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as e:
+        why = type(e).__name__
+    if why is None and (not isinstance(d, dict) or not isinstance(d.get("sets"), list)):
+        why = "not a ledger object"
+    if why is not None:
+        if repair:
+            dest = _aside(root, "corrupt", _stamp(now))
+            _move(f, dest)
+            led["_warn"].append(f"WARNING: the calibration ledger was unreadable ({why}); moved to {dest.name} and a new ledger started")
+        else:
+            led["_warn"].append(f"WARNING: the calibration ledger is unreadable ({why}); treated as empty (the next write moves it aside)")
+        return led
+    bad: list = []
+    for k, ok in (("sets", _good_set), ("calls", _good_call), ("pairs", _good_pair)):
+        rows = d.get(k, [])
+        if not isinstance(rows, list):
+            bad.append({k: "wrong type"})
+            continue
+        led[k] = [r for r in rows if ok(r)]
+        bad += [{k: r} for r in rows if not ok(r)]
+    sc = d.get("scores", {})
+    if isinstance(sc, dict):
+        for k, rows in sc.items():
+            if k not in ("synthesis",) + DESKS or not isinstance(rows, list):
+                bad.append({"scores": {str(k)[:20]: "unknown or wrong type"}})
+                continue
+            led["scores"][k] = [r for r in rows if _good_score(k, r)]
+            bad += [{"scores." + k: r} for r in rows if not _good_score(k, r)]
+    else:
+        bad.append({"scores": "wrong type"})
+    dk = d.get("dk", {})
+    if isinstance(dk, dict):
+        led["dk"] = {k: [x for x in v if x in DESKS] for k, v in dk.items() if _isday(k) and isinstance(v, list)}
+    led["updated"] = d.get("updated") if isinstance(d.get("updated"), str) else None
+    if bad:
+        msg = f"WARNING: {len(bad)} calibration row(s) of the wrong shape were set aside"
+        if repair:
+            dest = _aside(root, "badrows", _stamp(now))
+            memstore.write_atomic(dest, json.dumps({"rows": bad[:40]}, ensure_ascii=False, separators=(",", ":"))[:20000] + "\n")
+            msg += f" (copied to {dest.name})"
+        led["_warn"].append(msg + "; the rest of the ledger is used")
+    return led
 
 
 def _text(obj: dict) -> str:
@@ -75,7 +204,10 @@ def _text(obj: dict) -> str:
 
 def save(root, obj: dict, now: datetime) -> None:
     """Trim to the caps (oldest scored first) and write atomically. The only writer of memory/ltm/calibration.json."""
+    obj.pop("_warn", None)
     obj["updated"] = now.isoformat(timespec="seconds")
+    cut = (now.date() - timedelta(days=KEEP_DK_DAYS)).isoformat()
+    obj["dk"] = {k: v for k, v in sorted((obj.get("dk") or {}).items()) if k >= cut and v}
     obj["sets"] = sorted(obj["sets"], key=lambda s: (s["d"], s["ph"]))
     scored = [s for s in obj["sets"] if s.get("st") == "s"]
     while len(scored) > KEEP_SETS:
@@ -101,8 +233,9 @@ def _trip(m: dict | None):
 
 
 def record_proposal(root, now: datetime, clean: dict) -> str:
-    """Record the object `allocation set|hold-default` just wrote (already filtered by allocation.sanitize_allocation).
-    One row per (for_date, phase): a second write replaces the first. Never raises into the caller's write."""
+    """Record the object `allocation set|hold-default` just wrote (already filtered by allocation.sanitize_allocation). The ONLY writer of
+    synthesis rows (premarket, allocation and fastlane sessions run it; each then stages memory/ltm/calibration.json).
+    One row per (for_date, phase): a second write replaces the first (idempotent). The caller catches any exception."""
     hold = clean.get("weights") == "default"
     sc = []
     if not hold:
@@ -113,26 +246,51 @@ def record_proposal(root, now: datetime, clean: dict) -> str:
            "dw": _trip(clean.get("default_at_write")), "px": _trip(clean.get("prices_at_update")),
            "h": int(clean["horizon_days"]) if isinstance(clean.get("horizon_days"), (int, float)) and not isinstance(
                clean.get("horizon_days"), bool) else 5, "sc": sc, "st": "o"}
-    led = load(root)
+    led = load(root, repair=True, now=now)
+    warn = led.get("_warn") or []
     led["sets"] = [s for s in led["sets"] if not (s["d"] == row["d"] and s["ph"] == row["ph"])] + [row]
     save(root, led, now)
-    return f"ledger: {row['d']} {'final' if row['ph'] == 'f' else 'provisional'} recorded ({len(sc)} scenarios)"
+    return "\n".join([f"ledger: {row['d']} {'final' if row['ph'] == 'f' else 'provisional'} recorded ({len(sc)} scenarios)"] + warn)
 
 
-def record_desk(root, now: datetime, desk: dict) -> str:
-    """Record a desk file's direction calls (numbers only). An abstaining desk records nothing."""
-    if desk.get("abstain"):
-        return "ledger: abstaining desk, nothing recorded"
-    name, day, n = desk["desk"], desk["date"], 0
-    led = load(root)
-    led["calls"] = [c for c in led["calls"] if not (c["d"] == day and c["k"] == name)]
-    for m, v in (desk.get("view") or {}).items():
-        if m in METALS and isinstance(v, dict) and v.get("dir_5d") in _DC and v.get("p_up") is not None and v.get("p_down") is not None:
-            led["calls"].append({"d": day, "k": name, "m": m, "o": _DC[v["dir_5d"]],
-                                 "u": round(float(v["p_up"]), 4), "n": round(float(v["p_down"]), 4)})
-            n += 1
-    save(root, led, now)
-    return f"ledger: desk {name} {n} call(s) recorded"
+def _due(d: str, h: int, today: date) -> bool:
+    """The window of h trading days starting on d has ended before today."""
+    return market.add_trading_days(date.fromisoformat(d), max(h, 1) - 1) < today
+
+
+def harvest_desks(root, led: dict, today: date) -> int:
+    """Take up the desk calls of the committed analysis/D/<desk>.json files whose 5-day window has ended, into led["calls"] (in memory;
+    the caller saves). A file is validated again by tools/desk.py read_status (the writer's own rules), an abstaining or invalid desk
+    gives no call, and `dk` (date -> desks already taken) makes it idempotent: a file is never taken twice, a rewritten one is not
+    taken again. This replaces desk sessions writing the ledger (parallel desks would all edit one JSON file)."""
+    base = Path(root) / "analysis"
+    if not base.is_dir():
+        return 0
+    import desk as _desk                                   # lazy: desk imports this module
+    lo, hi, n = (today - timedelta(days=HARVEST_DAYS)).isoformat(), today.isoformat(), 0
+    for dd in sorted(base.iterdir()):
+        day = dd.name
+        if not dd.is_dir() or not _isday(day) or day < lo or day > hi or not _due(day, 5, today):
+            continue
+        done = list(led["dk"].get(day, []))
+        for k in DESKS:
+            if k in done:
+                continue
+            st, clean, _why = _desk.read_status(root, day, k)
+            if st == "missing":
+                continue
+            done.append(k)
+            if st != "ok" or not clean:
+                continue
+            led["calls"] = [c for c in led["calls"] if not (c["d"] == day and c["k"] == k)]
+            for m, v in (clean.get("view") or {}).items():
+                if m in METALS and v.get("dir_5d") in _DC:
+                    led["calls"].append({"d": day, "k": k, "m": m, "o": _DC[v["dir_5d"]],
+                                         "u": round(float(v["p_up"]), 4), "n": round(float(v["p_down"]), 4)})
+                    n += 1
+        if done:
+            led["dk"][day] = done
+    return n
 
 
 # ------------------------------------------------------------------ prices
@@ -245,13 +403,16 @@ def score(root, now: datetime, closes=None, write: bool = True, p: dict | None =
     from simgold import config
     p = p or config.load_params()
     cfg = allocation.settings(p)
-    led = load(root)
+    led = load(root, repair=write, now=now)
     today = now.date()
+    harvest_desks(root, led, today)
     due = [s for s in led["sets"] if s.get("st") == "o"]
-    pending = lambda d, h: (market.add_trading_days(date.fromisoformat(d), max(h, 1) - 1) < today)        # noqa: E731
+    pending = lambda d, h: _due(d, h, today)                       # noqa: E731
     due_sets = [s for s in due if pending(s["d"], s["h"])]
     due_calls = [c for c in led["calls"] if pending(c["d"], 5)]
     res = {"scored_sets": 0, "scored_calls": 0, "pairs": 0, "open": 0}
+    if led["_warn"]:
+        res["warnings"] = list(led["_warn"])
     if not due_sets and not due_calls:
         res["open"] = len(due) + len(led["calls"])
         return res
@@ -312,7 +473,7 @@ def score(root, now: datetime, closes=None, write: bool = True, p: dict | None =
         res["scored_calls"] += 1
     led["calls"] = keep
     res["open"] = sum(1 for s in led["sets"] if s.get("st") == "o") + len(led["calls"])
-    if write and (res["scored_sets"] or res["scored_calls"] or res["pairs"] or any(s.get("sk") for s in led["sets"])):
+    if write and (res["scored_sets"] or res["scored_calls"] or res["pairs"] or any(s.get("sk") for s in led["sets"]) or led["_warn"]):
         save(root, led, now)
     return res
 
@@ -431,7 +592,7 @@ def week_stats(root, week: str, now: datetime | None = None, closes=None) -> dic
         prev = evaluate.at_or_before(eq, d - timedelta(days=1))
         row = {"date": iso, "alloc_mode": recs[-1].get("alloc_mode") if recs else None,
                "default": a.get("default") if a else None, "final": a.get("final") if a else None,
-               "advice": a.get("advice") if a else None, "held": None,
+               "advice": a.get("advice") if a else None,
                "pnl_rs": round(cur[1] - prev[1], 2) if cur and prev and cur[0] == d else None,
                "turnover": (a.get("turnover") or {}).get("discretionary") if a else None, "default_ret_pct": None}
         if a and a.get("default"):
@@ -451,8 +612,8 @@ def week_stats(root, week: str, now: datetime | None = None, closes=None) -> dic
             "clamp_counts": clamps, "ai_vs_default_pairs": pairs,
             "ai_vs_default_week_pp": round(sum(x["pp"] for x in pairs), 4) if pairs else None,
             "desk_brier": s["desk_brier"] if s else None, "ai_vs_default": s["ai_vs_default"] if s else None,
-            "notes": ["held per day is not logged: only the current positions are shown",
-                      "D5 (v2) and GOLDBEES buy-and-hold P&L are in `python tools/evaluate.py --month` (scorecard)"]}
+            "notes": ["there is no per-day `held` record: only the current positions (held_now) are shown",
+                      "D5 (v2) and GOLDBEES buy-and-hold P&L are not in this report: take them from `python tools/evaluate.py --month` (scorecard)"]}
 
 
 def week_md(w: dict) -> str:
@@ -485,6 +646,8 @@ def main(argv=None) -> int:
     root, now = Path(a.root), parse_now(a.now)
     try:
         if a.cmd == "show":
+            for w in load(root)["_warn"]:
+                print(w, file=sys.stderr)
             print("\n".join(brier_text(summary(root, now))))
         elif a.cmd == "score":
             r = score(root, now, write=a.write)

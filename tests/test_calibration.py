@@ -167,12 +167,15 @@ def test_the_ledger_is_the_only_file_the_calibration_tool_writes(root):
     assert changed(before, tree(root)) == {"memory/ltm/calibration.json"}
 
 
-def test_a_corrupt_ledger_is_replaced_not_fatal(root):
+def test_a_corrupt_ledger_is_moved_aside_never_silently_reset(root, capsys):
     p = Path(root) / "memory/ltm/calibration.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("{garbage")
-    assert cal.load(root)["sets"] == []
-    cal.record_proposal(root, NOW, clean())
+    assert cal.load(root)["sets"] == [] and p.read_text() == "{garbage"            # reading never touches the file
+    msg = cal.record_proposal(root, NOW, clean())
+    assert "WARNING" in msg and "calibration.corrupt." in msg
+    aside = list(p.parent.glob("calibration.corrupt.*.json"))
+    assert len(aside) == 1 and aside[0].read_text() == "{garbage"                    # the old bytes are kept
     assert len(cal.load(root)["sets"]) == 1
 
 

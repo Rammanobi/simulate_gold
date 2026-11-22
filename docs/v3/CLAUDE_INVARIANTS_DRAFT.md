@@ -24,13 +24,14 @@ The new text keeps every part of that sentence and adds the one thing v3 lets a 
    `python tools/guidance.py allocation set` (the premarket routine writes a provisional allocation, the 14:40 allocation routine a
    final one, and the fast lane may write a defensive final that only lowers a weight, never raises one), and may write desk analyses under `analysis/**`
    only through `python tools/desk.py write` (an addition to the tools named in invariant 3). A proposal is weights for GOLDBEES,
-   SILVERBEES and HINDCOPPER that are shares summing to 1.00 (within 0.01), a confidence, 2 to 4 scenarios with probabilities, a
+   SILVERBEES and HINDCOPPER that are shares totalling 1.00 (within 0.02; aim for exactly 1.00), a confidence, 2 to 4 scenarios with probabilities, a
    rationale with numbers and invalidation levels. It is advice, never an order: the engine is still the only thing that trades, tilts its
    own deterministic default toward the proposal, clamps it to the hard limits (caps, off-trend caps, turnover, volatility guard,
    brakes), logs every clamp in an `ALLOC` record, and uses its default when the proposal is missing, stale, invalid or low-confidence.
    The tools refuse buys, favour in the fast lane, sizes and looser stops, and a FINAL after 15:05 IST. While `strategy.mode` is
-   `v2_trend` or `v1_scores`, or `allocation.phase` is `shadow`, or `allocation.ai_trust` is 0, a proposal is **logged only**: the engine
-   trades its own default. A routine never: gives cash (or LIQUIDBEES) a weight; uses leverage (weights above 100% in total) or a short;
+   `v2_trend` or `v1_scores`, or `allocation.phase` is `shadow`, or `allocation.ai_trust` is 0, a proposal is **logged only**: it is
+   scored later, the engine trades its own default (D5-FI, or the v2 rule), and the allocation tool does not touch `state/guidance.json`, so
+   a proposal cannot change what v2 trades. A routine never: gives cash (or LIQUIDBEES) a weight; uses leverage (weights above 100% in total) or a short;
    names a symbol outside the three; proposes a weight above a cap; plans around, triggers, delays or clears a brake or the account
    stop; chases a loss ("win it back" is never a reason to raise a weight); or promises a profit or writes "always green" (all three
    assets are metals and the book is almost fully invested, so it can lose 25% or more peak to trough; call a day "green" only when
@@ -59,8 +60,14 @@ there:
    evaluated monthly against GOLDBEES buy-and-hold and against the engine's own default ("AI tilt vs default").
 2. Engine bullet: "the daily trend check at 15:10 IST makes every trade" stays; add that the engine computes a default, tilts it
    toward `state/allocation.json`, clamps and logs `ALLOC` records. "Routines never buy or size" stays true: they propose weights.
-3. File ownership table, Routines (via tools): add `state/allocation.json` and `analysis/**` (desk files, via `tools/desk.py`;
-   archived after 30 days). Engine: add `ALLOC` records in `logs/decisions-D.jsonl`.
+3. File ownership table, Routines (via tools): add `state/allocation.json`, `analysis/**` (desk files, via `tools/desk.py`; archived
+   after 30 days) and `memory/ltm/calibration.json` (the calibration ledger: the synthesis rows are written by `tools/guidance.py allocation
+   set|hold-default`, run only by the premarket, allocation and fast-lane sessions, which stage it; desk calibration is derived at scoring
+   time from the committed `analysis/D/<desk>.json`, so the desk sessions never write or stage it; scoring is `tools/memory_ltm.py perf --write`
+   in the daily report and weekly sessions; a damaged ledger is moved aside as `memory/ltm/calibration.corrupt.<ts>.json` and bad rows as
+   `memory/ltm/calibration.badrows.<ts>.json`, both tool-written). Add the same two paths to the Memory layout list (`analysis/D/*.json`:
+   desk evidence, 2.5 KB each, untrusted data; `memory/ltm/calibration.json`: numbers only, at most 40 KB) and to invariant 3's list of files
+   that only tools write. Engine: add `ALLOC` records in `logs/decisions-D.jsonl`.
 4. Tools table: add `tools/guidance.py allocation set|explain|show|hold-default`, `tools/desk.py write|memory|list|quorum`,
    `tools/context.py --view desk|allocation`, `tools/evaluate.py --week WEEK`.
 5. Memory layout: LTM and STM sections unchanged; add that desks read them through `--view desk` and that `performance.json` gains

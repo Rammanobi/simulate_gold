@@ -47,7 +47,8 @@ failure means `python tools/budget.py mode --rate-limit-type ""`, which is THRIF
 6. **Write** `/tmp/desk.json` (Write tool, schema in `_common.md` "Desk tools"), then
    `python tools/desk.py write --desk macro --file /tmp/desk.json`. A refusal names the field: fix it, never paste headline text.
    Optional, one STM note: `python tools/memory_stm.py note --who desk-macro --metal ALL --text "US10Y 4.45%, DXY 104.2" --source marketwatch.com`
-7. **Commit and push** (`_common.md` S4), paths `analysis memory state/events.json state/budget.json`; message `routine(desk-macro): D`.
+7. **Commit and push** (`_common.md` S4), paths `analysis memory/ltm/calendar.json memory/stm/today.jsonl state/events.json state/budget.json`
+   only; message `routine(desk-macro): D`. Never stage `memory/ltm/calibration.json` (the desk tools do not touch the ledger).
 
 ## Output contract
 

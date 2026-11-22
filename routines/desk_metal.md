@@ -51,12 +51,16 @@ which is THRIFT, silently). Thrift never changes a safety rule.
    most 12), view {METAL: ...}, risks, events, confidence, abstain), then
    `python tools/desk.py write --desk <metal in lower case> --file /tmp/desk.json`. A refusal names the field: fix that field; never
    paste headline text to get around memsafe. Optional, one STM note:
-   `python tools/memory_stm.py note --who desk-METAL --metal METAL --text "COMEX gold +0.6%, DXY -0.2%" --source investing.com`
-6. **Commit and push** (`_common.md` S4), paths `analysis memory/stm/today.jsonl state/budget.json`; commit message `routine(desk-METAL): D`.
+   `python tools/memory_stm.py note --who desk-<metal in lower case> --metal METAL --text "COMEX gold +0.6%, DXY -0.2%" --source investing.com`
+   (`--who` is `desk-gold`, `desk-silver` or `desk-copper`).
+6. **Commit and push** (`_common.md` S4), paths `analysis memory/stm/today.jsonl state/budget.json` only; commit message
+   `routine(desk-<metal in lower case>): D`, for example `routine(desk-gold): 2026-11-18`. Never stage `memory/ltm/calibration.json` or any other
+   `memory/ltm` file: `tools/desk.py write` does not touch the ledger (desk calibration is derived later from the committed
+   `analysis/D/<metal>.json`), and three desks pushing one JSON file would conflict.
 
 ## Output contract
 
-Writes only `analysis/D/<metal>.json` and `memory/stm/today.jsonl` (via tools) and `state/budget.json`. Final message, at most 2 lines:
+Writes only `analysis/D/<metal>.json` and `memory/stm/today.jsonl` (via tools) and `state/budget.json`. It never writes or stages `memory/ltm/calibration.json`. Final message, at most 2 lines:
 `desk METAL D | dir_5d … p_up … p_down … score … conf … | abstain: yes|no | pushed <sha> | noise ignored: … | models used: sonnet | budget: …`
 
 ## Failure handling
