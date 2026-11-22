@@ -60,10 +60,10 @@ def synthetic_history(first_prices: dict[str, float], n: int = 420, seed: int = 
     return out
 
 
-def replay(tmp: Path, params: dict, days=DAYS, step_outside: int = 5, state_files: dict | None = None, env_kw: dict | None = None):
+def replay(tmp: Path, params: dict, days=DAYS, step_outside: int = 5, state_files: dict | None = None, after_tick=None):
     """Run the ticks of `days` through run_tick. Returns (portfolio, env). Minutes between 14:50 and 15:30 all run; elsewhere every
     `step_outside`-th minute. The decisions land in tmp/logs/decisions-DAY.jsonl."""
-    env = Env(state_dir=tmp / "state", logs_dir=tmp / "logs", params=params, environ={}, match_headline=None, **(env_kw or {}))
+    env = Env(state_dir=tmp / "state", logs_dir=tmp / "logs", params=params, environ={}, match_headline=None)
     env.state_dir.mkdir(parents=True, exist_ok=True)
     for name, text in (state_files or {}).items():
         (env.state_dir / name).write_text(text, encoding="utf-8")
@@ -91,6 +91,8 @@ def replay(tmp: Path, params: dict, days=DAYS, step_outside: int = 5, state_file
             mkt = Market(now=now, prices=prices, price_ts={s: now for s in prices}, scores={},
                          prev_close={s: closes[s][-1] for s in SYMS}, hist=bars)
             run_tick(pf, mkt, env)
+            if after_tick is not None:                         # what run_live.Live.tick does after the portfolio is saved
+                after_tick(pf, mkt, env)
         for s in SYMS:                                          # the day becomes a completed bar
             closes[s].append(hi[s][-1])
             dates[s].append(day)

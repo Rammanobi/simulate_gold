@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
@@ -32,6 +33,13 @@ def params(enabled: bool, mode: str | None = None):
     return p
 
 
+def hook(feed=None):
+    """What run_live.Live.tick does after the portfolio is saved."""
+    def after_tick(pf, mkt, env):
+        twins.after_tick(pf, mkt, env.params, env.state_dir, env.logs_dir, nifty_feed=feed)
+    return after_tick
+
+
 def engine_files(tmp: Path) -> dict[str, bytes]:
     """Every file the engine wrote, except the twins' own."""
     out = {}
@@ -53,16 +61,12 @@ def baseline(tmp_path_factory):
     return tmp, pf, env
 
 
-@pytest.mark.parametrize("label,env_kw", [
-    ("feed works", {"twin_feed": feed_ok}),
-    ("feed raises", {"twin_feed": feed_boom}),
-    ("no feed", {}),
-])
-def test_decisions_and_state_are_byte_identical_with_twins_on(tmp_path, baseline, label, env_kw):
+@pytest.mark.parametrize("label,feed", [("feed works", feed_ok), ("feed raises", feed_boom), ("no feed", None)])
+def test_decisions_and_state_are_byte_identical_with_twins_on(tmp_path, baseline, label, feed):
     tmp0, pf0, env0 = baseline
     p_on = params(True)
     p_snapshot = copy.deepcopy(p_on)
-    pf1, env1 = R.replay(tmp_path, p_on, days=DAYS, env_kw=env_kw)
+    pf1, env1 = R.replay(tmp_path, p_on, days=DAYS, after_tick=hook(feed))
     assert R.decisions_text(env1, DAYS) == R.decisions_text(env0, DAYS), label
     assert '"BUY"' in R.decisions_text(env0, DAYS)                                    # the comparison is about real trades
     assert R.runtime_text(pf1) == R.runtime_text(pf0), label
@@ -76,7 +80,7 @@ def test_decisions_and_state_are_byte_identical_with_twins_on(tmp_path, baseline
     # T0 mirrors the real book on the last day
     t0 = st["books"]["T0"]
     assert t0["units"] == {s: p.qty for s, p in pf1.positions.items()} and t0["cash"] == pytest.approx(pf1.cash + pf1.liquidbees, abs=0.01)
-    if env_kw.get("twin_feed") is feed_ok:
+    if feed is feed_ok:
         assert set(st["books"]) == set(twins.TWINS) and st["nifty"]["status"] == "ok"
     else:
         assert "T2" not in st["books"] and st["nifty"]["status"] == "pending"
@@ -85,24 +89,36 @@ def test_decisions_and_state_are_byte_identical_with_twins_on(tmp_path, baseline
 def test_with_twins_off_nothing_is_written_and_no_feed_is_called(tmp_path, baseline):
     tmp0, _pf, _env = baseline
     calls = []
-    R.replay(tmp_path, params(False), days=DAYS[:2], env_kw={"twin_feed": lambda t: calls.append(t)})
+    R.replay(tmp_path, params(False), days=DAYS[:2], after_tick=hook(lambda t: calls.append(t)))
     assert calls == [] and not (tmp_path / "state" / "twins.json").exists() and not list((tmp_path / "logs").glob("twins-*"))
     assert not (tmp0 / "state" / "twins.json").exists()
 
 
 def test_the_feed_is_asked_once_a_day_at_most(tmp_path):
     calls = []
-    R.replay(tmp_path, params(True), days=DAYS[:3], env_kw={"twin_feed": lambda t: calls.append(t) or 271.5})
+    R.replay(tmp_path, params(True), days=DAYS[:3], after_tick=hook(lambda t: calls.append(t) or 271.5))
     assert len(calls) == 3
 
 
 @pytest.mark.parametrize("mode", ["v3_alloc"])
 def test_identical_under_the_v3_shadow_mode_too(tmp_path, mode):
     pf0, env0 = R.replay(tmp_path / "off", params(False, mode), days=DAYS[:3])
-    pf1, env1 = R.replay(tmp_path / "on", params(True, mode), days=DAYS[:3], env_kw={"twin_feed": feed_ok})
+    pf1, env1 = R.replay(tmp_path / "on", params(True, mode), days=DAYS[:3], after_tick=hook(feed_ok))
     assert R.decisions_text(env1, DAYS[:3]) == R.decisions_text(env0, DAYS[:3])
     assert R.runtime_text(pf1) == R.runtime_text(pf0) and portfolio_json(pf1) == portfolio_json(pf0)
     assert (tmp_path / "on" / "state" / "twins.json").exists()
+
+
+def live_hook(monkeypatch, tmp_path):
+    """The REAL run_live.Live._twins_after (its try/except included) on a stand-in object, pointed at tmp_path."""
+    from types import SimpleNamespace
+    import run_live
+    monkeypatch.setattr(run_live, "STATE", tmp_path / "state")
+    monkeypatch.setattr(run_live, "LOGS", tmp_path / "logs")
+
+    def after_tick(pf, mkt, env):
+        run_live.Live._twins_after(SimpleNamespace(p=env.params, pf=pf, _twin_price=feed_ok), mkt)
+    return after_tick
 
 
 def test_a_twins_failure_cannot_reach_the_engine(tmp_path, baseline, monkeypatch):
@@ -111,13 +127,26 @@ def test_a_twins_failure_cannot_reach_the_engine(tmp_path, baseline, monkeypatch
     def boom(**kw):
         raise RuntimeError("twins bug")
     monkeypatch.setattr(twins, "daily_hook", boom)
-    pf1, env1 = R.replay(tmp_path, params(True), days=DAYS, env_kw={"twin_feed": feed_ok})
+    pf1, env1 = R.replay(tmp_path, params(True), days=DAYS, after_tick=live_hook(monkeypatch, tmp_path))
     assert R.decisions_text(env1, DAYS) == R.decisions_text(env0, DAYS) and portfolio_json(pf1) == portfolio_json(pf0)
 
 
-def test_an_unwritable_twins_file_cannot_reach_the_engine(tmp_path, baseline):
+def test_an_unwritable_twins_file_cannot_reach_the_engine(tmp_path, baseline, monkeypatch):
     tmp0, pf0, env0 = baseline
     (tmp_path / "state").mkdir(parents=True)
     (tmp_path / "state" / "twins.json").mkdir()                                       # a directory where the file should be: every write fails
-    pf1, env1 = R.replay(tmp_path, params(True), days=DAYS, env_kw={"twin_feed": feed_ok})
+    pf1, env1 = R.replay(tmp_path, params(True), days=DAYS, after_tick=live_hook(monkeypatch, tmp_path))
     assert R.decisions_text(env1, DAYS) == R.decisions_text(env0, DAYS) and portfolio_json(pf1) == portfolio_json(pf0)
+
+
+def test_a_hanging_feed_changes_nothing_and_is_abandoned(tmp_path, baseline):
+    tmp0, pf0, env0 = baseline
+    release = threading.Event()
+    p = params(True)
+    p["twins"]["nifty_timeout_s"] = 0.2
+    try:
+        pf1, env1 = R.replay(tmp_path, p, days=DAYS[:2], after_tick=hook(lambda t: release.wait(30) or 271.5))
+    finally:
+        release.set()
+    assert R.decisions_text(env1, DAYS[:2]) == R.decisions_text(env0, DAYS[:2])
+    assert json.loads((tmp_path / "state" / "twins.json").read_text())["days"] == 2

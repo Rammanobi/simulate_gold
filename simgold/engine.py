@@ -24,7 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
-from . import alerts, allocation, budget, config, fastlane, guard, market, trend, twins
+from . import alerts, allocation, budget, config, fastlane, guard, market, trend
 from .broker import Position, Portfolio, trade_costs
 
 log = logging.getLogger(__name__)
@@ -72,7 +72,6 @@ class Env:
     post: Callable = fastlane.http_post
     match_headline: Callable | None = _match_headline
     tick_seconds: int = 60
-    twin_feed: Callable | None = None      # shadow twins: read-only price lookup `feed(ticker) -> float | None` (NIFTYBEES); None = unavailable
 
 
 def _load_json(path: Path):
@@ -1886,23 +1885,7 @@ class Engine:
             self.ratchet()
             self.entries()
         self.snapshot()
-        self.twins_daily()
         return self.log
-
-    def twins_daily(self):
-        """Shadow paper twins (simgold/twins.py), once a day at the check. DORMANT: only `twins.enabled: true` runs anything. READ-ONLY on
-        the engine: it never trades, records nothing in the decision log and changes neither the portfolio nor the runtime state; it
-        writes only state/twins.json and logs/twins-YYYY-MM.csv. Any failure is logged and swallowed."""
-        try:
-            if (self.p.get("twins") or {}).get("enabled") is not True or not self.v2:
-                return
-            done = (self.rt.get("v2") or {}).get("done") or {}
-            complete = done.get("date") == self.day.isoformat() and len(done.get("syms") or {}) >= len(self.syms)
-            twins.daily_hook(params=self.p, state_dir=self.env.state_dir, logs_dir=self.env.logs_dir, now=self.now,
-                             prices=self.mkt.prices, fresh=self.fresh, hist=self.mkt.hist, pf=self.pf, checks_complete=complete,
-                             nifty_feed=self.env.twin_feed)
-        except Exception:      # noqa: BLE001 - a shadow must never fail the tick
-            log.exception("shadow twins failed (trading is not affected)")
 
 
 def run_tick(pf: Portfolio, mkt: Market, env: Env) -> list[dict]:

@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 
-from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
+from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend, twins
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
 from simgold.data import daily_history, intraday_bars, live_prices
@@ -56,8 +56,6 @@ class Live:
             self.mon.state_corrupt(recovery)
         self.news = NewsBook(NEWS_PATH)
         self.env = Env(state_dir=STATE, logs_dir=LOGS, params=self.p, tick_seconds=tick_seconds)
-        if (self.p.get("twins") or {}).get("enabled") is True:      # shadow twins (dormant): a read-only NIFTYBEES price lookup
-            self.env.twin_feed = self._twin_price
         self.tickers = list(self.p["engine"]["tickers"].values())
         self.hist, self.hist_at, self.hist_fail = None, 0.0, 0
         self.last_tick_day = None
@@ -96,6 +94,16 @@ class Live:
                     empty = pd.DataFrame()
                     return {"close": empty, "high": empty, "low": empty}
         return self.hist
+
+    def _twins_after(self, mkt):
+        """Shadow paper twins (simgold/twins.py), once a day at the check. DORMANT unless twins.enabled is true. Runs after the portfolio is
+        saved and backed up, reads the portfolio and the market snapshot and writes only state/twins.json and logs/twins-*.csv. The
+        NIFTYBEES lookup runs in a worker thread with a hard time limit (twins.nifty_timeout_s). Never raises."""
+        try:
+            if (self.p.get("twins") or {}).get("enabled") is True:
+                twins.after_tick(self.pf, mkt, self.p, STATE, LOGS, nifty_feed=self._twin_price)
+        except Exception:  # noqa: BLE001
+            log.exception("shadow twins failed (trading is not affected)")
 
     def _twin_price(self, ticker: str):
         """Read-only latest price of a shadow-twin ticker (NIFTYBEES.NS), or None. Called by the engine only at the daily check (a retry only if that day was not recorded); never raises."""
@@ -140,6 +148,7 @@ class Live:
         decisions = run_tick(self.pf, mkt, self.env)
         self._save_pf()
         self._backup_state()
+        self._twins_after(mkt)                      # shadow twins (dormant): only AFTER the portfolio is saved, so nothing there can lose a save
         self.last_tick_day = ts.date()
         self._publish_live(ts, mkt, True, t0)
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,

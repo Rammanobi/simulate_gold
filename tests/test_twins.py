@@ -22,7 +22,8 @@ from simgold.market import IST  # noqa: E402
 G, S, C, N = "GOLDBEES", "SILVERBEES", "HINDCOPPER", "NIFTYBEES"
 P = R.shipped_params()
 ST, ACFG = P["strategy"], allocation.settings(P)
-CFG = twins.settings(dict(P, twins={"enabled": True}))
+CFG = twins.settings(dict(P, twins={"enabled": True, "t1_mode": "simple"}))        # the older, fully-invested-on-day-1 shape
+CFG3 = twins.settings(dict(P, twins={"enabled": True}))                           # shipped t1_mode: v3 (the merged default pipeline)
 PX = {G: 100.0, S: 150.0, C: 400.0}
 KEY = {G: "GOLD", S: "SILVER", C: "COPPER"}
 ON = {G: (True, 0.16), S: (True, 0.40), C: (False, 0.60)}
@@ -212,10 +213,10 @@ def test_rebalance_band_trades_only_beyond_three_points():
 
 def test_brake_levels_and_the_account_stop_shape_the_target():
     base = inputs()
-    w0, _ = twins.target_weights("T1", base, CFG, 0, [], False)
-    w1, note1 = twins.target_weights("T1", base, CFG, 1, [], False)
-    w2, _ = twins.target_weights("T1", base, CFG, 2, [], False)
-    wh, noteh = twins.target_weights("T1", base, CFG, 0, [], True)
+    w0, _, _ = twins.target_weights("T1", base, CFG, 0, [], False)
+    w1, note1, _ = twins.target_weights("T1", base, CFG, 1, [], False)
+    w2, _, _ = twins.target_weights("T1", base, CFG, 2, [], False)
+    wh, noteh, _ = twins.target_weights("T1", base, CFG, 0, [], True)
     assert w1[S] == pytest.approx(w0[S] * 0.5) and w1[G] == pytest.approx(w0[G] + w0[S] * 0.5 + w0[C] * 0.5)      # rotates to the gold sink
     assert sum(w1.values()) == pytest.approx(1.0) and "brake L1" in note1
     assert sum(w2.values()) == 0.0 and sum(wh.values()) == 0.0 and "latched" in noteh
@@ -266,7 +267,7 @@ def test_a_missing_price_later_carries_the_last_price_and_does_not_trade_t2():
 def test_a_bad_niftybees_print_is_treated_as_missing():
     s, _ = twins.run_day(None, inputs(), CFG)
     s, rows = twins.run_day(s, inputs(day="2026-11-16", nifty=27_000.0), CFG)               # a 100x print
-    assert s["px"][N] == 270.0 and s["nifty"]["status"] == "n/a (bad print)"
+    assert s["px"][N] == 270.0 and s["nifty"]["status"].startswith("n/a (bad print")
     s, _ = twins.run_day(s, inputs(day="2026-11-17", nifty=275.0), CFG)
     assert s["px"][N] == 275.0 and s["nifty"]["status"] == "ok"
     for bad in (float("nan"), -1.0, 0.0, "x", True):
@@ -387,8 +388,8 @@ def test_csv_rows_are_appended_deduplicated_per_month_and_capped(tmp_path, monke
 
 
 # ---------------------------------------------------------------- invariants (property test)
-@pytest.mark.parametrize("seed", range(8))
-def test_random_paths_never_break_the_invariants(seed):
+@pytest.mark.parametrize("seed,cfg", [(i, CFG) for i in range(5)] + [(i, CFG3) for i in range(5)], ids=lambda x: x if isinstance(x, int) else x["t1_mode"])
+def test_random_paths_never_break_the_invariants(seed, cfg):
     rng = np.random.default_rng(100 + seed)
     px = {G: 100.0, S: 150.0, C: 400.0}
     s, nif = None, 270.0
@@ -399,7 +400,7 @@ def test_random_paths_never_break_the_invariants(seed):
         units = {k: int(rng.integers(0, 300)) for k in px if rng.random() < 0.7}
         inp = inputs(day=day_n(i), prices=px, nifty=(None if rng.random() < 0.2 else nif), infos=infos,
                      cash=float(rng.uniform(0, 60_000)), units=units, z=float(rng.normal(0, 8)))
-        s, rows = twins.run_day(s, inp, CFG)
+        s, rows = twins.run_day(s, inp, cfg)
         assert len(rows) in (5, 7)
         for tid, b in s["books"].items():
             w = twins.weights_of(b, s["px"])
@@ -517,3 +518,411 @@ def test_summary_numbers():
     assert sm["T1"]["vs_real"] == pytest.approx(0.21) and sm["T0"]["vs_real"] is None
     w = twins.summarize(rows, days=1)                                              # base = the value before the window
     assert w["T1"]["ret"] == pytest.approx(120 / 99 - 1)
+
+
+# ================================================================= review fixes (PR #78 review)
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+def _cov(vol=0.5):
+    names = (G, S, C)
+    return {a: {b: (vol ** 2 if a == b else 0.5 * vol ** 2) for b in names} for a in names}
+
+
+# ---- (a) T1-T4 follow the merged v3 default pipeline: ramp-in, turnover limits, dust, vol guard
+def test_v3_mode_ramps_in_like_the_real_book_and_simple_mode_does_not():
+    simple, _ = twins.run_day(None, inputs(), CFG)
+    v3, _ = twins.run_day(None, inputs(), CFG3)
+    assert book_w(simple, "T1")["cash"] < 0.01 and book_w(v3, "T1")["cash"] > 0.7                  # day 1: 20% turnover limit, not 100% invested
+    assert book_w(v3, "T5")["cash"] < 0.01                                                          # buy and hold is fully invested at once
+    b = v3["books"]["T1"]
+    assert 0.19 <= b["ledger"]["2026-11-13"] <= 0.21 and b["dust"]["2026-11-13"] <= ACFG["dust_day"] + 1e-6
+
+
+def test_v3_mode_respects_the_day_and_week_turnover_limits_and_ends_fully_invested():
+    s, led, invested = None, {}, []
+    for i, d in enumerate(("2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26",
+                           "2026-11-27", "2026-11-30", "2026-12-01", "2026-12-02")):
+        s, _ = twins.run_day(s, inputs(day=d), CFG3)
+        b = s["books"]["T1"]
+        led = b["ledger"]
+        invested.append(1 - book_w(s, "T1")["cash"])
+        assert led[d] <= ACFG["max_turnover_day"] + ACFG["dust_day"] + 1e-6
+        days = sorted(led)[-5:]
+        assert sum(led[k] for k in days) <= ACFG["max_turnover_week"] + ACFG["dust_week"] + 1e-4
+    assert invested[0] < 0.25 and invested[-1] > 0.95 and invested == sorted(invested)               # about two weeks to fully invested
+    assert 0 < len(s["books"]["T1"]["ledger"]) <= 10
+
+
+def test_v3_mode_runs_the_portfolio_volatility_guard_and_marks_the_note():
+    hot = inputs(infos={G: (True, 0.16), S: (True, 0.30), C: (True, 0.30)})
+    w, note, res = twins.target_weights("T1", twins.DayInputs(**{**hot.__dict__, "cov": _cov(0.6)}), CFG3, 0, [], False,
+                                        {"cash": 100_000.0, "units": {G: 300, S: 100, C: 50}, "ledger": {}}, PX)
+    assert res is not None and res.vol_before is not None and res.vol_before > ACFG["max_port_vol"] - 1e-9
+    assert sum(w.values()) <= 1.0 + 1e-9 and w[N] == 0.0
+    w2, note2, res2 = twins.target_weights("T1", hot, CFG, 0, [], False)                              # simple mode: no pipeline at all
+    assert res2 is None
+
+
+def test_v3_mode_applies_to_the_whole_family_and_t2_still_splits_the_sink():
+    s = None
+    for i, d in enumerate(("2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24")):
+        s, _ = twins.run_day(s, inputs(day=d, z=3.0), CFG3)
+    for tid in ("T1", "T2", "T3", "T4"):
+        assert 0.7 < 1 - book_w(s, tid)["cash"] <= 1.0 + 1e-9, tid
+    assert book_w(s, "T2")[N] > 0.15 and book_w(s, "T1")[N] == 0.0
+
+
+def test_the_account_stop_latches_in_v3_mode_too():
+    s = None
+    for d in ("2026-11-16", "2026-11-17", "2026-11-18"):
+        s, _ = twins.run_day(s, inputs(day=d, cash=0.0, units={G: 1000}), CFG3)
+    s, _ = twins.run_day(s, inputs(day="2026-11-19", prices={G: 30.0, S: 40.0, C: 100.0}, cash=0.0, units={G: 1000}), CFG3)
+    assert s["books"]["T1"]["latched"] is True or s["books"]["T1"]["value"] > 75_000
+
+
+# ---- (b) T4 k is a config key
+def test_gsr_k_is_a_config_key_and_the_cap_still_binds():
+    k10 = twins.settings({"twins": {"gsr_k": 0.10}})
+    assert twins.gsr_tilt(0.5, k10) == pytest.approx(0.05) and twins.gsr_tilt(3.0, k10) == 0.10 and twins.gsr_tilt(1.0, CFG) == pytest.approx(0.05)
+    assert P["twins"]["gsr_k"] == 0.05 and P["twins"]["gsr_cap"] == 0.10
+
+
+# ---- (c) T0 measured from the same start as each twin
+def test_a_late_twin_is_compared_with_t0_from_its_own_start_day():
+    flat = twins.settings({"twins": {"cost_model": "flat", "flat_cost_per_side": {"GOLDBEES": 0, "SILVERBEES": 0, "HINDCOPPER": 0, "NIFTYBEES": 0},
+                                     "nifty_share": 0.5, "t1_mode": "simple"}})
+    s, rows = None, []
+    gold = [100.0, 110.0, 121.0, 133.1, 146.41]
+    for i, g in enumerate(gold):
+        nifty = None if i == 0 else 2.7 * g                                  # NIFTYBEES tracks gold exactly; absent on day 1 so T6 starts on day 2
+        s, r = twins.run_day(s, inputs(day=day_n(i), prices={G: g, S: 150.0, C: 400.0}, nifty=nifty, cash=0.0, units={G: int(100_000 / 100)}), flat)
+        rows += r
+    assert s["books"]["T6"]["start_day"] == day_n(1)
+    sm = twins.summarize(rows)
+    assert sm["T6"]["vs_real"] == pytest.approx(0.0, abs=2e-3) and sm["T5"]["vs_real"] == pytest.approx(0.0, abs=2e-3)
+    t0 = [r["value"] for r in rows if r["twin"] == "T0"]
+    wrong = sm["T6"]["ret"] - (t0[-1] / t0[0] - 1.0)                        # T0 measured from DAY 1 instead: a clearly non-zero error
+    assert abs(wrong) > 0.05
+
+
+# ---- (d) green% in a window is measured from the window start
+def test_green_share_in_a_window_is_relative_to_the_window_start():
+    rows = []
+    for i, v in enumerate([100.0, 90.0, 95.0, 97.0, 99.0]):                  # always under its own start of 100, but above the window-start value 90
+        rows.append({"date": day_n(i), "twin": "T1", "value": v, "green": 0, "w_GOLDBEES": 1.0, "w_SILVERBEES": 0.0, "w_HINDCOPPER": 0.0,
+                     "w_NIFTYBEES": 0.0, "w_cash": 0.0, "note": ""})
+    sm = twins.summarize(rows, days=3)                                       # window = the last 3 rows; base = the close before it (90); the whole history is measured from 100
+    assert sm["T1"]["green"] == pytest.approx(1.0) and twins.summarize(rows)["T1"]["green"] == pytest.approx(1 / 5)
+
+
+# ---- (e) the Rs 75,000 stop as a share of each twin's start
+def test_show_reports_the_account_stop_as_a_percent_of_each_twins_start(tmp_path, capsys):
+    import twins as tool
+    s, rows = twins.run_day(None, inputs(cash=0.0, units={G: 1000}), CFG)
+    s, rows2 = twins.run_day(s, inputs(day="2026-11-16", nifty=272.0, cash=0.0, units={G: 1000}), CFG)
+    twins.save_state(tmp_path / "state" / "twins.json", s)
+    assert s["account_stop"] == 75_000.0
+    assert tool.main(["--root", str(tmp_path), "show"]) == 0
+    out = capsys.readouterr().out
+    assert "stop%" in out and "-25" in out                                    # 75,000 against a 100,000 start
+
+
+# ---- (f) NIFTYBEES split / bad print
+def test_a_real_split_seen_on_two_days_is_applied_to_the_holdings_without_a_phantom_loss(caplog):
+    s, _ = twins.run_day(None, inputs(nifty=270.0), CFG)
+    units0 = s["books"]["T6"]["units"][N]
+    v0 = s["books"]["T6"]["value"]
+    with caplog.at_level("WARNING"):
+        s, _ = twins.run_day(s, inputs(day="2026-11-16", nifty=27.2), CFG)         # first sight: a bad print, holdings keep the last price
+        assert s["px"][N] == 270.0 and s["books"]["T6"]["units"][N] == units0 and "bad print" in s["nifty"]["status"]
+        assert any("bad print" in r.message for r in caplog.records)
+        s, _ = twins.run_day(s, inputs(day="2026-11-17", nifty=27.1), CFG)         # the same new level again, ratio 10: a split
+    assert s["nifty"]["status"] == "split x10" and s["books"]["T6"]["units"][N] == units0 * 10 and s["px"][N] == 27.1
+    assert s["books"]["T6"]["value"] == pytest.approx(v0, rel=0.02)
+    assert "suspect" not in s["nifty"]
+
+
+def test_a_one_day_spike_is_never_taken_for_a_split():
+    s, _ = twins.run_day(None, inputs(nifty=270.0), CFG)
+    u0 = s["books"]["T6"]["units"][N]
+    s, _ = twins.run_day(s, inputs(day="2026-11-16", nifty=27.0), CFG)
+    s, _ = twins.run_day(s, inputs(day="2026-11-17", nifty=271.0), CFG)            # back to normal: the spike is forgotten
+    assert s["nifty"]["status"] == "ok" and "suspect" not in s["nifty"] and s["books"]["T6"]["units"][N] == u0
+    s, _ = twins.run_day(s, inputs(day="2026-11-18", nifty=27.0), CFG)
+    s, _ = twins.run_day(s, inputs(day="2026-11-19", nifty=13.0), CFG)             # a different level, not a clean ratio: still a bad print
+    assert s["books"]["T6"]["units"][N] == u0 and s["px"][N] == 271.0
+
+
+def test_an_owner_set_split_override_is_applied_once():
+    cfg = twins.settings({"twins": {"t1_mode": "simple", "split_override": {"date": "2026-11-17", "factor": 10}}})
+    assert cfg["split_override"] == {"date": "2026-11-17", "factor": 10}
+    assert twins.settings({"twins": {"split_override": {"date": "x", "factor": 10}}})["split_override"] is None
+    assert twins.settings({"twins": {"split_override": {"date": "2026-11-17", "factor": 1}}})["split_override"] is None
+    s, _ = twins.run_day(None, inputs(nifty=270.0), cfg)
+    u0 = s["books"]["T2"]["units"][N]
+    s, _ = twins.run_day(s, inputs(day="2026-11-16", nifty=270.0), cfg)
+    v = s["books"]["T6"]["value"]
+    s, _ = twins.run_day(s, inputs(day="2026-11-17", nifty=27.0), cfg)
+    assert s["nifty"]["override_done"] == "2026-11-17" and s["books"]["T6"]["units"][N] > 0 and s["books"]["T6"]["value"] == pytest.approx(v, rel=0.03)
+    u = s["books"]["T6"]["units"][N]
+    s, _ = twins.run_day(s, inputs(day="2026-11-18", nifty=27.1), cfg)
+    assert s["books"]["T6"]["units"][N] == u                                    # not applied a second time
+
+
+# ---- (h) the quarantined file is never pushed
+def test_the_quarantine_file_is_git_ignored():
+    import subprocess
+    repo = Path(__file__).resolve().parent.parent
+    r = subprocess.run(["git", "check-ignore", "-q", "state/twins.json.bad"], cwd=repo)
+    assert r.returncode == 0
+    r2 = subprocess.run(["git", "check-ignore", "-q", "state/twins.json"], cwd=repo)
+    assert r2.returncode == 1                                                    # the real state IS synced
+
+
+# ---- (B2) size check before reading, read-only filesystems, a failed save never re-asks the feed
+def test_a_40mb_state_file_is_set_aside_without_being_read(tmp_path, monkeypatch):
+    path = tmp_path / "twins.json"
+    with open(path, "wb") as fh:
+        fh.truncate(40 * 1024 * 1024)
+    real = Path.read_text
+
+    def guard(self, *a, **k):
+        assert self != path, "the oversized file must not be read"
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", guard)
+    d, why = twins.inspect_state(path)
+    assert d == {} and "cap" in why and path.exists()                              # inspect: nothing moved
+    assert twins.load_state(path, quarantine=False) == {} and path.exists()
+    assert twins.load_state(path) == {} and not path.exists() and (tmp_path / "twins.json.bad").stat().st_size == 40 * 1024 * 1024
+
+
+def _hook_day(tmp_path, feed, hour=15, minute=12, **kw):
+    return twins.daily_hook(**hook_args(tmp_path, datetime(2026, 11, 13, hour, minute, tzinfo=IST), nifty_feed=feed, **kw))
+
+
+def test_a_failing_save_retries_a_few_times_but_asks_the_feed_once(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(twins, "save_state", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only file system")))
+    for _ in range(8):
+        try:
+            _hook_day(tmp_path, lambda t: calls.append(t) or 271.0)
+        except OSError:
+            pass
+    assert len(calls) == 1
+    assert len(twins.read_rows(tmp_path / "logs")) == 7                             # the CSV day was written first and is not duplicated by retries
+
+
+def test_os_replace_failing_is_the_same_read_only_case(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(twins.os, "replace", lambda *a, **k: (_ for _ in ()).throw(PermissionError("read-only")))
+    n_exc = 0
+    for _ in range(6):
+        try:
+            _hook_day(tmp_path, lambda t: calls.append(t) or 271.0)
+        except PermissionError:
+            n_exc += 1
+    assert len(calls) == 1 and n_exc == twins.MAX_TRIES and not (tmp_path / "state" / "twins.json").exists()
+
+
+def test_a_crash_after_the_csv_cannot_drop_the_day(tmp_path, monkeypatch):
+    real = twins.save_state
+    monkeypatch.setattr(twins, "save_state", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):
+        _hook_day(tmp_path, lambda t: 271.0)
+    assert len(twins.read_rows(tmp_path / "logs")) == 7 and not (tmp_path / "state" / "twins.json").exists()
+    monkeypatch.setattr(twins, "save_state", real)
+    rows = _hook_day(tmp_path, lambda t: 271.0, minute=13)                            # the next minute: state saved, CSV not doubled
+    assert rows and len(twins.read_rows(tmp_path / "logs")) == 7
+    assert json.loads((tmp_path / "state" / "twins.json").read_text())["last_day"] == "2026-11-13"
+
+
+# ---- (B1) a hanging feed
+def test_a_hanging_feed_is_abandoned_after_the_timeout(tmp_path):
+    release = threading.Event()
+    p = dict(P, twins={"enabled": True, "nifty_timeout_s": 0.3})
+    t0 = time.time()
+    try:
+        rows = twins.daily_hook(**hook_args(tmp_path, datetime(2026, 11, 13, 15, 12, tzinfo=IST), params=p,
+                                            nifty_feed=lambda t: release.wait(30) or 271.0))
+        took = time.time() - t0
+    finally:
+        release.set()
+    assert took < 5 and rows and {r["twin"] for r in rows} == {"T0", "T1", "T3", "T4", "T5"}       # no NIFTYBEES: the nifty twins wait
+    assert json.loads((tmp_path / "state" / "twins.json").read_text())["nifty"]["status"] == "pending"
+
+
+def test_call_with_timeout_returns_raises_and_times_out():
+    assert twins.call_with_timeout(lambda x: x * 2, 21, 1.0) == 42
+    with pytest.raises(ValueError):
+        twins.call_with_timeout(lambda x: (_ for _ in ()).throw(ValueError("x")), 1, 1.0)
+    ev = threading.Event()
+    with pytest.raises(TimeoutError):
+        twins.call_with_timeout(lambda x: ev.wait(10), 1, 0.1)
+    ev.set()
+
+
+def _live(tmp_path, monkeypatch, now, bars):
+    import run_live
+    for name in ("STATE", "LOGS"):
+        monkeypatch.setattr(run_live, name, tmp_path / name.lower())
+    monkeypatch.setattr(run_live, "ROOT", tmp_path)
+    monkeypatch.setattr(run_live, "PF_PATH", tmp_path / "state" / "portfolio.json")
+    monkeypatch.setattr(run_live, "PF_BACKUP", tmp_path / "state" / "portfolio.backup.json")
+    monkeypatch.setattr(run_live, "NEWS_PATH", tmp_path / "state" / "news.json")
+    monkeypatch.setattr(run_live, "intraday_bars", lambda tickers: bars)
+    monkeypatch.setattr(run_live, "now_ist", lambda: now)
+    live = run_live.Live(force=False, tick_seconds=60)
+    monkeypatch.setattr(live.news, "refresh", lambda **k: 0)
+    return run_live, live
+
+
+def test_live_tick_saves_the_portfolio_before_the_twins_run_and_a_hanging_lookup_cannot_hold_it(tmp_path, monkeypatch):
+    import pandas as pd
+    from simgold.engine import Market
+    now = datetime(2026, 11, 13, 15, 26, tzinfo=IST)
+    idx = pd.DatetimeIndex([now])
+    bar = pd.DataFrame({"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1000}, index=idx)
+    rl, live = _live(tmp_path, monkeypatch, now, {t: bar for t in live_tickers()})
+    monkeypatch.setattr(rl, "daily_history", lambda *a, **k: {"close": pd.DataFrame(), "high": pd.DataFrame(), "low": pd.DataFrame()})
+    monkeypatch.setattr(rl, "build_market", lambda ts, bars, daily, **k: Market(now=ts, prices=dict(PX), price_ts={s: ts for s in PX}, scores={}))
+    monkeypatch.setattr(rl, "run_tick", lambda pf, mkt, env: [])
+    monkeypatch.setitem(live.p["twins"], "enabled", True)
+    monkeypatch.setitem(live.p["twins"], "nifty_timeout_s", 0.3)
+    monkeypatch.setitem(live.p["strategy"], "mode", "v2_trend")
+    release = threading.Event()
+    monkeypatch.setattr(rl, "live_prices", lambda tickers: release.wait(30) or ({}, {}))
+    seen = {}
+    real_after = rl.twins.after_tick
+
+    def spy(pf, mkt, params, state_dir, logs_dir, nifty_feed=None):
+        seen["saved_first"] = (tmp_path / "state" / "portfolio.json").exists() and (tmp_path / "state" / "portfolio.backup.json").exists()
+        return real_after(pf, mkt, params, state_dir, logs_dir, nifty_feed=nifty_feed)
+    monkeypatch.setattr(rl.twins, "after_tick", spy)
+    t0 = time.time()
+    try:
+        live.tick()
+    finally:
+        release.set()
+    assert time.time() - t0 < 10 and seen["saved_first"] is True
+    assert (tmp_path / "state" / "twins.json").exists()
+
+
+def live_tickers():
+    return list(P["engine"]["tickers"].values())
+
+
+def test_the_engine_module_has_no_twins_code():
+    src = (Path(__file__).resolve().parent.parent / "simgold" / "engine.py").read_text(encoding="utf-8")
+    assert "twins" not in src                                                      # the hook lives in run_live.Live.tick, after the save
+    live_src = (Path(__file__).resolve().parent.parent / "run_live.py").read_text(encoding="utf-8")
+    assert live_src.index("self._save_pf()", live_src.index("def tick")) < live_src.index("self._twins_after(mkt)")
+
+
+# ---- (S) schema compatibility with the report reader of PR #76
+def test_the_state_carries_the_summary_keys_for_the_reports(tmp_path):
+    s, _ = run_all(path_days(12))
+    assert s["since"] == s["start_day"] and s["asof"] == s["last_day"] and set(s["twins"]) == set(s["books"])
+    t = s["twins"]["T1"]
+    assert set(t) == {"value", "return_pct", "max_dd_pct", "days", "label"} and t["label"] == twins.LABELS["T1"]
+    b = s["books"]["T1"]
+    assert t["return_pct"] == pytest.approx((b["value"] / b["start_value"] - 1) * 100, abs=1e-3) and t["max_dd_pct"] <= 0
+    cs = s["common_start"]
+    assert cs["date"] == max(b["start_day"] for b in s["books"].values()) and set(cs["return_pct"]) == set(s["books"])
+    assert len(twins.TWINS) == 7
+
+
+def test_common_start_resets_when_a_late_twin_starts_and_is_measured_from_one_close():
+    s, _ = twins.run_day(None, inputs(nifty=None), CFG)
+    assert s["common_start"]["date"] == "2026-11-13" and "T2" not in s["twins"]
+    s, _ = twins.run_day(s, inputs(day="2026-11-16", prices={G: 110.0, S: 150.0, C: 400.0}, nifty=270.0), CFG)
+    cs = s["common_start"]
+    assert cs["date"] == "2026-11-16" and set(cs["return_pct"]) == set(twins.TWINS) and all(abs(v) < 1e-9 for v in cs["return_pct"].values())
+    s, _ = twins.run_day(s, inputs(day="2026-11-17", prices={G: 121.0, S: 150.0, C: 400.0}, nifty=270.0), CFG)
+    assert s["common_start"]["return_pct"]["T5"] == pytest.approx(10.0, abs=0.2)
+
+
+def _load_reader_from_pr76():
+    import subprocess
+    import types
+    try:
+        src = subprocess.run(["git", "show", "origin/feat/pricegap-and-v3-reports:simgold/reportblocks.py"], cwd=Path(__file__).resolve().parent.parent,
+                             capture_output=True, text=True, timeout=30, check=True).stdout
+    except Exception:           # noqa: BLE001 - the branch is not fetched here
+        return None
+    mod = types.ModuleType("reportblocks_pr76")
+    exec(compile(src, "reportblocks.py", "exec"), mod.__dict__)         # noqa: S102 - our own repository's code, read-only reader
+    return mod
+
+
+def test_a_real_twins_json_loads_through_the_pr76_reader(tmp_path):
+    mod = _load_reader_from_pr76()
+    if mod is None:
+        pytest.skip("origin/feat/pricegap-and-v3-reports is not available")
+    s, _ = run_all(path_days(15))
+    twins.save_state(tmp_path / "state" / "twins.json", s)
+    v = mod.twins_view(tmp_path)
+    assert v is not None and v["since"] == s["since"] and v["asof"] == s["asof"]
+    assert len(v["rows"]) == min(len(twins.TWINS), mod.MAX_TWINS)                  # the reader must allow 7 rows to show T6
+    ids = sorted(s["twins"])                                                       # the reader sorts T0..T6 and names them its own way
+    for tid, row in zip(ids, v["rows"]):
+        assert row["value"] == pytest.approx(s["twins"][tid]["value"]) and row["ret_pct"] == pytest.approx(s["twins"][tid]["return_pct"], abs=1e-3)
+        assert row["dd_pct"] == pytest.approx(s["twins"][tid]["max_dd_pct"], abs=1e-3)
+
+
+# ---- (T) the tool is read-only, even on a bad file
+@pytest.mark.parametrize("content", ["{not json", json.dumps({"schema": 1, "books": {"T9": {}}, "px": {}, "nifty": {}}), json.dumps({"schema": 99}), "x" * 40_000])
+def test_tool_show_leaves_an_invalid_file_exactly_where_and_as_it_is(tmp_path, capsys, content):
+    import twins as tool
+    p = tmp_path / "state" / "twins.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(content)
+    before = tree(tmp_path)
+    assert tool.main(["--root", str(tmp_path), "show"]) == 0
+    out = capsys.readouterr().out
+    assert ("left untouched" in out or "left alone" in out) and tree(tmp_path) == before and not (p.parent / "twins.json.bad").exists()
+    assert tool.main(["--root", str(tmp_path), "summary"]) == 0 and tree(tmp_path) == before
+
+
+# ---- (F) fairness tables
+def test_paired_stats_known_values_and_a_deterministic_bootstrap():
+    rets = {"A": {day_n(i): 0.001 * (1 if i % 2 else 3) for i in range(40)}, "B": {day_n(i): 0.001 for i in range(40)}}
+    ps = twins.paired_stats(rets, "A", "B")
+    assert ps["n"] == 40 and ps["mean"] == pytest.approx(0.001, abs=1e-9)                                      # alternates 0.002 / 0.000
+    d = [rets["A"][k] - rets["B"][k] for k in sorted(rets["A"])]
+    m = sum(d) / 40
+    sd = (sum((x - m) ** 2 for x in d) / 39) ** 0.5
+    assert ps["mean"] == pytest.approx(m) and ps["std"] == pytest.approx(sd) and ps["t"] == pytest.approx(m / (sd / 40 ** 0.5))
+    assert ps["ci"] == twins.paired_stats(rets, "A", "B")["ci"] and ps["ci"][0] < m < ps["ci"][1]
+    assert ps["mde_year_pp"] == pytest.approx(2 * sd / 40 ** 0.5 * 252 * 100)
+    assert twins.paired_stats(rets, "A", "A") is None and twins.paired_stats(rets, "A", "Z") is None
+    assert twins.paired_stats({"A": {"d1": 0.1}, "B": {"d1": 0.0}}, "A", "B")["mean"] is None                    # one day: no statistics
+
+
+def test_daily_returns_skip_each_twins_first_day():
+    rows = [{"date": day_n(i), "twin": "T1", "value": v} for i, v in enumerate([100.0, 99.0, 101.0])]
+    r = twins.daily_returns(rows)["T1"]
+    assert set(r) == {day_n(1), day_n(2)} and r[day_n(1)] == pytest.approx(-0.01)
+
+
+def test_cost_table_gross_net_turnover_and_day_one_entry_loss():
+    s, _ = run_all(path_days(6))
+    ct = twins.cost_table(s)
+    b = s["books"]["T1"]
+    assert ct["T1"]["net"] == pytest.approx(b["value"] / b["start_value"] - 1) and ct["T1"]["gross"] > ct["T1"]["net"]
+    assert ct["T1"]["fees"] > 0 and ct["T1"]["traded_x"] > 0 and ct["T1"]["entry_loss"] > 0 and ct["T0"]["fees"] == 0 and ct["T0"]["entry_loss"] == pytest.approx(0, abs=1e-6)
+    assert ct["T5"]["entry_loss"] > 0                                                                          # buy and hold paid to get in too
+
+
+def test_summary_prints_the_fairness_tables_and_changes_nothing(tmp_path, capsys):
+    import twins as tool
+    populate(tmp_path, n=30)
+    before = tree(tmp_path)
+    assert tool.main(["--root", str(tmp_path), "summary", "--days", "20"]) == 0
+    out = capsys.readouterr().out
+    for needle in ("Common start", "Gross vs net", "day-1 entry loss", "Daily paired difference vs T1", "Daily paired difference vs T5", "Power:",
+                   "cannot rank twins", "green%(window start)", "stop%"):
+        assert needle in out, needle
+    assert tree(tmp_path) == before
+    assert tool.main(["--root", str(tmp_path), "show"]) == 0 and "green%(own start)" in capsys.readouterr().out
