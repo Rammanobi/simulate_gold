@@ -38,7 +38,7 @@ The active strategy is **v2 trend core** (`strategy.mode: v2_trend` in `config/p
 
 | Owner | Paths |
 |---|---|
-| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/live_now.json` (live P&L; also pushed every tick to the `live` branch, file `now.json`, by `simgold/livepush.py`), `state/last_prices.json`, `state/news.json`, `state/fastlane_requests.jsonl`, `logs/**` (incl. `logs/dashboard-D.json`) |
+| Engine (read only for routines) | `state/portfolio.json`, `state/equity.csv`, `state/live_now.json` (live P&L; also pushed every tick to the `live` branch, file `now.json`, by `simgold/livepush.py`), `state/last_prices.json`, `state/news.json`, `state/fastlane_requests.jsonl`, `state/twins.json` (dormant shadow paper twins, `simgold/twins.py`; the matching `logs/twins-YYYY-MM.csv` is under `logs/**`), `logs/**` (incl. `logs/dashboard-D.json`) |
 | Routines (via tools) | `state/guidance.json`, `state/fastlane.json`, `state/events.json`, `state/market_today.json`, `state/tomorrow.txt`, `state/budget.json` |
 | Routines (via tools) | `memory/ltm/*.json` (`regime`, `calendar`, `theses`, `lesson_ledger`, `performance`) and `memory/ltm/theses.md` (`tools/memory_ltm.py`); `memory/stm/days/D.json`, `memory/stm/window.json`, `memory/stm/today.jsonl` (`tools/memory_stm.py`); `archive/memory/lessons-retired.md`, `archive/memory/theses-YYYY.md` (written by those tools) |
 | Routines (direct writes) | the prose under `memory/` (`daily/`, `weekly/`, `monthly/`, `lessons.md` via `lint`), `reports/daily/**`, `reports/weekly/**` (weekly review only) |
@@ -105,6 +105,7 @@ Every memory write goes through `simgold/memsafe.py` (length caps, no instructio
 | `python tools/write_brief.py` | regenerates `memory/brief.md` |
 | `python tools/dashboard.py --date D` | Daybook Dashboard day JSON in /tmp (copy it with ArtifactData `set` + `file_path`; URL in `config/dashboard_url.txt`) |
 | `python tools/evaluate.py --month YYYY-MM [--format json\|md\|html] [--write]` / `--all` | monthly (or since-inception) performance scorecard; `--write` makes `reports/monthly/YYYY-MM.json` and `.md` |
+| `python tools/twins.py show\|summary [--days N]` | read-only table of the shadow paper twins (dormant unless `twins.enabled: true`): value, return, max drawdown, % green days, vs the real book |
 | `python tools/inbox.py item-from-incident\|item-from-daily\|bump …` | Daybook Inbox item JSON (written with ArtifactData; URL in `config/inbox_url.txt`) |
 
 Useful one-liners (repo root):

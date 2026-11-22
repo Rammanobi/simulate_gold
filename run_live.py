@@ -25,7 +25,7 @@ import shutil
 from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, runguard, summary, trend
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
-from simgold.data import daily_history, intraday_bars
+from simgold.data import daily_history, intraday_bars, live_prices
 from simgold.engine import Env, Market, run_tick
 from simgold.feed import build_market
 from simgold.market import CLOSE, IST, is_market_open, now_ist
@@ -56,6 +56,8 @@ class Live:
             self.mon.state_corrupt(recovery)
         self.news = NewsBook(NEWS_PATH)
         self.env = Env(state_dir=STATE, logs_dir=LOGS, params=self.p, tick_seconds=tick_seconds)
+        if (self.p.get("twins") or {}).get("enabled") is True:      # shadow twins (dormant): a read-only NIFTYBEES price lookup
+            self.env.twin_feed = self._twin_price
         self.tickers = list(self.p["engine"]["tickers"].values())
         self.hist, self.hist_at, self.hist_fail = None, 0.0, 0
         self.last_tick_day = None
@@ -94,6 +96,22 @@ class Live:
                     empty = pd.DataFrame()
                     return {"close": empty, "high": empty, "low": empty}
         return self.hist
+
+    def _twin_price(self, ticker: str):
+        """Read-only latest price of a shadow-twin ticker (NIFTYBEES.NS), or None. Called by the engine only at the daily check (a retry only if that day was not recorded); never raises."""
+        try:
+            import pandas as pd
+            prices, stamps = live_prices([ticker])
+            px, ts = prices.get(ticker), stamps.get(ticker)
+            if px is None or ts is None:
+                return None
+            ts = pd.Timestamp(ts)
+            ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts
+            max_age = float((self.p.get("twins") or {}).get("nifty_max_age_min", 15))
+            return float(px) if (now_ist() - ts.to_pydatetime()).total_seconds() <= max_age * 60 else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("shadow twins: %s price unavailable: %s", ticker, e)
+            return None
 
     def _value(self) -> float:
         v = self.pf.cash + self.pf.liquidbees
