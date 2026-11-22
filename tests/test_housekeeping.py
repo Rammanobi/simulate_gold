@@ -167,6 +167,7 @@ def test_failing_tests_do_not_skip_the_day():
 def test_run_live_safe_mode_flag(tmp_path, monkeypatch):
     import run_live
     monkeypatch.setattr(run_live, "STATE", tmp_path)
+    monkeypatch.setattr(A, "_SESSION_SAFE_MODE", None)      # restored after the test; run_live sets it for the process
     ticks = []
     class FakeMon:
         def tick_ok(self): pass
@@ -182,8 +183,9 @@ def test_run_live_safe_mode_flag(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["run_live.py", "--once", "--force", "--safe-mode"])
     run_live.main()
     assert ticks == [True]
-    info = A.safe_mode_info(tmp_path)
-    assert info["on"] is True and info["reason"] == "tests failing"
+    # session-only: buys are blocked in this process, but nothing is persisted, so it cannot hold overnight
+    assert A.session_safe_mode() == "tests failing"
+    assert not (tmp_path / "safe_mode.json").exists() and A.safe_mode_info(tmp_path) == {}
 
 
 def test_safe_mode_blocks_buys_but_not_exits(tmp_path):

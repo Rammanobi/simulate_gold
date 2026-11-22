@@ -533,7 +533,28 @@ def safe_path(state_dir) -> Path:
     return Path(state_dir) / "safe_mode.json"
 
 
+# Safe mode requested for ONE engine process only (run_live.py --safe-mode, i.e. pytest failed at the start of that session). It is held
+# in memory, never written to state/safe_mode.json, so a flaky test cannot keep buys blocked overnight: the next session runs
+# pytest again and, when green, starts without it. Incident-driven safe mode (below) is still persisted in the file as before.
+_SESSION_SAFE_MODE: str | None = None
+
+
+def set_session_safe_mode(reason: str | None) -> None:
+    """Turn the process-local safe mode on (reason) or off (None). Never touches disk."""
+    global _SESSION_SAFE_MODE
+    _SESSION_SAFE_MODE = (reason or "tests failing") if reason is not None else None
+
+
+def session_safe_mode() -> str | None:
+    return _SESSION_SAFE_MODE
+
+
 def safe_mode_on(state_dir) -> bool:
+    """Process-local session safe mode, or the file (read from disk every tick)."""
+    return _SESSION_SAFE_MODE is not None or _safe_mode_file_on(state_dir)
+
+
+def _safe_mode_file_on(state_dir) -> bool:
     """Read from disk every tick. A missing file is off; an unreadable one fails closed (on)."""
     p = safe_path(state_dir)
     if not p.exists():
@@ -561,7 +582,7 @@ def set_safe_mode(state_dir, reason: str, now: float | None = None, notify=True,
     """Turn safe mode on (idempotent). Raises the single 'System unstable' HIGH alert. Returns True if newly set."""
     import time as _t
     now = _t.time() if now is None else now
-    if safe_mode_on(state_dir):
+    if _safe_mode_file_on(state_dir):
         return False
     atomic_write(safe_path(state_dir), json.dumps(
         {"on": True, "since": datetime.fromtimestamp(now, IST).isoformat(timespec="seconds"), "reason": reason}, indent=1))
@@ -582,7 +603,7 @@ def evaluate_safe_mode(state_dir, now: float | None = None, cfg: dict | None = N
     import time as _t
     now = _t.time() if now is None else now
     cfg = cfg or params()
-    if safe_mode_on(state_dir):
+    if _safe_mode_file_on(state_dir):
         return False
     st = load_state(state_dir)
     today = day_of(now)
