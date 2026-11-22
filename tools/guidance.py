@@ -17,8 +17,14 @@
 Everything is checked before anything is written. Exit 0 = written, exit 2 = refused (nothing written).
 `allocation` (strategy v3, dormant) writes state/allocation.json through simgold.allocation.sanitize_allocation(for_write=True), the
 same filter the engine applies on read: weights are SHARES of the invested book (they sum to 1.00), there is no cash, size or quantity
-option and no symbol outside GOLDBEES, SILVERBEES, HINDCOPPER. It also writes the derived `bias` into state/guidance.json (v2 rollback;
-never favour) and records the scenario set in the calibration ledger (tools/calibration.py). The preview it prints never refuses.
+option and no symbol outside GOLDBEES, SILVERBEES, HINDCOPPER. Weights total 1.00 within 0.02 (refused below 0.98 and above 1.02; aim for
+exactly 1.00; float rounding at the boundary is tolerated). --invalidate takes only close_below:SYMBOL:price (up to 8). for_date defaults to
+today before 15:30 on a trading day, else the next trading day, and is at most 5 calendar days ahead.
+SHADOW RULE: while the proposal is only logged and scored (strategy.mode not v3_alloc, allocation.shadow true, phase shadow or ai_trust 0)
+this tool never touches state/guidance.json, so a proposal cannot change what v2 / D5-FI trades (the only bias is an explicit `set`).
+When the proposal trades live it also writes a derived `bias` for the v2 rollback: never favour, an existing block is kept (never lowered or
+lifted), SILVER/COPPER weights more than 0.10 below default add a block, GOLD is never blocked (GOLDBEES is the sink).
+It records the scenario set in the calibration ledger (tools/calibration.py). The preview it prints never refuses.
 `fastlane` runs the very same filter the engine runs (guard.sanitize_fastlane): no favour, no buys, no loosening
 of a stop, sell/tighten only on a position that exists. Files: state/guidance.json, state/fastlane.json,
 state/events.json, state/market_today.json, state/tomorrow.txt.
@@ -27,12 +33,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from _common import ROOT, parse_now, utf8_stdout
+from _common import ROOT, iso_day, parse_now, utf8_stdout
 
 from simgold import allocation, brief, config, guard, market, memsafe, memstore, regime
 from simgold.broker import Portfolio
@@ -65,7 +72,7 @@ def clean_note(note: str | None) -> str:
         raise Refused(f"--note is {len(n)} characters; keep it under {MAX_NOTE}")
     if n:
         try:
-            memsafe.check_text(n, "bias_note", one_line=False)
+            memsafe.check_text(note, "bias_note", one_line=False)      # the raw text: a newline cannot hide a "system:" line start
         except memsafe.Refused as e:
             raise Refused(f"--note rejected: {e}")
     return n
@@ -265,11 +272,16 @@ def _read_events(root: Path) -> list[dict]:
     return [e for e in raw if isinstance(e, dict) and e.get("date") and e.get("type")] if isinstance(raw, list) else []
 
 
-def _date(s: str) -> date:
+def strict_day(s, what: str, example: str = "2026-10-14") -> date:
+    """YYYY-MM-DD only (date.fromisoformat also takes 20261118 and week dates on Python 3.11)."""
     try:
-        return date.fromisoformat(s)
+        return iso_day(s)
     except ValueError:
-        raise Refused(f"--date must look like 2026-10-14, got {s!r}")
+        raise Refused(f"{what} must look like {example} (YYYY-MM-DD) and be a real date, got {str(s)[:20]!r}")
+
+
+def _date(s: str) -> date:
+    return strict_day(s, "--date")
 
 
 def cmd_events(a, root: Path, now: datetime, p: dict) -> str:
@@ -351,16 +363,45 @@ def cmd_tomorrow(a, root: Path, now: datetime, p: dict) -> str:
 ALLOC_SYMS = allocation.SYMS
 ALLOC_METALS = ("GOLD", "SILVER", "COPPER")
 DIRS = ("up", "flat", "down")
-DESK_STATES = ("ok", "missing", "abstain", "invalid")
+DESK_STATES = ("ok", "missing", "abstain", "invalid", "degraded")
 REFUSED_FLAGS = ("--cash", "--qty", "--quantity", "--size", "--leverage", "--shares", "--units", "--amount", "--buy", "--sell",
                  "--order", "--stop", "--floor", "--cap", "--lots")
 
 
 def _fraction(v, what: str) -> float:
     try:
-        return float(v)
-    except (TypeError, ValueError):
-        raise Refused(f"{what}: {v!r} is not a number (weights are shares such as 0.70, not 70 or 70%)")
+        x = float(v)
+    except (TypeError, ValueError, OverflowError):
+        raise Refused(f"{what}: {str(v)[:20]!r} is not a number (weights are shares such as 0.70, not 70 or 70%)")
+    if not math.isfinite(x):
+        raise Refused(f"{what}: {str(v)[:20]!r} is not a number in [0, 1] (not a finite number)")
+    return x
+
+
+WEIGHT_LO, WEIGHT_HI, WEIGHT_EPS = 0.98, 1.02, 1e-9
+
+
+def settle_weights(w: dict) -> dict:
+    """The tool's own total check, tolerant of float rounding (0.70 + 0.20 + 0.08 is 0.9799999999999999 in floating point and must
+    pass at the 0.98 boundary). Total 1.00 within 0.02: refused below 0.98 and above 1.02. A total that is not exactly 1.00 is
+    normalised here (the engine would do the same), so the filter never sees a rounding artefact. Aim for exactly 1.00."""
+    if set(w) != set(ALLOC_SYMS):
+        raise Refused(f"--weights must name all three of {', '.join(ALLOC_SYMS)} (shares that sum to 1.00)")
+    for k, v in w.items():
+        if v < 0 or v > 1:
+            raise Refused(f"weight of {k} is not a number in [0, 1] (got {v:g}; weights are shares such as 0.70, not 70)")
+    tot = sum(w.values())
+    if tot < WEIGHT_LO - WEIGHT_EPS:
+        raise Refused(f"weights sum to {tot:.3f}: shares must sum to 1.00 (refused below {WEIGHT_LO:.2f}: a shortfall would be cash, "
+                      f"which is not a choice; aim for exactly 1.00)")
+    if tot > WEIGHT_HI + WEIGHT_EPS:
+        raise Refused(f"weights sum to {tot:.3f}: shares must sum to 1.00 (refused above {WEIGHT_HI:.2f}: more than 100 percent is "
+                      f"leverage; aim for exactly 1.00)")
+    if abs(tot - 1.0) <= WEIGHT_EPS:
+        return dict(w)
+    out = {s: round(w[s] / tot, 6) for s in ALLOC_SYMS}
+    out["GOLDBEES"] = round(out["GOLDBEES"] + (1.0 - sum(out.values())), 6)
+    return out
 
 
 def parse_weights(items) -> dict:
@@ -381,7 +422,15 @@ def parse_weights(items) -> dict:
     return out
 
 
+def raw_check(label: str, raw) -> None:
+    """Refuse a chat-role line start ("system:", "assistant:", "user:") in the raw text, before whitespace is collapsed."""
+    rp = memsafe.role_prefix(raw)
+    if rp:
+        raise Refused(f"{label} starts a line with a chat-role prefix ({rp!r}); proposals hold facts and numbers only")
+
+
 def parse_scenario(item: str) -> dict:
+    raw_check("--scenario", item)
     parts = str(item).split(":", 3)
     if len(parts) < 3 or not parts[0].strip():
         raise Refused(f"bad --scenario {item!r}: use name:p:GOLD=up,SILVER=flat,COPPER=down:why")
@@ -395,6 +444,7 @@ def parse_scenario(item: str) -> dict:
             raise Refused(f"{m} given twice in scenario {sc['name']!r}")
         sc[m] = d
     if len(parts) > 3 and parts[3].strip():
+        raw_check(f"scenario {sc['name']!r} why", parts[3])
         sc["why"] = " ".join(parts[3].split())
     return sc
 
@@ -408,8 +458,25 @@ def parse_rationale(items) -> dict:
             raise Refused(f"bad --rationale item {it!r}: use GOLD=\"text with a number\" (keys GOLD, SILVER, COPPER; quote the text)")
         if k in out:
             raise Refused(f"{k} given twice in --rationale")
+        raw_check(f"rationale {k}", v)
         out[k] = " ".join(v.split())
     return out
+
+
+def parse_invalidate(groups) -> list:
+    """--invalidate takes ONLY close_below:SYMBOL:price (up to 8, symbol one of the three, price a plain positive decimal). The other
+    forms the weekly thesis tool knows (close_above, regime_is, driver_*, date) are refused here: the engine enforces one form."""
+    flat = [x for grp in (groups or []) for x in grp]
+    if len(flat) > 8:
+        raise Refused(f"--invalidate has {len(flat)} entries; at most 8")
+    for x in flat:
+        m = allocation._RE_INVALIDATE.match(x) if isinstance(x, str) else None            # noqa: SLF001
+        if not m:
+            raise Refused(f"--invalidate {str(x)[:40]!r} is refused: the only form is close_below:SYMBOL:price with SYMBOL one of "
+                          f"{', '.join(ALLOC_SYMS)} (for example close_below:SILVERBEES:158); close_above, regime_is and date forms are not accepted")
+        if not 0 < float(m.group(2)) < 1e7:
+            raise Refused(f"--invalidate {x!r}: the price must be a positive number")
+    return flat
 
 
 def parse_desks(items) -> dict:
@@ -431,10 +498,7 @@ def default_for_date(now: datetime) -> date:
 def _for_date(a, now: datetime) -> str:
     if not getattr(a, "for_date", None):
         return default_for_date(now).isoformat()
-    try:
-        return date.fromisoformat(a.for_date).isoformat()
-    except ValueError:
-        raise Refused(f"--for-date must look like 2026-11-18, got {a.for_date!r}")
+    return strict_day(a.for_date, "--for-date", "2026-11-18").isoformat()
 
 
 def _snapshot(root: Path, now: datetime, p: dict):
@@ -452,17 +516,28 @@ def _read_alloc(path: Path):
         return "unreadable"
 
 
+def proposal_is_live(p: dict, cfg: dict) -> bool:
+    """True only when the engine trades the AI tilt: strategy.mode v3_alloc, allocation.shadow false, phase live, ai_trust above 0.
+    In every other state (v2_trend or v1_scores, shadow true, phase shadow, trust 0) a proposal is logged and scored, never traded."""
+    return bool(p["strategy"]["mode"] == "v3_alloc" and not cfg["shadow"] and cfg["phase"] == "live" and cfg["ai_trust"] > 0)
+
+
 def derived_bias(clean: dict, snap: dict, root: Path, p: dict) -> dict:
-    """The v2-rollback bias: a weight more than 0.10 below the default means block, else neutral. Never favour. Without a default
-    the current bias is lowered to neutral at most (favour becomes neutral, block stays)."""
-    out = _current_bias(root, p)
+    """The v2-rollback bias written ONLY while the proposal trades live (see proposal_is_live). Rules:
+      * never favour (an existing favour is lowered to neutral);
+      * an existing `block` is kept: the derived bias never lowers or lifts one (the stricter of existing and derived wins);
+      * a SILVER or COPPER weight more than 0.10 below its default adds a block; GOLD is never blocked (GOLDBEES is the sink: a gold
+        weight below default means the book rotates out of gold, which a bias block would only make worse on a rollback);
+      * without a default (no history) or with hold-default nothing is derived: favour becomes neutral, a block stays."""
+    existing = _current_bias(root, p)
     d, w = snap.get("default"), clean["weights"]
+    out = {}
     for m in ALLOC_METALS:
         sym = {"GOLD": "GOLDBEES", "SILVER": "SILVERBEES", "COPPER": "HINDCOPPER"}[m]
-        if d is not None and w != "default":
-            out[m] = "block" if w[sym] < d[sym] - 0.10 else "neutral"
-        else:
-            out[m] = "block" if out.get(m) == "block" else "neutral"
+        derived = "neutral"
+        if m != "GOLD" and d is not None and w != "default" and w[sym] < d[sym] - 0.10:
+            derived = "block"
+        out[m] = "block" if existing.get(m) == "block" or derived == "block" else "neutral"
     return out
 
 
@@ -510,7 +585,7 @@ def cmd_allocation(a, root: Path, now: datetime, p: dict) -> str:
             raise Refused("hold-default needs --note \"why\" (an explicit no-view is a decision: say what was missing)")
         obj.update(weights="default", confidence=0.0)
     else:
-        obj["weights"] = parse_weights(a.weights)
+        obj["weights"] = settle_weights(parse_weights(a.weights))
         if a.confidence is None:
             raise Refused("--confidence is required (0 to 1)")
         obj["confidence"] = a.confidence
@@ -519,13 +594,16 @@ def cmd_allocation(a, root: Path, now: datetime, p: dict) -> str:
         rat = parse_rationale(a.rationale)
         if rat:
             obj["rationale"] = rat
-        obj["invalidate"] = [x for grp in (a.invalidate or []) for x in grp]
+        obj["invalidate"] = parse_invalidate(a.invalidate)
         hd = a.horizon_days if a.horizon_days is not None else 5.0
         obj["horizon_days"] = int(hd) if float(hd).is_integer() else hd
     if a.desks:
         obj["desks"] = parse_desks(a.desks)
     if a.note:
+        raw_check("--note", a.note)
         obj["note"] = " ".join(a.note.split())
+    if a.by:
+        raw_check("--by", a.by)
     snap = _snapshot(root, now, p)
     if "desks" not in obj:
         try:
@@ -561,7 +639,10 @@ def cmd_allocation(a, root: Path, now: datetime, p: dict) -> str:
             f"G/S/C {_fmt(clean['weights'])} conf {clean['confidence']:g}") +
            (f" (default {_fmt(snap['default'])})" if snap.get("default") else "")]
     if clean["for_date"] == now.date().isoformat():
-        if act == "hold-default":
+        if not proposal_is_live(p, cfg):
+            out.append("guidance.json not touched: the proposal is logged and scored only (v3 shadow or dormant), so it must not change "
+                       "what v2/D5-FI trades; only an explicit `guidance.py set` writes a bias")
+        elif act == "hold-default":
             note_args = argparse.Namespace(note="allocation hold-default")
             out.append(cmd_touch(note_args, root, now, p))
         else:

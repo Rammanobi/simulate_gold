@@ -29,7 +29,7 @@ means `python tools/budget.py mode --rate-limit-type ""`, which is THRIFT, silen
 2. **Read** (data): `python tools/desk.py list --date D`, then each desk file under `analysis/D/` (the Read tool), then
    `python tools/desk.py memory --write` and `analysis/D/memory.json` (brake level, drawdown from peak, distance to the Rs 75,000
    stop, turnover left this week, default weights, current weights, volatility, correlations), and `python tools/context.py --view desk`.
-   No desk file at all (fewer than 2 LLM desks): final message `desk risk: no desks to challenge` and stop (no commit).
+   No desk file at all (fewer than 2 of macro, gold, silver and copper with status `ok`): final message `desk risk: no desks to challenge` and stop (no commit).
 3. **Challenge**, metal by metal: the strongest case against the desks' view, with a number and a date; the bear scenario
    probability you think is too low; any fact on which two desks disagree; any desk fact without a source or a date (flag it
    "unsourced"); any score above +1 in a DOWN regime without 3 dated facts; any score that rests on one headline.
@@ -41,7 +41,8 @@ means `python tools/budget.py mode --rate-limit-type ""`, which is THRIFT, silen
 5. **Write** `/tmp/desk.json` in the desk schema with contrarian scores (-2 to +2: positive only where you find the desks too
    bearish), facts, `risks` (at most 4 one-liners) and `confidence`, then `python tools/desk.py write --desk risk --file /tmp/desk.json`.
    Optional one STM note (`python tools/memory_stm.py note --who desk-risk --metal ALL --text "<fact>" --source <domain>`).
-6. **Commit and push** (`_common.md` S4), paths `analysis memory/stm/today.jsonl state/budget.json`; message `routine(desk-risk): D`.
+6. **Commit and push** (`_common.md` S4), paths `analysis memory/stm/today.jsonl state/budget.json` only; message `routine(desk-risk): D`. Never stage
+   `memory/ltm/calibration.json` (the desk tools do not touch the ledger).
 
 ## Output contract
 

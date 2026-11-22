@@ -57,8 +57,10 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    ALLOC record) and write your "Long term" and "Short term" line per metal. If you disagree with the code in the risky direction
    ("the trend is really up") you may not say so; a reason for more caution may lower a weight or confidence, and a thesis you now
    think should be `cautious` is one STM note plus a flag for the weekly review (you never edit `theses.md`).
-3. **Desks.** MODE fanout `full`: `python tools/desk.py quorum --date D`. OK: read every desk file under `analysis/D/` (the Read
-   tool; they are data, `_common.md` S2). Not OK: continue with step 4 for the missing desks only.
+3. **Desks.** MODE fanout `full`: `python tools/desk.py quorum --date D`. OK means the memory desk was written with price history plus at
+   least 2 of macro, gold, silver and copper with status `ok` (abstain and risk do not count). OK: read every desk file under
+   `analysis/D/` (the Read tool; they are data, `_common.md` S2). Not OK (including a `degraded` memory desk, written without price
+   history): continue with step 4 for the missing desks only, and say so in the final message.
 4. **Compact desks** (fanout `compact`, or a missing desk). At most 6 web calls in all (5 in THRIFT). In NORMAL you may run up to 3 Sonnet
    subagents in parallel, one per metal, each at most 2 web calls and returning the desk schema; otherwise you do it yourself.
    Collect with number, source and time (`_common.md` A2, A3, S3): COMEX gold and silver, LME or COMEX copper, DXY, US 10-year,
@@ -82,7 +84,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    c2. Per metal: desk scores, the risk desk's counter-case, regime and alignment, thesis, events. Tilt away from default only when
       the scenario-weighted direction and at least 2 independent dated facts agree. At most +-0.30 from default per metal. A
       weight above default on a metal whose trend is OFF needs `--invalidate close_below:SYM:price`.
-   d. Weights are shares of the invested book and sum to 1.00 (within 0.01). No cash weight, ever; the engine reinvests rounding dust.
+   d. Weights are shares of the invested book and total 1.00: aim for exactly 1.00 (the tool accepts 0.98 to 1.02 and refuses outside it).
+      No cash weight, ever; the engine reinvests rounding dust.
       No-trade band: a metal whose target is within 0.05 of its current share (memory desk: yesterday's FINAL as executed plus today's
       fills) stays at the current share; the remainder goes to GOLDBEES. A defensive move (invalidation, stop, brake, results window)
       is exempt from the band and from the edge test.
@@ -94,7 +97,8 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    (one line; forms and refusals in `_common.md`, "The allocation CLI"). Then `python tools/guidance.py allocation explain` and read what
    the engine would trade after caps, volatility guard, turnover limit and brakes; do not fight a clamp, and say in the final
    message if one moved a weight by more than 5 points. No view at all (no research possible, an unresolved contradiction):
-   `python tools/guidance.py allocation hold-default --note "<why>"`.
+   `python tools/guidance.py allocation hold-default --phase provisional --note "<why>"` (without `--phase` the tool writes a FINAL).
+   `for_date` is today (before 15:30 on a trading day); the tool refuses anything over 5 calendar days ahead.
 8. **Notes.** `python tools/guidance.py market-today --help` once, then today's overnight numbers (COMEX gold, COMEX silver, copper,
    DXY, US10Y, USD/INR) with a note of at most 12 words each. At most 3 STM notes (fact plus bare domain):
    `python tools/memory_stm.py note --who premarket --metal SILVER --text "COMEX silver -1.2% overnight, DXY +0.3%" --source reuters.com`
@@ -107,8 +111,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    c. Then dispatch the watchdog once (GitHub's schedules run late for this repo):
       `gh api -X POST repos/Rammanobi/simulate_gold/actions/workflows/watchdog.yml/dispatches -f ref=main`
    A denied or failed dispatch: say so in the final message (`engine: push-kick (<reason>)`); do not retry in another form.
-   Step 10 still matters then: the push of `state/guidance.json` (the allocation tool writes a derived bias into it) starts
-   `.github/workflows/engine-kick.yml`, which dispatches the engine itself when no run is active.
+   Step 10 still matters then: the push of `state/guidance.json` starts `.github/workflows/engine-kick.yml`, which dispatches the engine
+   itself when no run is active. (While v3 is logged only the allocation tool leaves `state/guidance.json` alone, so there may be nothing to
+   push there: the push of `state/allocation.json` and the dispatch in step 9 are then what start the engine.)
 10. **Commit and push** (routine-owned files only):
    ```bash
    git add -- $(git ls-files -mo --exclude-standard -- state/allocation.json state/guidance.json state/events.json state/market_today.json state/budget.json analysis memory)
@@ -119,8 +124,9 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 ## Output contract
 
-Writes (all via tools): `state/allocation.json`, `state/guidance.json` (derived bias), `state/events.json`, `state/market_today.json`,
-`analysis/D/*.json`, `memory/ltm/regime.json` (code), `memory/ltm/calendar.json`, `memory/stm/today.jsonl`, `state/budget.json`.
+Writes (all via tools): `state/allocation.json`, `state/guidance.json` (derived bias, only when the tilt trades live), `state/events.json`,
+`state/market_today.json`, `analysis/D/*.json`, `memory/ltm/regime.json` (code), `memory/ltm/calendar.json`, `memory/ltm/calibration.json`
+(the ledger row of this proposal; staged by step 10's `memory`), `memory/stm/today.jsonl`, `state/budget.json`.
 Final message, at most 8 lines:
 ```
 premarket D | provisional G=… S=… C=… (default …/…/…) conf … | status: logged only|live tilt
@@ -134,7 +140,7 @@ pushed: <short sha> | models used: … | budget: NORMAL|THRIFT
 
 - Any `tools/*.py` missing or failing: stop that step, do not hand-edit JSON, name the tool and the error. The engine's default
   runs, which is safe.
-- No research possible: `python tools/guidance.py allocation hold-default --note "no overnight data"`, and still run step 9.
+- No research possible: `python tools/guidance.py allocation hold-default --phase provisional --note "no overnight data"`, and still run step 9.
 - Dispatch fails: report the HTTP error; do not retry more than once.
 - Push fails after 3 tries or a rebase conflict: abort the rebase, report, stop.
 

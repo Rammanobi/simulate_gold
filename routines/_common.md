@@ -21,23 +21,21 @@ the engine's last lines, not yours; you never plan around them and never try to 
 
 ## Advice status (read the MODE line first, see S1)
 
-**Effective mode.** v3 is ON when `strategy.mode` is `v3_alloc` OR `allocation.phase` is `live_default` or `live` (the owner's single
-switch; `strategy.mode` may still read `v2_trend`). The MODE line prints the raw values; apply that rule to them.
-
-| MODE line (`mode phase ai_trust`) | What your output is |
-|---|---|
-| `v1_scores` any; or `v2_trend` with phase `None`, `off` or `shadow` | **v3 is DORMANT.** The scheduled routines `premarket` and `allocation` hand over to the legacy playbooks (`premarket_v2.md`, `hourly.md`). Anything these v3 playbooks write (desk files, proposals) is **logged only**: the engine ignores it and trades by its v1/v2 rules. |
-| `v3_alloc` with phase `off` or `shadow` | **Logged only.** The engine computes and logs the clamped "would-have" result in its `ALLOC` records; the v2 rules trade. |
-| phase `live_default` (any `strategy.mode` that is not `v1_scores`) | **Logged only.** The engine trades its fully invested default and logs the tilt that WOULD have traded; `ai_trust` is not used. |
-| phase `live` and `ai_trust` = 0 | **Logged only.** Same as `live_default`. |
-| phase `live` and `ai_trust` > 0 | The engine tilts its default toward your mix by `k = ai_trust x clip((confidence - 0.30) / 0.50, 0, 1)`, then clamps. Still advice: it can be clamped, ignored or replaced by the default. |
-
-**Your bias file in v3.** While v3 trades, `state/guidance.json` bias has one effect: `block` for a metal means no NEW buys or adds of
-that metal (the engine moves its weight to the other metals and never raises exposure); `favour` and `neutral` change nothing. The
-allocation proposal is the only way to ask for more of a metal, and it is advice.
+| `strategy.mode` | `allocation.phase` / `ai_trust` | What your output is |
+|---|---|---|
+| `v1_scores` or `v2_trend` | any | **v3 is DORMANT.** The scheduled routines `premarket` and `allocation` hand over to the legacy playbooks (`premarket_v2.md`, `hourly.md`). Anything these v3 playbooks write (desk files, proposals) is **logged only**: the engine ignores it and trades by its v1/v2 rules. |
+| `v3_alloc` | `shadow` | **Logged only.** The engine computes and logs the clamped "would-have" result in its `ALLOC` records, and trades its D5-FI default (with `allocation.shadow: true` the v2 rule trades). Your proposal is scored later (Brier, AI vs default) and changes no trade. |
+| `v3_alloc` | `live` and `ai_trust` = 0 | **Logged only.** Same as shadow. |
+| `v3_alloc` | `live` and `ai_trust` > 0 | The engine tilts its default toward your mix by `k = ai_trust x clip((confidence - 0.30) / 0.50, 0, 1)`, then clamps. Still advice: it can be clamped, ignored or replaced by the default. |
 
 In every row write the proposal exactly as carefully as if it counted: shadow mode exists to measure it. But never describe
 a proposal as "in force", "executed" or "ordered" in a note, a memory line or the final message. Say "proposed".
+
+**What a proposal does while it is logged only (shadow, dormant, or `ai_trust` 0):** it is written to `state/allocation.json`, logged
+in the `ALLOC` record and scored later; trades follow D5-FI (or v2), never the proposal. `tools/guidance.py allocation set|hold-default`
+then does NOT touch `state/guidance.json` either (it prints `guidance.json not touched`), so a proposal cannot change what the v2 rule
+trades; the only bias the engine sees is one set explicitly with `guidance.py set` by the v2 playbooks. Only when the tilt trades live
+does the tool also write a derived bias for the v2 rollback (never favour, an existing block is kept, never a GOLD block).
 
 ## Steps
 
@@ -114,10 +112,13 @@ core multiplier, default bias), LTM regime labels (UP, FLAT or DOWN from 1, 3, 6
 confirmation, volatility regime), the forward event calendar (2-8 weeks), the theses (stance and machine-checked invalidation),
 the lesson ledger and `lessons.md`, the monthly performance table (including per-alignment P&L and, once live,
 `ai_vs_default`), then STM: the rolling 10-session window, recent day records, today's notes, and the last `ALLOC` record
-(default vs proposal vs final vs held, clamps). Write two lines for yourself: "Long term: <label, 6-month return, thesis stance>"
+(default vs proposal vs final vs held, clamps). Where each comes from: both views carry short excerpts (`lesson titles`, `open lesson
+candidates`, `performance excerpt` with the last two months and their `by_alignment` table) and the memory desk carries `by_alignment` and
+the calibration summary; the full `lessons.md`, the whole ledger and the full performance table are only in
+`python tools/context.py --view weekly` (the weekly review). Never browse `memory/` by hand to find them. Write two lines for yourself: "Long term: <label, 6-month return, thesis stance>"
 and "Short term: <last 10 sessions in one line>". A long-term DOWN regime means the burden of proof is on any weight above default.
 Also read your own record: `desk_brier` (your desk's scenario calibration) and `ai_vs_default` (the profit or loss of past tilts against
-the default), from the same views and `memory/ltm/performance.json`. They are `n/a` in the shadow phase or before 20 scored calls;
+the default), from the `calibration` section of the same views (the memory desk carries it too). They are `n/a` before 20 scored calls;
 A7 caps confidence by them.
 
 **A2. Micro: the instruments themselves** (company and ETF level). GOLDBEES and SILVERBEES: price vs 20-day high and low, premium or
@@ -146,7 +147,7 @@ use sigma x 2.2, the square root of 5) and `flat` means 0.
 Subtract the costs (0.30% x D). **Minimum edge:** the net expected gain must be at least +0.10% of the account and at least twice
 the costs; otherwise there is no tilt: propose the current share (A6). Write the arithmetic with its numbers in the rationale
 (`edge +0.18% net of 0.02% costs`). Also write the **base rate**: how often this kind of setup paid before, from
-`performance.json` `by_alignment`, the lesson ledger or `lessons.md`, with a count and a date. No base rate (`n/a`) means confidence
+the `performance excerpt` (`by_alignment`) of your view, the open lesson candidates, the lesson titles or the memory desk, with a count and a date. No base rate (`n/a`) means confidence
 at most 0.50. An edge that rests on one headline, or that you cannot compute, is not an edge.
 
 **A6. Target allocation: brainstorm, then commit.** First brainstorm: list the 2 or 3 candidate mixes a profit-seeking PM would
@@ -204,29 +205,38 @@ python tools/guidance.py allocation set --phase provisional|final \
 (Write it on ONE line; the backslashes above are only for reading.) The tool fills the rest itself: `for_date`, `written`, `by`,
 `desks` (from `analysis/D/`), `default_at_write`, `prices_at_update`, `budget`.
 
-- `--weights`: exactly the three symbols, each between 0 and 1, total 1.00 within 0.01 (the tool refuses a total
-  outside 0.99 to 1.01, any other symbol, LIQUIDBEES, cash or a cash-like key, a negative weight).
+- `--weights`: exactly the three symbols, each between 0 and 1, total 1.00 within 0.02: the tool refuses a total below 0.98 (hidden
+  cash) or above 1.02 (leverage), any other symbol, LIQUIDBEES, cash or a cash-like key, a negative weight. Aim for exactly 1.00; the
+  tool tolerates float rounding at the boundary (0.70 + 0.20 + 0.08 is accepted) and normalises a total that is not exactly 1.00.
 - `--confidence`: 0 to 1. `--scenario`: 2 to 4 times, `name:p:GOLD=dir,SILVER=dir,COPPER=dir:why`, p summing to 1 within 0.02.
 - `--rationale`: one entry per metal, at most 240 characters, must contain a number; no URLs, no instruction-like text.
-- `--invalidate`: `close_below:SYMBOL:price` or `close_above:SYMBOL:price` (also `regime_is:METAL:LABEL`, `date:YYYY-MM-DD`).
-- A FINAL after 15:05 IST is refused, and `for_date` must be today or the next trading day. Exit code 2 means REFUSED and nothing was
-  written: fix the field it names; never paste headline text or reword to dodge the filter.
+- `--invalidate`: only `close_below:SYMBOL:price` (SYMBOL one of the three, up to 8 entries). `close_above`, `regime_is`, `date`
+  and every other form are refused (the weekly thesis tool has its own, richer forms; this tool does not).
+- `for_date` defaults to today before 15:30 IST on a trading day, else the next trading day; `--for-date YYYY-MM-DD` (exactly that form)
+  may be at most 5 calendar days ahead and never in the past. A FINAL for today after 15:05 IST is refused. Exit code 2 means REFUSED
+  and nothing was written: fix the field it names; never paste headline text or reword to dodge the filter.
 - `python tools/guidance.py allocation explain` prints (never refuses) the clamped result the engine would trade: caps, vol guard,
   turnover limit and brakes applied. Read it. The turnover budget is 0.20 one-way per day and 0.40 per week; the engine may rebalance
   intraday on an event inside that budget, and defensive exits (stops, brakes, account stop, results exit, invalidation) are exempt from it. If a clamp moved a weight by more than 5 points, say so in the final message; do not fight the clamp.
-- `python tools/guidance.py allocation show` prints today's file. `python tools/guidance.py allocation hold-default --note "<why>"`
-  writes an explicit "no view" (weights `default`, confidence 0). Use it whenever you cannot form a view: missing data, no desks
+- `python tools/guidance.py allocation show` prints today's file. `python tools/guidance.py allocation hold-default --phase provisional|final --note "<why>"`
+  writes an explicit "no view" (weights `default`, confidence 0); `--phase` defaults to `final`, so the premarket run (08:50) must pass
+  `--phase provisional` and the allocation run may pass `--phase final`. Use it whenever you cannot form a view: missing data, no desks
   and no research possible, a contradiction you cannot resolve.
-- The tool also writes a derived `bias` into `state/guidance.json` (a weight more than 0.10 below default means `block`) so a rollback to v2
-  stays safe. You never write `bias` yourself under v3.
+- While the proposal is logged only (see "Advice status") the tool leaves `state/guidance.json` alone. When the tilt trades live it also
+  writes a derived `bias` for the v2 rollback: never `favour`; an existing `block` is kept (never lowered, never lifted); a SILVER or COPPER
+  weight more than 0.10 below default adds a `block`; GOLD is never blocked (GOLDBEES is the sink). You never write `bias` yourself under v3.
+- The calibration ledger `memory/ltm/calibration.json` is written by this tool (the synthesis rows: premarket, allocation and fastlane
+  sessions only). Those three sessions `git add memory/ltm/calibration.json` after a write; the desk sessions never touch it (desk calibration
+  is derived at scoring time from the committed `analysis/D/<desk>.json` files).
 
 ## Desk tools
 
 `python tools/desk.py write --desk macro|gold|silver|copper|risk --file /tmp/desk.json` (schema and memsafe checks, at most 2.5 KB),
 `python tools/desk.py memory --write` (the code-only memory desk: regime, alignment, theses and invalidation hits, STM window,
 lessons, performance by alignment, the default weights, current weights, brake level, distance to the Rs 75,000 stop, turnover left),
-`python tools/desk.py list --date D`, `python tools/desk.py quorum --date D` (prints OK when the memory desk and at least 2 LLM
-desks exist). Desk file schema: `{"desk", "date", "written", "model", "facts": [{"metric", "value", "unit", "source", "asof"}] (at most 12),
+`python tools/desk.py list --date D`, `python tools/desk.py quorum --date D` (prints OK when the memory desk was written WITH price
+history (a memory desk written without network history is `degraded` and does not count) and at least `desks.quorum` (2) of macro, gold,
+silver and copper have status `ok`; an abstaining, invalid or missing desk and the risk desk never count; dates are YYYY-MM-DD exactly). Desk file schema: `{"desk", "date", "written", "model", "facts": [{"metric", "value", "unit", "source", "asof"}] (at most 12),
 "view": {"METAL": {"dir_5d": "up|flat|down", "p_up", "p_down", "score": -2..2, "why"}}, "risks": [at most 4 one-liners],
 "events": [{"date", "type", "confirmed"}], "confidence", "abstain": true|false}`. Write the JSON file to `/tmp` (the scratch
 file is not part of the repo; you never put desk JSON anywhere else, and never edit one after the tool wrote it).

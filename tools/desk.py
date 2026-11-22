@@ -2,14 +2,19 @@
 """Desk files for strategy v3 (DORMANT; paper trading only): validated writer and readers for analysis/D/<desk>.json.
 
   python tools/desk.py write --desk macro|gold|silver|copper|risk --file /tmp/desk.json [--date D]
-  python tools/desk.py list [--date D] [--json]      # status of every desk file of the day (ok|abstain|invalid|missing)
-  python tools/desk.py quorum [--date D]             # prints OK or NOT OK (exit 0 either way): memory desk + enough evidence desks
+  python tools/desk.py list [--date D] [--json]      # status of every desk file of the day (ok|abstain|invalid|missing; memory also degraded)
+  python tools/desk.py quorum [--date D]             # prints OK or NOT OK (exit 0 either way): memory desk WITH data + enough evidence desks
   python tools/desk.py memory [--write] [--date D]   # the code-only memory desk (analysis/D/memory.json): default, current weights, brake...
 
 A desk file is evidence for the 08:50 / 14:40 allocation, never an order: it has no weight, size, quantity, cash or symbol field and the
 engine never reads it. `write` checks the schema, the memsafe text rules (no instructions, no URLs) and the size cap, and refuses
-(exit 2, nothing written) on any problem. The file written is the canonical compact JSON, at most 2.5 KB. `tools/desk.py` writes only
-under analysis/<date>/ (routine-owned) and, through tools/calibration.py, the calibration ledger.
+(exit 2, nothing written) on any problem. The file written is the canonical compact JSON, at most 2.5 KB. `tools/desk.py` writes ONLY
+under analysis/<date>/ (routine-owned). It never touches memory/ltm/calibration.json: parallel desk sessions would all edit that one file
+and conflict. tools/calibration.py reads the committed analysis/D/<desk>.json files when it scores (desk calibration is derived from them).
+
+--date is YYYY-MM-DD exactly (20261118 is refused). Quorum OK = the memory desk written WITH price history (a memory desk without
+history is `degraded` and does not count) plus at least desks.quorum (2) of macro, gold, silver, copper with status ok; abstain,
+invalid and the risk desk never count.
 
 Desk file schema (all keys required except events, risks, unit):
   {"desk", "date", "written", "model", "facts": [{"metric","value","unit","source","asof"}] (<= 12),
@@ -26,7 +31,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from _common import ROOT, parse_now, utf8_stdout
+from _common import ROOT, iso_day, parse_now, utf8_stdout
 
 import alloc_ctx
 import calibration
@@ -53,7 +58,24 @@ class Refused(Exception):
 
 
 def _num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
+    """A finite float, or None for a bool, a non-number, NaN, infinity or an int too large for a float (10**400 raises OverflowError)."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return None
+    try:
+        f = float(x)
+    except OverflowError:
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _day(s, now: datetime) -> str:
+    """--date as exactly YYYY-MM-DD, default today."""
+    if s is None:
+        return now.date().isoformat()
+    try:
+        return iso_day(s).isoformat()
+    except ValueError:
+        raise Refused(f"--date must look like 2026-11-18 (YYYY-MM-DD) and be a real date, got {str(s)[:20]!r}")
 
 
 def _txt(x, kind: str, what: str, cap: int | None = None) -> str:
@@ -96,6 +118,8 @@ def validate_desk(obj, desk: str, day: str, now: datetime | None = None, root=No
     model = obj.get("model", "")
     if not isinstance(model, str) or len(model) > 40 or not all(c.isalnum() or c in "._- " for c in model):
         raise Refused("model must be a short name such as sonnet")
+    if model:
+        model = _txt(model, "why", "model", 40)
     out["model"] = model
     # ---- facts
     facts = obj["facts"]
@@ -176,9 +200,9 @@ def validate_desk(obj, desk: str, day: str, now: datetime | None = None, root=No
         if not isinstance(e, dict) or set(e) - {"date", "type", "confirmed"} or not {"date", "type"} <= set(e):
             raise Refused(f"event {i}: use date, type, confirmed")
         try:
-            d = date.fromisoformat(str(e["date"]))
+            d = iso_day(e["date"])
         except ValueError:
-            raise Refused(f"event {i}: date must look like 2026-12-10")
+            raise Refused(f"event {i}: date must look like 2026-12-10 (YYYY-MM-DD)")
         if e["type"] not in EVENT_TYPES:
             raise Refused(f"event {i}: type must be one of {'/'.join(EVENT_TYPES)}")
         if "confirmed" in e and not isinstance(e["confirmed"], bool):
@@ -214,11 +238,8 @@ def read_status(root, day: str, desk: str):
 
 # ------------------------------------------------------------------ write
 def cmd_write(a, root: Path, now: datetime, p: dict) -> str:
-    day = a.date or now.date().isoformat()
-    try:
-        d = date.fromisoformat(day)
-    except ValueError:
-        raise Refused(f"--date must look like 2026-11-18, got {day!r}")
+    day = _day(a.date, now)
+    d = date.fromisoformat(day)
     if d < now.date() or (d - now.date()).days > allocation.MAX_ADVANCE_DAYS:
         raise Refused(f"--date {day} must be today or at most {allocation.MAX_ADVANCE_DAYS} days ahead")
     src = Path(a.file)
@@ -230,15 +251,27 @@ def cmd_write(a, root: Path, now: datetime, p: dict) -> str:
         raise Refused(f"cannot read --file as JSON: {e}")
     clean, warn = validate_desk(obj, a.desk, day, now, root)
     memstore.write_atomic(desk_file(root, day, a.desk), json.dumps(clean, ensure_ascii=False, separators=(",", ":")) + "\n")
-    msg = [f"desk {a.desk} {day} written ({len(clean['facts'])} facts, {'abstain' if clean['abstain'] else 'view ' + '/'.join(clean['view'])})"]
-    try:
-        msg.append(calibration.record_desk(root, now, clean))
-    except Exception as e:                               # noqa: BLE001 - the desk file is written; the ledger is a bonus
-        msg.append(f"ledger not updated ({type(e).__name__})")
+    msg = [f"desk {a.desk} {day} written ({len(clean['facts'])} facts, {'abstain' if clean['abstain'] else 'view ' + '/'.join(clean['view'])})",
+           "calibration: nothing to record here (the ledger is derived from the committed desk files when it scores)"]
     return "\n".join(msg + [f"WARNING: {w}" for w in warn])
 
 
 # ------------------------------------------------------------------ list, quorum
+def memory_status(root, day: str) -> str:
+    """ok | degraded | invalid | missing. `degraded` = the memory desk exists but was written without price history (default weights
+    n/a): it is not usable for the quorum, the allocation would be built on numbers it does not have."""
+    f = desk_file(root, day, "memory")
+    if not f.exists():
+        return "missing"
+    d = brief.load_json(f, None)
+    if not isinstance(d, dict) or d.get("desk") != "memory" or d.get("date") != day:
+        return "invalid"
+    dflt = d.get("default")
+    if not isinstance(dflt, dict) or not dflt:
+        return "degraded"
+    return "ok"
+
+
 def _row(root, day: str, desk: str) -> dict:
     st, clean, why = read_status(root, day, desk)
     r = {"desk": desk, "status": st}
@@ -251,9 +284,9 @@ def _row(root, day: str, desk: str) -> dict:
 
 
 def cmd_list(a, root: Path, now: datetime, p: dict) -> str:
-    day = a.date or now.date().isoformat()
+    day = _day(a.date, now)
     rows = [_row(root, day, d) for d in DESKS]
-    rows.append({"desk": "memory", "status": "ok" if (Path(root) / "analysis" / day / "memory.json").exists() else "missing"})
+    rows.append({"desk": "memory", "status": memory_status(root, day)})
     if a.json:
         return json.dumps({"date": day, "desks": rows}, indent=1)
     L = [f"desks {day}"]
@@ -269,28 +302,42 @@ def quorum(root, day: str, p: dict) -> dict:
     fan = "full" if str(cfg["desks"].get("fanout")) == "full" else "compact"
     need = int(cfg["desks"].get("quorum") or 2) if isinstance(cfg["desks"].get("quorum"), (int, float)) else 2
     st = {d: read_status(root, day, d)[0] for d in DESKS}
-    mem = (Path(root) / "analysis" / day / "memory.json").exists()
+    mstat = memory_status(root, day)
+    mem = mstat == "ok"
     evid = [d for d in alloc_ctx.EVIDENCE_DESKS if st[d] == "ok"]
     expected = list(alloc_ctx.EVIDENCE_DESKS) + (["risk"] if fan == "full" else [])
     missing = [d for d in expected if st[d] != "ok"]
     ok = mem and len(evid) >= need
-    return {"ok": ok, "fanout": fan, "need": need, "memory": mem, "usable": evid, "missing": missing, "status": st,
+    return {"ok": ok, "fanout": fan, "need": need, "memory": mem, "memory_status": mstat, "usable": evid, "missing": missing, "status": st,
             "confidence_penalty": round(0.10 * len(missing), 2)}
 
 
 def cmd_quorum(a, root: Path, now: datetime, p: dict) -> str:
-    day = a.date or now.date().isoformat()
+    day = _day(a.date, now)
     q = quorum(root, day, p)
     head = "OK" if q["ok"] else "NOT OK"
-    why = "" if q["ok"] else (" (memory desk missing: run python tools/desk.py memory --write)" if not q["memory"] else
-                              f" (need {q['need']} evidence desks)")
-    return (f"{head}{why} | fanout {q['fanout']} | memory {'ok' if q['memory'] else 'missing'} | evidence desks usable "
+    ms = q["memory_status"]
+    why = "" if q["ok"] else (
+        " (memory desk degraded: it was written without price history and does not count; rerun python tools/desk.py memory --write "
+        "when the data download works)" if ms == "degraded" else
+        " (memory desk invalid: rerun python tools/desk.py memory --write)" if ms == "invalid" else
+        " (memory desk missing: run python tools/desk.py memory --write)" if not q["memory"] else
+        f" (need {q['need']} evidence desks)")
+    return (f"{head}{why} | fanout {q['fanout']} | memory {ms} | evidence desks usable "
             f"{','.join(q['usable']) or 'none'} ({len(q['usable'])}/{q['need']} needed) | missing {','.join(q['missing']) or 'none'} | "
             f"risk {q['status']['risk']}{' (optional in compact mode: you play it)' if q['fanout'] == 'compact' else ''} | "
             f"confidence hint: -{q['confidence_penalty']:.2f} for missing desks (A7)")
 
 
 # ------------------------------------------------------------------ memory desk (code only)
+def _cal_summary(root, now: datetime):
+    """The calibration summary for the memory desk; a ledger that cannot be summarised is n/a, never a crash."""
+    try:
+        return calibration.summary(root, now)
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
 def build_memory(root, now: datetime, p: dict, snap: dict | None = None) -> dict:
     snap = snap or alloc_ctx.snapshot(root, now, p, fetch=True)
     cfg = snap["cfg"]
@@ -357,7 +404,7 @@ def build_memory(root, now: datetime, p: dict, snap: dict | None = None) -> dict
            "by_alignment": ((months or [{}])[-1].get("by_alignment") if months else None),
            "alloc_last": ({"date": last["date"], "mode": last["mode"], "default": last["alloc"].get("default"),
                            "final": last["alloc"].get("final"), "advice": last["alloc"].get("advice")} if last else None),
-           "calibration": calibration.summary(root, now), "warnings": snap["warnings"][:4],
+           "calibration": _cal_summary(root, now), "warnings": snap["warnings"][:4],
            "inputs": {"default": {s: round(v, 6) for s, v in default.items()} if default else None, "on": snap["on"],
                       "sigma": snap["sigma"], "cov": {a: {b: round(v, 6) for b, v in row.items()} for a, row in cov.items()} if cov else None,
                       "source": snap["source"]}}
@@ -369,7 +416,7 @@ def build_memory(root, now: datetime, p: dict, snap: dict | None = None) -> dict
 
 
 def cmd_memory(a, root: Path, now: datetime, p: dict) -> str:
-    day = a.date or now.date().isoformat()
+    day = _day(a.date, now)
     if day != now.date().isoformat():
         raise Refused("the memory desk is built from today's state: --date must be today")
     m = build_memory(root, now, p)
@@ -416,6 +463,9 @@ def main(argv=None) -> int:
         return 0
     except Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    except (OverflowError, RecursionError) as e:          # a number or nesting too large to handle: a refusal, never a traceback
+        print(f"REFUSED: the input is out of range ({type(e).__name__})", file=sys.stderr)
         return 2
 
 

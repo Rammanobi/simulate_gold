@@ -56,7 +56,7 @@ Hold-default (an explicit "no view"; the only thing the DeepSeek fallback may ev
 | `scenarios` | list of 2 to 4 | required with real weights: `{name (<= 60 chars), p in [0,1], GOLD|SILVER|COPPER in up/flat/down (each optional), why (<= 240 chars, optional)}`; the `p` values sum to 1 within 0.02 |
 | `rationale` | object | optional: keys `GOLD`, `SILVER`, `COPPER` only; each a string of at most 240 chars. The tool also requires a number in each (a level, a percentage or a date) |
 | `invalidate` | list of at most 8 strings | each exactly `close_below:SYMBOL:price` (symbol one of the three, price a plain decimal). Two consecutive fresh intraday prices below the level sell the part above the default (a risk sell); the daily check drops the advice for that symbol |
-| `desks`, `default_at_write`, `prices_at_update` | objects | optional, informational (not read by the engine) |
+| `desks`, `default_at_write`, `prices_at_update` | objects | optional, informational (not read by the engine). `desks` values: `ok`, `missing`, `abstain`, `invalid`; the memory desk can also be `degraded` (written without price history; it does not count for the quorum) |
 | `budget` | string | optional, informational (`NORMAL` or `THRIFT`) |
 | `note` | string | optional, informational |
 
@@ -175,10 +175,30 @@ python tools/guidance.py allocation set --weights GOLDBEES=0.70 SILVERBEES=0.20 
     [--horizon-days 5] [--for-date YYYY-MM-DD] --phase provisional|final [--desks macro=ok ...] [--note "..."]
 python tools/guidance.py allocation explain [--file PATH]   # read-only: what the engine would trade after tilt, caps, vol, brakes, turnover
 python tools/guidance.py allocation show                    # the file as the engine reads it (valid today / carry / ignored, and why)
-python tools/guidance.py allocation hold-default --note "<why>"   # {"weights": "default", "confidence": 0}; also the DeepSeek fallback's only option
+python tools/guidance.py allocation hold-default [--phase provisional|final] --note "<why>"   # {"weights": "default", "confidence": 0}; --phase defaults to final; also the DeepSeek fallback's only option
 ```
 
 `set` fills `written` (now, IST), `by`, `default_at_write` and `prices_at_update` itself; `--weights` are shares (typed as given,
-normalised by `sanitize_allocation`). It must not accept `--cash`, a size, a quantity or a symbol outside the three. It also
-writes the derived `bias` into `state/guidance.json` for v2 rollback compatibility (weight more than 0.10 below the default means
-`block`, else neutral), and never anything that adds exposure.
+normalised by the tool and by `sanitize_allocation`). It must not accept `--cash`, a size, a quantity or a symbol outside the three.
+
+Tool rules that sit on top of the engine's filter:
+
+* **Weights** total 1.00 within 0.02: refused below 0.98 and above 1.02, aim for exactly 1.00. The tool is tolerant of float rounding at the
+  boundary (`0.70 + 0.20 + 0.08` is `0.9799999999999999` in floating point and is accepted) and normalises a total that is not exactly 1.00.
+  A NaN, an infinity or a huge number is a refusal, not a traceback.
+* **`--invalidate`** takes ONLY `close_below:SYMBOL:price`, up to 8 entries (the engine's one enforced form); `close_above`, `regime_is`,
+  `date` and any other form are refused. Dates are written exactly `YYYY-MM-DD`.
+* **`for_date`** defaults to today before 15:30 IST on a trading day, else the next trading day, and is at most 5 calendar days ahead.
+* **Role prefixes**: text (note, rationale, scenario why, `--by`) with a line starting `system:`, `assistant:`, `user:` (and similar) is refused.
+* **Shadow rule (no effect on trades).** While the proposal is logged only (`strategy.mode` not `v3_alloc`, or `allocation.shadow` true, or
+  phase `shadow`, or `ai_trust` 0) the tool writes `state/allocation.json` and the ledger row and NOTHING in `state/guidance.json` (it
+  prints `guidance.json not touched`). The engine in `v2_trend` never reads `state/allocation.json`, and in shadow v3 it only logs the
+  would-have result, so the v2 rule trades identically with and without a proposal file; the only bias it sees is one set explicitly with
+  `guidance.py set` (`tests/test_v3_shadow_isolation.py` replays the stored ticks both ways).
+* **Derived bias (live only).** When the tilt trades live (`v3_alloc`, shadow false, phase live, `ai_trust` above 0) the tool also writes a
+  `bias` for v2 rollback compatibility: never `favour` (an existing favour becomes neutral); an existing `block` is kept (the derived bias
+  never lowers or lifts one: the stricter of the existing and the derived wins); a SILVER or COPPER weight more than 0.10 below the default
+  adds a `block`; GOLD is never blocked (GOLDBEES is the sink). Nothing that adds exposure is ever written.
+* **Calibration ledger** `memory/ltm/calibration.json`: `set` and `hold-default` write the synthesis row (one per `(for_date, phase)`,
+  idempotent). Only the premarket, allocation and fast-lane sessions run them, so they are the single writers and stage the file. Desk calls are
+  NOT recorded by `tools/desk.py`; `tools/calibration.py` takes them from the committed `analysis/D/<desk>.json` files when it scores.
