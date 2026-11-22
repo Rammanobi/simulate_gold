@@ -402,7 +402,10 @@ def test_gold_invalidation_does_not_strand_the_cash(tmp_path):
     assert pf.cash / v > 0.10
     v3_tick(pf, env, closes, i, hh=15, mm=10)
     px, v = book(pf, closes, i)
-    assert pf.cash <= 0.03 * v + min(px.values()) + 1e-6, (pf.cash / v)         # nothing idles after the check
+    # F1 (owner decision): the credit funds only GOLDBEES, so the silver / copper redeployment goes through the normal 0.20/day budget:
+    # most of the cash is redeployed (booked in the ledger), the rest waits for the next day's budget
+    assert pf.cash <= 0.08 * v, (pf.cash / v)
+    assert pf.runtime["v3"]["ledger"].get(day, 0.0) >= 0.10
     al = [r for r in _decisions(env, day) if r["action"] == "ALLOC"][0]["alloc"]
     assert any(c["rule"] == "no_add" and c["sym"] == "GOLDBEES" for c in al["clamps"]) or al["final"]["GOLDBEES"] <= pf.positions["GOLDBEES"].qty * px["GOLDBEES"] / v + 0.03
 

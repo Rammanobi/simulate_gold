@@ -223,6 +223,7 @@ strategy:
 allocation:
   phase: shadow                  # off | shadow | live_default | live. shadow/off: v2 (D5) trades (v3 target only logged, and only under strategy.mode
                                  # v3_alloc). live_default: D5-FI trades fully invested, AI only logged. live: the AI tilt trades too (ai_trust)
+  shadow: true                   # LEGACY, ignored while `phase` is present (phase is the single source of truth); read only if phase is absent
   invested_target: 0.98          # MINIMUM invested share; advice weights must sum to at least this minus 5 points
   invested_max: 1.00             # the engine aims for this: leftover cash is reinvested in whole units at every check
   ai_trust: 0.0                  # 0 = default only; 0.5 then 1.0 after the evals (design section 4.3)
