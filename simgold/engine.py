@@ -865,9 +865,6 @@ class Engine:
         pos, px = self.pf.positions.get(sym), self.price(sym)
         return pos.qty * px / value if pos and px and value > 0 else 0.0
 
-    def v2_sell(self, sym: str, qty: int, reason: str, trigger: str, stop_out: bool = False) -> bool:
-        return self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
-
     def v2_no_rebuy(self, sym: str):
         """After a fast-lane, AI-stop or event sell the engine must not undo it: no buys of that symbol until the next trading day."""
         self.cd.setdefault("v2_no_rebuy", {})[sym] = market.next_trading_day(self.day).isoformat()
@@ -1314,6 +1311,7 @@ class Engine:
         targets, scale, mult = self.v2_weights(infos, br["level"], br.get("reconfirm") or [])
         alloc_ctx = self.v3_prepare(infos, br, targets) if (self.v3 and mode == "full" and log_target) else None
         n_log0 = len(self.log)
+        self._v3_sold_reb = 0.0
         dst = self.v3_decide_cfg() if self.v3_live else st
         bias, fresh, upd = self.guidance()
         plan = []
@@ -1326,7 +1324,9 @@ class Engine:
             cur = self.cur_weight(sym, value)
             b, tgt = self.effective_bias(sym, bias, fresh, upd), targets[sym]
             if self.v3_live:
-                b = "neutral"                            # v3: the AI speaks only through state/allocation.json
+                # v3: the AI speaks only through state/allocation.json. A routine's bias can only RESTRICT: `block` means no new buys or
+                # adds of that symbol (the clamp also moves its weight to the other symbols); `favour` and `neutral` change nothing.
+                b = "block" if b == "block" else "neutral"
             capped = cfg["protect"] and sym == fsym and b == "block"
             if capped:                                   # an AI block caps gold at its floor weight; it never skips the floor buy
                 tgt, b = min(tgt, max(fw, cur)), "neutral"
@@ -1358,6 +1358,8 @@ class Engine:
                                                               ("Drawdown brake" if br["level"] else "Rebalance"))
             self.v2_sell(sym, qty, f"{base}; {what} ({d.why})", trig)
         retry = set()
+        bought = 0.0
+        bought_gold = 0.0
         for sym, i, cur, d in plan:
             pos = pf.positions.get(sym)
             if pos:
@@ -1412,6 +1414,9 @@ class Engine:
                     pend.pop(sym, None)
                 continue
             pend.pop(sym, None)
+            bought += r["amount"]
+            if sym == allocation.SINK:
+                bought_gold += r["amount"]
             c = pf.counters
             c["buys_today"] = c.get("buys_today", 0) + 1
             c.setdefault("buys_sym_today", {})[sym] = c["buys_sym_today"].get(sym, 0) + 1
@@ -1422,6 +1427,11 @@ class Engine:
             self.record("BUY", sym, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
         if self.v3_live and mode == "full" and alloc_ctx is not None:
             self.v3_sweep(infos, value, alloc_ctx)
+        if self.v3_live:
+            if alloc_ctx is None:                      # the first full check books its plan in v3_emit; every other run books what it did
+                self.v3_book_extra(bought / max(value, 1.0), getattr(self, "_v3_sold_reb", 0.0))
+            self.v3_spend_credit((bought_gold + (alloc_ctx.get("sweep", 0.0) * value if alloc_ctx is not None else 0.0)) / max(value, 1.0))
+            self.v3_trim_credit()
         value = self.value()
         for sym, i, cur, d in plan:                                     # the daily TARGET record per symbol
             if sym in retry or mode == "retry":
@@ -1452,21 +1462,41 @@ class Engine:
         return dict(self.st, rebalance_threshold=self.alloc_cfg["rebalance_threshold"])
 
     def v3_cov(self):
-        """Annualised EWMA covariance of the three symbols from completed daily bars plus the live price; None when unavailable."""
-        series, today = {}, self.day.isoformat()
-        for s in self.syms:
-            b, px = self.mkt.hist.get(s), self.mkt.prices.get(s)
-            if not b or not b.dates or len(b.dates) != len(b.close):
-                return None
-            d = {str(k)[:10]: v for k, v in zip(b.dates, b.close)}
-            if px:
-                d[today] = px
-            series[s] = d
+        """(covariance, source) for the portfolio-volatility guard. The live annualised EWMA covariance of the three symbols (completed
+        daily bars plus the live price), else the last good one stored in the runtime state (at most allocation.cov_max_age_days
+        old), else (None, "fallback"): the clamp then uses a conservative stand-in from per-asset volatilities. Never raises."""
+        v3, today = self.v3_state(), self.day.isoformat()
+        why = None
         try:
-            return allocation.ewma_cov(series, int(self.st.get("vol_span", 60)))
+            series = {}
+            for s in self.syms:
+                b, px = self.mkt.hist.get(s), self.mkt.prices.get(s)
+                if not b or not b.dates or len(b.dates) != len(b.close):
+                    why = f"{s} daily history missing or mismatched"
+                    break
+                d = {str(k)[:10]: v for k, v in zip(b.dates, b.close)}
+                if px:
+                    d[today] = px
+                series[s] = d
+            if why is None:
+                cov = allocation.ewma_cov(series, int(self.st.get("vol_span", 60)))
+                if cov is not None:
+                    if v3.get("cov_day") != today:                    # remember the last good one, once a day
+                        v3["cov_last"] = {a: {b: round(float(x), 8) for b, x in row.items()} for a, row in cov.items()}
+                        v3["cov_day"] = today
+                    return cov, "live"
+                why = "fewer than 21 shared daily closes or a bad close"
         except Exception:       # noqa: BLE001 - a data problem must never stop the tick
             log.exception("v3 covariance failed")
-            return None
+            why = "covariance computation failed"
+        last, day = v3.get("cov_last"), v3.get("cov_day")
+        try:
+            age = (self.day - date.fromisoformat(str(day))).days
+            if isinstance(last, dict) and set(last) >= set(allocation.SYMS) and 0 <= age <= self.alloc_cfg["cov_max_age_days"]:
+                return last, f"last_good ({day}; {why})"
+        except (TypeError, ValueError):
+            pass
+        return None, "fallback"
 
     def v3_context(self) -> dict:
         """Alignment-halving, results-window and ledger inputs of the clamp (all fail-safe)."""
@@ -1489,6 +1519,67 @@ class Engine:
         zero |= set(self.er.forced_exits)
         return {"halve": halve, "zero": zero & set(allocation.SYMS)}
 
+    def v3_cash_weight(self, value: float | None = None) -> float:
+        value = self.value() if value is None else value
+        return max(0.0, (self.pf.cash + self.pf.liquidbees) / value) if value > 0 else 0.0
+
+    RISK_NO_CREDIT = ("Rebalance", "Drawdown brake", "Account stop", "Tripwire")      # sells whose cash is NOT re-invested by credit
+
+    def v3_credit(self, level: int = 0, halted: bool = False, value: float | None = None) -> float:
+        """Idle cash that came from today's RISK sells (silver/copper stops, fast lane, results exit, invalidation, trend exits) and has
+        not been re-invested yet, as a share of the book. Gold buys (and other buys up to their own default weight) funded by it are
+        exempt from the turnover budget (allocation.clamp, `credit`). Stored as {day, amt}: it is valid for that trading day only, never
+        exceeds the cash actually in the account, and is zero AND cleared at brake level 2 and under the account stop, so a brake
+        release can never re-enter the whole book outside the day limit."""
+        v3 = self.v3_state()
+        rec = v3.get("credit")
+        if not isinstance(rec, dict) or rec.get("day") != self.day.isoformat() or halted or int(level) >= 2:
+            if rec is not None:
+                v3.pop("credit", None)              # another day, the stop or the deep brake: gone
+            return 0.0
+        return allocation.effective_credit(rec.get("amt"), self.v3_cash_weight(value), level, halted)
+
+    def v3_add_credit(self, share: float):
+        v3, today = self.v3_state(), self.day.isoformat()
+        rec = v3.get("credit")
+        base = float(rec.get("amt") or 0.0) if isinstance(rec, dict) and rec.get("day") == today else 0.0
+        v3["credit"] = {"day": today, "amt": round(base + share, 6)}
+
+    def v3_spend_credit(self, bought_gold_w: float):
+        """GOLDBEES buys (the only thing the credit funds) use the credit up: it is reduced by what was bought, so a same-day re-run
+        or a second check never exempts the same cash twice."""
+        v3 = self.v3_state()
+        rec = v3.get("credit")
+        if bought_gold_w > 0 and isinstance(rec, dict) and rec.get("day") == self.day.isoformat():
+            left = max(0.0, float(rec.get("amt") or 0.0) - bought_gold_w)
+            if left <= 1e-9:
+                v3.pop("credit", None)
+            else:
+                v3["credit"] = {"day": rec["day"], "amt": round(left, 6)}
+
+    def v3_trim_credit(self):
+        """After trades: the credit never exceeds the cash that is left (spent credit is gone)."""
+        v3 = self.v3_state()
+        if "credit" in v3:
+            left = self.v3_credit()
+            if left <= 1e-9:
+                v3.pop("credit", None)
+            else:
+                v3["credit"] = {"day": self.day.isoformat(), "amt": round(left, 6)}
+
+    def v2_sell(self, sym: str, qty: int, reason: str, trigger: str, stop_out: bool = False) -> bool:
+        if not self.v3_live:
+            return self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
+        value0, cash0 = self.value(), self.pf.cash + self.pf.liquidbees
+        ok = self.sell(sym, qty, f"{reason} [price age {self.price_age(sym):.0f} min]", trigger, stop_out)
+        got = (self.pf.cash + self.pf.liquidbees) - cash0 if ok else 0.0
+        if ok and value0 > 0 and got > 0:
+            if trigger == "Rebalance":
+                self._v3_sold_reb = getattr(self, "_v3_sold_reb", 0.0) + got / value0          # discretionary: booked as turnover
+            elif trigger not in self.RISK_NO_CREDIT:
+                self.v3_add_credit(got / value0)                                                    # a risk sell: re-investable today
+        return ok
+
     def v3_plan(self, infos: dict, level: int, reconfirm, trust: float | None = None, ledger_key: str = "ledger"):
         """The allocation pipeline for this minute: (AllocResult, Advice or None). Nothing is written."""
         cfg = self.alloc_cfg if trust is None else dict(self.alloc_cfg, ai_trust=trust)
@@ -1504,14 +1595,29 @@ class Engine:
         inval = allocation.invalidated_symbols(adv, {s: infos[s].close for s in avail})
         ctx = self.v3_context()
         led = self.v3_state().get(ledger_key)
-        day_left, week_left = allocation.turnover_left(led, self.day, cfg, market.prev_trading_day)
         halted = bool(self.v2_halted or self.v2_account_latched())
+        credit = self.v3_credit(level, halted, value)
+        # ramp-in: while the book is mostly idle cash that did NOT come from risk sells, the ramp limits apply (default = the normal ones)
+        idle = max(0.0, 1.0 - sum(cur.values()) - credit)
+        ramp = idle > allocation.RAMP_MIN_IDLE and not halted and int(level) < 2
+        tcfg = dict(cfg, max_turnover_day=cfg["ramp_turnover_day"], max_turnover_week=cfg["ramp_turnover_week"]) if ramp else cfg
+        day_left, week_left = allocation.turnover_left(led, self.day, tcfg, market.prev_trading_day)
+        bias, fresh, upd = self.guidance()
+        no_add = {s for s in avail if self.effective_bias(s, bias, fresh, upd) == "block"}           # a routine `block` only ever restricts
+        nr = self.cd.get("v2_no_rebuy", {})
+        no_add |= {s for s in avail if nr.get(s) and self.day.isoformat() < nr[s]}                    # sold today by a stop / fast lane / event
+        cov, cov_src = self.v3_cov()
         res = allocation.clamp(
             default=default, advice=adv.weights if adv else None, confidence=adv.confidence if adv else 0.0, current=cur,
-            on={s: infos[s].on for s in avail}, cfg=cfg, cov=self.v3_cov(), halve=ctx["halve"], zero=ctx["zero"],
+            on={s: infos[s].on for s in avail}, cfg=cfg, cov=cov, halve=ctx["halve"], zero=ctx["zero"],
             ineligible=set(reconfirm or []), invalidated=inval, brake_level=int(level), brake_mult=trend.brake_mult(int(level), st),
             halted=halted, day_left=day_left, week_left=week_left, underwater=value < float(self.p["capital"]["start"]),
-            frozen=frozen, notes=notes, advice_source=adv.source if adv else "none")
+            frozen=frozen, notes=notes, advice_source=adv.source if adv else "none", credit=credit, no_add=no_add,
+            sigmas={s: (infos[s].sigma if infos[s] else None) for s in self.syms}, cov_source=cov_src)
+        if ramp:
+            res.clamps.append({"rule": "ramp_in", "sym": "ALL", "from": None, "to": None,
+                               "why": f"ramping in: {idle * 100:.0f}% idle cash, turnover limits {tcfg['max_turnover_day']:g}/day "
+                                      f"{tcfg['max_turnover_week']:g}/week (allocation.ramp_turnover_day/week)"})
         return res, adv
 
     def v3_weights(self, infos: dict, level: int, reconfirm) -> dict:
@@ -1580,6 +1686,20 @@ class Engine:
                + ("" if self.v3_live else "; the v2 decision trades, this is only logged") + ".")
         self.record("ALLOC", "ALL", 0, None, why, "Allocation", extra=extra)
 
+    def v3_book_extra(self, bought_w: float, sold_w: float = 0.0):
+        """Every run of the daily logic that is not the day's first full check (the 09:30 retry of a blocked buy, a 15:11+ re-check of a
+        symbol whose price was late, an exits-only check that trims) is real turnover: the one-way larger of its buys (less what the
+        limiter exempts as funded by risk sells) and its discretionary sells is booked in today's ledger."""
+        res = self._v3_last
+        exempt = res.exempt_buy if res is not None else 0.0
+        extra = max(0.0, bought_w - exempt, sold_w)
+        if extra > 0:
+            led = self.v3_state().setdefault("ledger", {})
+            today = self.day.isoformat()
+            led[today] = round(float(led.get(today, 0.0)) + extra, 6)
+            for k in sorted(led)[:-10]:
+                led.pop(k, None)
+
     def v3_event_rebalance(self):
         """Event-driven intraday defence inside the allocation rules (before the daily check; never a buy). When a proposal's
         invalidation level (close_below:SYM:price) is broken by two consecutive FRESH prices while the book still holds SYM above
@@ -1644,16 +1764,22 @@ class Engine:
         cash = self.pf.cash + self.pf.liquidbees
         cur = self.cur_weight(g, value)
         room = max(0.0, res.caps[g] - cur)
-        left = res.turnover_budget - res.discretionary_turnover
-        # the turnover budget limits the sweep, except for the small leftover the 3-point rebalance band lets sit idle (dust sweep)
-        turn_cash = max(left, self.alloc_cfg["rebalance_threshold"]) * value if math.isfinite(left) else cash
-        spend = min(cash, room * value, max(0.0, turn_cash))
+        bias, bfresh, bupd = self.guidance()
+        if self.effective_bias(g, bias, bfresh, bupd) == "block":      # a routine block means no new buys of that metal, the sweep included
+            return
+        # the sweep is DUST only: at most allocation.dust_day a day and dust_week over the rolling 5 sessions (the 3-point rebalance
+        # band and whole-unit rounding leave it idle), all of it booked in the ledger and in `dust`. Real buys belong to the clamp.
+        acfg, today = self.alloc_cfg, self.day.isoformat()
+        dust = self.v3_state().setdefault("dust", {})
+        used_week = allocation.window_total(dust, self.day, market.prev_trading_day)
+        dust_left = max(0.0, min(acfg["dust_day"] - float(dust.get(today, 0.0)), acfg["dust_week"] - used_week))
+        spend = min(cash, room * value, dust_left * value)
         fill_px = px * (1 + self.p["valuation"]["paper_slippage"][g])
         qty = int(spend / fill_px)
         if qty < 1 or self.v2_buy_blocker(g, px):
             return
         why = (f"{g} cash sweep: ₹{cash:,.0f} would sit idle, so {qty} more units are bought (nothing is held in cash; gold ceiling "
-               f"{res.caps[g] * 100:.0f}%, turnover left {max(0.0, left) * 100:.1f}%, dust allowance {self.alloc_cfg['rebalance_threshold'] * 100:.0f}%)")
+               f"{res.caps[g] * 100:.0f}%, dust allowance {dust_left * 100:.1f}% of the book)")
         r = self._fill(g, "BUY", qty, px, why, "Trend check")
         if not r:
             return
@@ -1661,7 +1787,11 @@ class Engine:
         c["buys_today"] = c.get("buys_today", 0) + 1
         c.setdefault("buys_sym_today", {})[g] = c["buys_sym_today"].get(g, 0) + 1
         self.cd["last_buy_ts"] = self.now.isoformat()
-        ctx["sweep"] = ctx.get("sweep", 0.0) + r["amount"] / max(value, 1.0)
+        sw = r["amount"] / max(value, 1.0)
+        ctx["sweep"] = ctx.get("sweep", 0.0) + sw
+        dust[today] = round(float(dust.get(today, 0.0)) + sw, 6)
+        for k in sorted(dust)[:-10]:
+            dust.pop(k, None)
         self.record("BUY", g, r["qty"], r["fill"], why, "Trend check", costs=round(r["cost"], 2))
 
     # ------------------------------------------------------------------ 5. snapshot

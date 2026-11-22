@@ -74,9 +74,82 @@ or NaN anywhere a number is expected, a file over 32 KB. Text fields: no instruc
    GOLDBEES) -> portfolio vol guard (0.30, or 0.24 while the account is under the starting capital; moves weight to GOLDBEES,
    never to cash) -> brakes (level 1 at -15%: silver and copper x0.5, the freed weight rotates to GOLDBEES, no cash; level 2 at
    -25% and the 75,000 account stop: all cash, latched) -> turnover limiter (0.20 a day, 0.40 over 5 sessions, one-way; risk
-   sells and their reinvestment are exempt) -> 3-point rebalance band. A cap never pushes a weight below the default.
+   sells, and the cash from today's risk sells re-invested in GOLDBEES only, are exempt) -> 3-point rebalance band. A cap never pushes a weight below the default.
 4. One `ALLOC` record per daily check in `logs/decisions-D.jsonl` (default, proposal, k, every stage, clamps, executed).
 5. Shadow (shipped: `allocation.shadow: true`): the v2 decision trades and the v3 target is only logged.
+
+## Go-live fixes (reviews of PRs 67 and 73)
+
+- **Precedence of the switches (one source of truth).** `allocation.phase` decides when it is present; the legacy `shadow:` key is
+  read only when `phase` is absent. `phase: off` or `shadow` never trades v3 (not even with `strategy.mode: v3_alloc` and `shadow: false`);
+  `live_default` and `live` trade v3 whatever `strategy.mode` says (except `v1_scores`). `strategy.mode: v3_alloc` with `shadow` or an
+  absent phase logs only; with `off` v3 is not even computed. The test matrix covers all 3 modes x 6 phases x 3 legacy values.
+- **What other code sees (`strategy.mode` for tools and routines).** `simgold.config.load_params()` loads a `v2_trend` config whose phase
+  is `live_default` or `live` as `strategy.mode: v3_alloc`, so `tools/context.py`, `tools/desk.py` and any command that reads the mode
+  through `simgold.config` see `v3_alloc` plus the phase. A command that reads `config/params.yaml` with `yaml.safe_load` directly still
+  prints the raw `v2_trend`; the routines' MODE command must use the loader instead:
+  `python -c "from simgold import config;c=config.load_params();a=c.get('allocation') or {};print(c['strategy']['mode'],a.get('phase'),a.get('ai_trust'),(a.get('desks') or {}).get('fanout'),a.get('invested_target'))"`
+  (same output format). Until the playbooks use it, the safe go-live commit sets BOTH `allocation.phase: live_default` and
+  `strategy.mode: v3_alloc`.
+- **Idle cash after risk sells (credit).** Every sell except the discretionary Rebalance, the brake sells, the account stop and the v1 tripwire
+  adds its proceeds, as a share of the book, to `v3.credit = {day, amt}`. It is valid for that trading day only, never exceeds the cash in
+  the account, and is zero and deleted at brake level 2 and under the account stop (so a brake release re-enters under the normal day
+  limit, not all at once). At the next check `clamp(credit=...)` does not count GOLDBEES buys funded by it against the 0.20/0.40 budget.
+  **Only the GOLDBEES sink** (owner decision): a fast-lane gold sale never becomes exempt silver or copper buys; every non-gold buy,
+  a metal back up to its default included, goes through the normal turnover budget and is booked. The credit never funds an AI tilt.
+  Spent credit is subtracted after use (`v3_spend_credit`, from the GOLDBEES buys executed), so a same-day re-run or a second check
+  never exempts the same cash twice; the pure clamp reports `credit_used` for the caller to subtract.
+- **Blocked symbols.** Symbols that cannot be bought today (stopped out or fast-laned today, or a routine `block` bias) never rise above their
+  current weight (`no_add`). The leftover goes to the GOLDBEES sink; if gold is the blocked one it goes to other metals only up to their default
+  weight, otherwise it waits as cash. A symbol whose proposal was invalidated is avoided first and used only as a last resort
+  (`fill_last_resort`). The dust sweep also respects a `block` on GOLDBEES, so with all three blocked nothing is bought.
+- **Vol guard never switches off silently.** Inputs in order: live EWMA covariance; the last good one in `v3.cov_last` (at most
+  `cov_max_age_days`, ALLOC clamp `vol_guard_stale_cov`); a stand-in from per-asset volatilities at correlation `fallback_rho` (1.0,
+  `vol_guard_fallback`). `alloc.vol.cov` in the ALLOC record says which. When GOLDBEES cannot take weight (blocked today, no room) and
+  the limit is still broken, the riskiest symbols are reduced and the weight waits in cash (`vol_guard_no_sink`); a cut that would raise
+  the volatility (a hedge) is skipped. Frozen (no data) weights count in the volatility.
+- **Ledger.** All turnover is booked in `v3.ledger`: the first full check's plan, the 09:30 retries, 15:11+ re-checks and exits-only trims
+  (the larger of the non-exempt buys and the discretionary sells). The dust sweep is strictly dust: at most `dust_day` 0.03 a day and
+  `dust_week` 0.06 over 5 sessions (also in `v3.dust`), never the remaining turnover budget. The 5-session ledger total is at most
+  `max_turnover_week` plus the dust. While ramping in (idle cash above 10% of the book that is not credit) the limits are
+  `ramp_turnover_day` / `ramp_turnover_week` (default 0.20 / 0.40: about 11 sessions from all cash; the owner may raise them).
+- **Caps** gold 1.00 / silver 0.50 / copper 0.25 bind the default (D5-FI) as well, under v3 only.
+- **Parsing and failures.** `sanitize_allocation`, `validate_proposal` and `resolve_advice` never raise (huge integers, wrong types).
+  `clamp` never raises either: an internal failure (for example an overflow from a huge credit) returns the repaired default (no AI, no
+  credit, zero under the stop or level 2) with a `clamp_failed` note. A proposal written more than 48 hours ago is ignored (weekends do
+  not count) and the tool refuses to write one.
+- **Brake level 1 with GOLDBEES blocked.** The rotation into gold is not shown or traded when gold cannot be bought today: silver and
+  copper are cut, gold is kept, the freed weight waits in cash (clamp note `brake_rotation_blocked`; idle cash under a block is accepted).
+  The ALLOC record therefore shows the executed target.
+- **If the pipeline fails.** `clamp` re-runs once without covariance, credit and the original brake inputs (note `clamp_retry`; every limit
+  still applies). Only if that fails too is the repaired default returned, with the turnover limit applied to it, zero under the stop or
+  level 2 (note `clamp_failed`).
+- **Routine bias.** In v3 live the guidance `block` only means no new buys or adds of that metal; it never moves weight into another
+  metal above its default. `favour` and `neutral` do nothing.
+
+## What the evidence says (read this before `phase: live`)
+
+Honest status, from `python run_backtest.py --strategy v3 --data-dir <research data>` (daily bars, costs and idle cash at 0% as shipped):
+
+| run | CAGR full (2010-06 to 2026-11) | max DD full | CAGR last 2 y | max DD last 2 y |
+|---|---|---|---|---|
+| v2 as shipped (50% gold floor) | 14.8% | -21.6% | 44.6% | -21.6% |
+| v3 default, fully invested, no AI | 13.3% | -30.9% | 41.6% | -26.1% |
+| v3 + seeded random "noise AI" (no skill) | 6.9% | -47.3% | 35.5% | -25.1% |
+| buy and hold GOLDBEES | 11.5% | -27.4% | 32.3% | -25.0% |
+
+- **Being fully invested is not a profit edge when idle cash earns nothing.** The v3 default earns about the same as v2 or a little
+  less, with a deeper drawdown (about 4 points deeper over the last 2 years, 9 points over the full sample). What it buys is exposure to
+  the metals when the trend is OFF, which was paid for in drawdown, not return. (The review's own runs gave about 41.5% against 43.5% over
+  2 years and about 9 points deeper drawdown; the exact figures move a little with the data file.)
+- **A random AI does badly** (6.9% a year, -47% drawdown over the full sample, about 30 trades a month): the clamp bounds the damage, it
+  does not make a skill-less tilt profitable. AI tilts need MEASURED skill (shadow ALLOC logs, the evals and Brier criteria in
+  `docs/v3/ROLLOUT.md`) before `phase: live` and `ai_trust > 0`.
+
+**Simulation of the first live_default day, from the review (not re-run here):** flipping on Monday 23 Nov buys 211 GOLDBEES on the first
+check, reaches about 90% invested by 25 Nov and 99.9% by 1 Dec under the 0.20/day 0.40/week limits, costs about Rs 27, and ends 100%
+GOLDBEES while the gold trend is OFF (the silver and copper trends are OFF too). So the first weeks of P1 are a gold-only book; the owner
+should expect that, and can speed or slow the ramp with `ramp_turnover_day/week`.
 
 ## Python interface for the tools (all pure; import from `simgold.allocation`)
 

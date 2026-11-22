@@ -34,6 +34,10 @@ def shipped_params(mode: str | None = None, **alloc) -> dict:
     if mode:
         p["strategy"]["mode"] = mode
     if alloc:
+        alloc = dict(alloc)
+        if alloc.get("shadow") is False and "phase" not in alloc:          # the old two-key spelling of "v3 trades"
+            alloc.pop("shadow")
+            alloc["phase"] = "live_default"
         p.setdefault("allocation", {}).update(alloc)
     return p
 

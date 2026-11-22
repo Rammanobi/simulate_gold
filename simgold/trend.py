@@ -33,12 +33,23 @@ MODE_V3 = "v3_alloc"          # v3 desk allocation (simgold/allocation.py): the 
 def is_v2(p: dict | None) -> bool:
     """True when the params select the v2 trend core or its v3 allocation variant (v3 reuses all of the v2 engine code).
     Anything else (or no `strategy:` block) is the v1 score rules."""
-    return bool(p) and (p.get("strategy") or {}).get("mode") in (MODE_V2, MODE_V3)
+    return bool(p) and ((p.get("strategy") or {}).get("mode") in (MODE_V2, MODE_V3) or is_v3(p))
 
 
 def is_v3(p: dict | None) -> bool:
-    """True when strategy.mode is v3_alloc (the allocation pipeline; shadow or live per allocation.shadow)."""
-    return bool(p) and (p.get("strategy") or {}).get("mode") == MODE_V3
+    """True when the v3 allocation pipeline is on. Precedence (allocation.phase is the single source of truth when present):
+      strategy.mode v3_alloc : on, unless allocation.phase is off (absent, shadow, live_default, live or garbage: on)
+      strategy.mode v2_trend : on only when allocation.phase is live_default or live (the owner's one-line switch)
+      anything else (v1_scores, no strategy block): off
+    Whether it TRADES (live) or only logs (shadow) is allocation.settings()['shadow'], which follows the same phase."""
+    if not p:
+        return False
+    mode = (p.get("strategy") or {}).get("mode")
+    raw = (p.get("allocation") or {}).get("phase")
+    ph = str(raw).strip().lower() if raw is not None else None
+    if mode == MODE_V3:
+        return ph != "off"
+    return mode == MODE_V2 and ph in ("live_default", "live")
 
 
 # ---------------------------------------------------------------- inputs
