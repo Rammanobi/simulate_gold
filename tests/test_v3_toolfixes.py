@@ -705,7 +705,7 @@ def test_ownership_lists_name_the_ledger_and_the_analysis_files():
     assert "`memory/ltm/calibration.json`" in d and "`analysis/**`" in d and "calibration.corrupt" in d and "calibration.badrows" in d
     assert "never write or stage it" in d
     claude = read("CLAUDE.md")
-    assert "calibration.json" not in claude                                # CLAUDE.md is owner-only: this branch leaves it alone
+    assert "`memory/ltm/calibration.json`" in claude and "`analysis/**`" in claude and "`state/allocation.json`" in claude   # D12 applied
 
 
 def test_module_docs_state_the_single_writer_design():

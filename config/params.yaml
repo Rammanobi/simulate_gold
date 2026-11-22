@@ -145,7 +145,7 @@ governance:
 # ROLLBACK = change the next line to v1_scores (one line). Note: v1 then re-applies its floor (99,500 or more) at once, so a
 # portfolio under that floor is flattened by the tripwire on the next tick.
 strategy:
-  mode: v2_trend                      # v2_trend | v3_alloc (dormant until the owner switches it; see `allocation:` below) | v1_scores
+  mode: v3_alloc                      # v2_trend | v3_alloc (dormant until the owner switches it; see `allocation:` below) | v1_scores
   profile: aggressive                 # the owner's risk choice; the numbers below ARE the profile
   vol_target: 0.14                    # per-asset annual volatility target: weight = min(cap, vol_target / sigma60)
   vol_span: 60                        # sigma60: 60-day close-to-close volatility, annualised x sqrt(252)
@@ -254,7 +254,7 @@ allocation:
 # Once a day from 15:10 IST -> state/pricegap.json, a LOW `price_gap` alert (exempt from safe mode) and a chip row in the report.
 # Dormant until enabled is true. The constants are estimates (see the module docstring); the cause of the gap is not verified.
 pricegap:
-  enabled: false
+  enabled: true
   warn_pct: 8                    # LOW alert when the premium over India parity is at or above this many percent
   duty_pct: 6                    # statutory import duty included in "India parity" (0 = read the bare world premium)
   median_window: 20
@@ -289,7 +289,7 @@ engine:
 # NIFTYBEES is a PRICE FEED ONLY (never a tradable symbol); if its price is missing the twin records n/a and carries the last price.
 # Switching it on changes no trading decision (tests/test_twins_identical.py replays the stored ticks both ways). One-line rollback: enabled: false.
 twins:
-  enabled: false
+  enabled: true
   nifty_ticker: NIFTYBEES.NS
   nifty_share: 0.5                # T2: share of the GOLDBEES (sink) weight held in NIFTYBEES; T6: share of the book
   silver_sink_share: 0.15         # T3: static share of the sink held in SILVERBEES instead of the Donchian sleeve

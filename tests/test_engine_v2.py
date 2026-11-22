@@ -282,7 +282,7 @@ def test_shipped_params_are_v2_aggressive():
     import yaml
     raw = yaml.safe_load(open(config.PARAMS_PATH, encoding="utf-8"))
     st = raw["strategy"]
-    assert st["mode"] == "v2_trend" and st["profile"] == "aggressive"
+    assert st["mode"] in ("v2_trend", "v3_alloc") and st["profile"] == "aggressive"
     assert st["vol_target"] == 0.14
     assert {s: v["cap"] for s, v in st["symbols"].items()} == {"GOLDBEES": 1.0, "SILVERBEES": 0.70, "HINDCOPPER": 0.35}
     assert st["rebalance_threshold"] == 0.05 and st["account_stop"] == 75000
