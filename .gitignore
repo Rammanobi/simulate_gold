@@ -7,3 +7,6 @@ reports/daily/sample.*
 state/.engine.lock
 state/*.tmp
 state/.*.tmp
+
+# quarantined shadow-twin state (simgold/twins.py load_state): local only, never synced
+state/*.bad

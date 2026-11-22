@@ -281,6 +281,33 @@ engine:
   market_open: "09:15"
   market_close: "15:30"
 
+# ---- SHADOW PAPER TWINS (simgold/twins.py, tools/twins.py show|summary): DORMANT, enabled: false ----
+# Seven virtual books that NEVER trade and never touch state/portfolio.json: T0 real-book mirror, T1 D5-FI default, T2 D5-FI with a
+# 50/50 GOLDBEES+NIFTYBEES sink, T3 D5-FI without the silver trend rule (silver only a static share of the sink), T4 D5-FI + a slow
+# gold-silver-ratio tilt (at most +-10 points), T5 buy-and-hold GOLDBEES, T6 buy-and-hold 50/50 GOLDBEES+NIFTYBEES. Updated once a day
+# at the check (strategy.check_time) from live prices, written to state/twins.json (engine-owned) and logs/twins-YYYY-MM.csv.
+# NIFTYBEES is a PRICE FEED ONLY (never a tradable symbol); if its price is missing the twin records n/a and carries the last price.
+# Switching it on changes no trading decision (tests/test_twins_identical.py replays the stored ticks both ways). One-line rollback: enabled: false.
+twins:
+  enabled: false
+  nifty_ticker: NIFTYBEES.NS
+  nifty_share: 0.5                # T2: share of the GOLDBEES (sink) weight held in NIFTYBEES; T6: share of the book
+  silver_sink_share: 0.15         # T3: static share of the sink held in SILVERBEES instead of the Donchian sleeve
+  gsr_window: 504                 # T4: z-score window (trading days) of log(GOLDBEES / SILVERBEES), from the engine's daily history
+  gsr_min_obs: 252                # T4: no tilt with fewer observations
+  gsr_k: 0.05                     # T4: tilt points per z unit (z = 2 reaches the cap). strategy/PROFIT_BRAINSTORM.md idea 11 uses k 0.10 (the cap
+                                  # is reached at z = 1): this ships at half that strength; set 0.10 to follow the brainstorm exactly ...
+  gsr_cap: 0.10                   # ... capped at +-10 points of the book (hard ceiling, whatever this says); silver also obeys the D3/D4 caps
+  t1_mode: v3                     # how T1-T4 (the D5-FI family) are built. v3 = allocation.default_d5fi + allocation.clamp without AI: caps, the 60-day
+                                  # portfolio-vol guard, brakes (rotate to gold), account stop, 0.20/day 0.40/week turnover with the ramp-in limits, 3% dust sweep:
+                                  # a twin ramps in from cash like the real book. simple = default_d5fi + plain brake, fully invested on its first check
+  cost_model: engine              # engine = broker.trade_costs + 0.05% slippage, whole units (as Portfolio.execute) | flat = backtest cost_per_side
+  flat_cost_per_side: {GOLDBEES: 0.0015, SILVERBEES: 0.0015, HINDCOPPER: 0.0030, NIFTYBEES: 0.0015}
+  nifty_max_age_min: 15           # a NIFTYBEES bar older than this counts as "not available"
+  nifty_timeout_s: 5              # the NIFTYBEES lookup runs in a worker thread and is abandoned after this many seconds (counts as not available)
+  split_override: null            # owner-set NIFTYBEES split, e.g. {date: "2027-03-01", factor: 10}: holdings x factor, carried price / factor, once
+  nifty_jump: 0.25                # a NIFTYBEES price this far from the last one is a bad print (counts as not available)
+
 # ---- memory layer and Claude routines (tools/should_think.py, tools/write_brief.py, tools/context.py) ----
 routines:
   guidance_max_age_hours: 3          # guidance.json older than this (or missing) -> think

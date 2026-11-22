@@ -22,10 +22,10 @@ import json
 import os
 import shutil
 
-from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, pricegap, runguard, summary, trend
+from simgold import alerts, alldays, brief, config, dashboard, gitsync, livepnl, livepush, market, pricegap, runguard, summary, trend, twins
 from simgold.incidents import IncidentMonitor, load_portfolio_safe
 from simgold.broker import Portfolio
-from simgold.data import daily_history, intraday_bars
+from simgold.data import daily_history, intraday_bars, live_prices
 from simgold.engine import Env, Market, run_tick
 from simgold.feed import build_market
 from simgold.market import CLOSE, IST, is_market_open, now_ist
@@ -95,6 +95,32 @@ class Live:
                     return {"close": empty, "high": empty, "low": empty}
         return self.hist
 
+    def _twins_after(self, mkt):
+        """Shadow paper twins (simgold/twins.py), once a day at the check. DORMANT unless twins.enabled is true. Runs after the portfolio is
+        saved and backed up, reads the portfolio and the market snapshot and writes only state/twins.json and logs/twins-*.csv. The
+        NIFTYBEES lookup runs in a worker thread with a hard time limit (twins.nifty_timeout_s). Never raises."""
+        try:
+            if (self.p.get("twins") or {}).get("enabled") is True:
+                twins.after_tick(self.pf, mkt, self.p, STATE, LOGS, nifty_feed=self._twin_price)
+        except Exception:  # noqa: BLE001
+            log.exception("shadow twins failed (trading is not affected)")
+
+    def _twin_price(self, ticker: str):
+        """Read-only latest price of a shadow-twin ticker (NIFTYBEES.NS), or None. Called by the engine only at the daily check (a retry only if that day was not recorded); never raises."""
+        try:
+            import pandas as pd
+            prices, stamps = live_prices([ticker])
+            px, ts = prices.get(ticker), stamps.get(ticker)
+            if px is None or ts is None:
+                return None
+            ts = pd.Timestamp(ts)
+            ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts
+            max_age = float((self.p.get("twins") or {}).get("nifty_max_age_min", 15))
+            return float(px) if (now_ist() - ts.to_pydatetime()).total_seconds() <= max_age * 60 else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("shadow twins: %s price unavailable: %s", ticker, e)
+            return None
+
     def _value(self) -> float:
         v = self.pf.cash + self.pf.liquidbees
         for s, p in self.pf.positions.items():
@@ -122,6 +148,7 @@ class Live:
         decisions = run_tick(self.pf, mkt, self.env)
         self._save_pf()
         self._backup_state()
+        self._twins_after(mkt)                      # shadow twins (dormant): only AFTER the portfolio is saved, so nothing there can lose a save
         self.last_tick_day = ts.date()
         self._publish_live(ts, mkt, True, t0)
         log.info("value Rs %.0f | floor Rs %.0f | positions %s | decisions %d", self._value(), self.pf.floor,
