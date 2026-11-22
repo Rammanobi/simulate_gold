@@ -1,4 +1,4 @@
-"""Optional report blocks: India price gap, Default vs AI vs executed, paper twins. Read-only, never trades.
+"""Optional report blocks: India price gap, Default vs AI vs engine target, paper twins. Read-only, never trades.
 
 Each `*_view(...)` returns a small JSON-able dict or None. None means "hide the block": no data, a corrupt or stale file, a switch that is off,
 or any exception (every builder is wrapped, so a bad file can never cost the daily email). Absent data adds NOTHING to the day dict, so the
@@ -6,10 +6,13 @@ compact email of a day without these files stays byte-identical.
 
 Sources (all written by other parts of the system, read here defensively):
   state/pricegap.json     simgold/pricegap.py (only shown when `pricegap.enabled` and the file is dated the report's day)
-  logs/decisions-D.jsonl  the engine's ALLOC record (default, AI proposal, clamps, final), else state/allocation.json (routine proposal)
-  state/twins.json        written by the paper-twins builder. Schema ASSUMED (tolerant reader): {"since": "YYYY-MM-DD", "asof": "YYYY-MM-DD",
-                          "twins": {name: {"value": rupees, "return_pct": percent, "max_dd_pct": percent}}} or the same rows as a list with a "name".
-                          Keys without `_pct` (return, max_dd, max_drawdown) are read as fractions (0.05 = 5%). Unknown shapes hide the block.
+  logs/decisions-D.jsonl  the engine's ALLOC record (default, AI proposal, clamps, final), else state/allocation.json (routine proposal).
+                          The "engine target" column is what the engine aimed for (the v2 targets in shadow, the final weights otherwise);
+                          the dashboard key stays `weights.executed`.
+  state/twins.json        simgold/twins.py (PR #78). Read two ways: the summary keys `since`, `asof`, `twins: {id: {value, return_pct, max_dd_pct,
+                          days, label}}` when present, else the raw books {"start_day", "last_day", "books": {id: {start_value, value, max_dd
+                          (a fraction)}}}: return = value / start_value - 1, labels from LABELS below. Keys without `_pct` are fractions.
+                          Unknown shapes hide the block.
 """
 from __future__ import annotations
 
@@ -23,11 +26,11 @@ log = logging.getLogger("reportblocks")
 
 NAMES = {"GOLDBEES": "Gold", "SILVERBEES": "Silver", "HINDCOPPER": "Copper"}
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
-MAX_TWINS = 6
+MAX_TWINS = 7
 _PHASE_BY_MODE = {"shadow_v2_trades": "shadow", "d5fi_ai_logged_only": "live_default", "v3_live": "live"}
 PHASE_LABEL = {"shadow": "shadow: the AI is only logged", "live_default": "live_default: default trades, AI only logged",
                "live": "live: the AI tilt trades"}
-_SAFE = re.compile(r"[^A-Za-z0-9_ .:+/-]")
+_SAFE = re.compile(r"[^A-Za-z0-9_ .:+/&-]")
 
 
 def _num(v) -> float | None:
@@ -65,7 +68,10 @@ def pricegap_view(date: str, root, params: dict | None = None) -> dict | None:
     obj = pricegap.load(Path(root) / "state")
     if not obj or obj["date"] != date:
         return None
-    gaps = {s: {k: g.get(k) for k in ("premium_pct", "median20_pct", "z", "warn")} for s, g in obj["gaps"].items()}
+    gaps = {s: {k: g.get(k) for k in ("premium_pct", "median20_pct", "z", "warn")} for s, g in obj["gaps"].items()
+            if g.get("date") == date and not g.get("stale")}          # a symbol whose reading is not from the report's day is not shown
+    if not gaps:
+        return None
     return {"date": obj["date"], "warn_pct": obj["warn_pct"], "duty_pct": obj.get("duty_pct"), "gaps": gaps}
 
 
@@ -84,15 +90,21 @@ def pricegap_chips(v: dict) -> list[tuple[str, str]]:
     return out
 
 
+def chips_text(chips: list[tuple[str, str]]) -> list[str]:
+    """The text version of the chip row: an over-band chip (amber) says so in words."""
+    return [t + (" (above band)" if tone == "amber" else "") for t, tone in chips]
+
+
 def pricegap_note(v: dict) -> str:
     duty = _num(v.get("duty_pct"))
     base = f"over India parity (world price in rupees{f' plus {duty:g}% duty' if duty else ''})"
-    return f"{base}; alert band {v.get('warn_pct', 0):g}%; estimate, cause not verified"
+    return (f"{base}; alert band {v.get('warn_pct', 0):g}%; information only, not a trade signal; "
+            "estimate (US vs NSE close timing can move it 2–4 pts), cause not verified")
 
 
 def pricegap_lines(v: dict) -> list[str]:
     chips = pricegap_chips(v)
-    return ["", "INDIA PRICE GAP · " + pricegap_note(v)] + [t for t, _ in chips] if chips else []
+    return ["", "INDIA PRICE GAP · " + pricegap_note(v)] + chips_text(chips) if chips else []
 
 
 # ------------------------------------------------------------------ Default vs AI vs executed
@@ -160,7 +172,7 @@ def alloc_view(date: str, root, params: dict | None = None) -> dict | None:
 
 
 def alloc_title(v: dict) -> str:
-    return f"DEFAULT VS AI VS EXECUTED · phase {v['phase']}"
+    return f"DEFAULT VS AI VS ENGINE TARGET · phase {v['phase']}"
 
 
 def alloc_rows(v: dict) -> list[tuple[str, str, str, str]]:
@@ -184,8 +196,8 @@ def alloc_footer(v: dict) -> list[str]:
 
 
 def alloc_lines(v: dict) -> list[str]:
-    L = ["", alloc_title(v), "          Default   AI   Executed"]
-    L += [f"{n:<8} {d:>8} {a:>6} {e:>9}" for n, d, a, e in alloc_rows(v)]
+    L = ["", alloc_title(v), "          Default   AI   Engine target"]
+    L += [f"{n:<8} {d:>8} {a:>6} {e:>13}" for n, d, a, e in alloc_rows(v)]
     return L + alloc_footer(v)
 
 
@@ -198,21 +210,40 @@ def _pick(d: dict, keys) -> float | None:
     return None
 
 
-def twins_view(root) -> dict | None:
-    raw = _read(Path(root) / "state" / "twins.json")
-    if not isinstance(raw, dict):
-        return None
-    src = raw.get("twins", raw.get("rows"))
-    items: list[tuple[str, dict]] = []
-    if isinstance(src, dict):
-        items = [(str(k), v) for k, v in src.items() if isinstance(v, dict)]
-    elif isinstance(src, list):
-        items = [(str(d.get("name") or d.get("id") or d.get("label") or ""), d) for d in src if isinstance(d, dict)]
-    rows = []
-    for name, d in items:
-        name = _SAFE.sub("", name)[:24].strip()
-        if not name:
+LABELS = {"T0": "Real book", "T1": "Always-invested default", "T2": "Gold+NIFTY sink", "T3": "No silver rule",
+          "T4": "Gold–silver ratio tilt", "T5": "Buy&hold gold", "T6": "Buy&hold gold+NIFTY"}
+
+
+def _summary_items(raw: dict) -> list[tuple[str, dict]]:
+    for key in ("twins", "rows"):
+        src = raw.get(key)
+        if isinstance(src, dict):
+            return [(str(k), v) for k, v in src.items() if isinstance(v, dict)]
+        if isinstance(src, list):
+            return [(str(d.get("name") or d.get("id") or d.get("label") or ""), d) for d in src if isinstance(d, dict)]
+    return []
+
+
+def _book_items(raw: dict) -> list[tuple[str, dict]]:
+    books = raw.get("books")
+    out = []
+    for tid, b in (books.items() if isinstance(books, dict) else []):
+        if not isinstance(b, dict):
             continue
+        v, v0 = _num(b.get("value")), _num(b.get("start_value"))
+        row = dict(b)
+        if v is not None and v0 and v0 > 0:
+            row["return_pct"] = (v / v0 - 1.0) * 100
+        out.append((str(b.get("id") or tid), row))
+    return out
+
+
+def _twin_rows(items: list[tuple[str, dict]]) -> list[dict]:
+    """Rows sorted by id (T0..T6) when ids look like T<n>; names from the label map, else the (cleaned) label or id."""
+    rows = []
+    for tid, d in sorted(items, key=lambda kv: (0, int(kv[0][1:])) if re.fullmatch(r"T\d+", kv[0]) else (1, 0)):
+        label = d.get("label") if isinstance(d.get("label"), str) else None
+        name = LABELS.get(tid) or _SAFE.sub("", label or tid)[:28].strip()
         value = _pick(d, ("value", "equity", "total_value", "nav"))
         ret = _pick(d, ("return_pct", "ret_pct", "pnl_pct"))
         if ret is None:
@@ -222,12 +253,21 @@ def twins_view(root) -> dict | None:
         if dd is None:
             r = _pick(d, ("max_dd", "max_drawdown", "mdd"))
             dd = None if r is None else r * 100
-        if value is None and ret is None:
+        if not name or (value is None and ret is None):
             continue
         rows.append({"name": name, "value": value, "ret_pct": ret, "dd_pct": None if dd is None else -abs(dd)})
+    return rows
+
+
+def twins_view(root) -> dict | None:
+    raw = _read(Path(root) / "state" / "twins.json")
+    if not isinstance(raw, dict):
+        return None
+    rows = _twin_rows(_summary_items(raw)) or _twin_rows(_book_items(raw))      # the summary keys first, else the raw books
     if not rows:
         return None
-    since, asof = str(raw.get("since") or raw.get("start_date") or "")[:10], str(raw.get("asof") or raw.get("updated") or "")[:10]
+    since = str(raw.get("since") or raw.get("start_day") or raw.get("start_date") or "")[:10]
+    asof = str(raw.get("asof") or raw.get("last_day") or raw.get("updated") or "")[:10]
     ok = lambda s: bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", s))      # noqa: E731
     return {"since": since if ok(since) else None, "asof": asof if ok(asof) else None, "rows": rows[:MAX_TWINS]}
 

@@ -173,11 +173,14 @@ def test_all_three_blocks_appear_in_html_and_text(root, on):
     for x in (v, vt):
         assert "INDIA PRICE GAP" in x and "Gold +11.5%" in x and "Silver +6.1%" in x
         assert "20d median +8.4%" in x and "z +2.7" in x and "z −1.2" in x
-        assert "plus 6% duty" in x and "estimate, cause not verified" in x
-        assert "DEFAULT VS AI VS EXECUTED · phase shadow" in x
+        assert "plus 6% duty" in x and "information only, not a trade signal" in x
+        assert "US vs NSE close timing can move it 2–4 pts), cause not verified" in x
+        assert "DEFAULT VS AI VS ENGINE TARGET · phase shadow" in x
         assert "AI proposal: confidence 0.55" in x
         assert "PAPER TWINS · since 2026-10-13 · as of 2026-11-06" in x and "₹1,01,235" in x and "+1.2%" in x and "−3.4%" in x and "−4.1%" in x
     # default / AI / executed percentages (shadow: executed = what the v2 rule traded)
+    assert "Engine target" in v and "Engine target" in t and "Executed" not in v and "Executed" not in t
+    assert "Gold +11.5% · 20d median +8.4% · z +2.7 (above band)" in t and "Silver +6.1% · 20d median +9.0% · z −1.2 (above band)" not in t
     assert re.search(r"Gold 70% 50% 90%", v) and re.search(r"Silver 20% 30% 0%", v) and re.search(r"Copper 10% 20% 10%", v)
     # the three biggest clamp changes only, biggest first; the notes without numbers rank last and the small one is cut
     assert "Clamp changed: turnover_limit Gold 50→70%; off_trend_cap Copper 20→5%; max_tilt Silver 30→20%" in v
@@ -198,8 +201,8 @@ def test_block_order_and_placement(root, on):
     w_pricegap(root); w_alloc(root); w_twins(root)
     _, h, t = render(root)
     v = visible(h)
-    assert v.index("DEFAULT VS AI VS EXECUTED") < v.index("PAPER TWINS") < v.index("SAFETY") < v.index("INDIA PRICE GAP") < v.index("Open dashboard")
-    assert t.index("DEFAULT VS AI VS EXECUTED") < t.index("PAPER TWINS") < t.index("SAFETY") < t.index("INDIA PRICE GAP") < t.index("Open dashboard")
+    assert v.index("DEFAULT VS AI VS ENGINE TARGET") < v.index("PAPER TWINS") < v.index("SAFETY") < v.index("INDIA PRICE GAP") < v.index("Open dashboard")
+    assert t.index("DEFAULT VS AI VS ENGINE TARGET") < t.index("PAPER TWINS") < t.index("SAFETY") < t.index("INDIA PRICE GAP") < t.index("Open dashboard")
 
 
 @pytest.mark.parametrize("mode,phase,exe", [("shadow_v2_trades", "shadow", (90, 0, 10)), ("d5fi_ai_logged_only", "live_default", (80, 15, 5)), ("v3_live", "live", (80, 15, 5))])
@@ -230,7 +233,7 @@ def test_twins_schema_variants(root, on):
                             {"value": 5}, "junk", {"name": "ghost"}]})
     day, h, t = render(root)
     rows = day["twins_view"]["rows"]
-    assert [r["name"] for r in rows] == ["default", "x" * 24]            # unnamed / empty / non-dict rows dropped, long names cut
+    assert [r["name"] for r in rows] == ["default", "x" * 28]            # unnamed / empty / non-dict rows dropped, long names cut
     assert rows[0]["ret_pct"] == pytest.approx(0.5) and rows[0]["dd_pct"] == pytest.approx(-2.1) and rows[1]["dd_pct"] is None
     assert "PAPER TWINS · since start" in t and "₹1,00,500  +0.5%  −2.1%" in t
 
@@ -251,6 +254,22 @@ def test_pricegap_only_when_enabled_and_dated_the_report_day(root, cfg):
         assert "pricegap_view" not in report.build_day(DAY, root)       # a stale file is not shown as today's
         (root / "state" / "pricegap.json").unlink()
         assert "pricegap_view" not in report.build_day(DAY, root)
+
+
+def test_pricegap_view_needs_the_gap_dated_the_report_day_and_not_stale(root, on):
+    w_pricegap(root)
+    obj = json.loads((root / "state" / "pricegap.json").read_text())
+    obj["gaps"]["GOLDBEES"]["date"] = "2026-11-05"                       # gold's reading is yesterday's: only silver is shown
+    obj["gaps"]["SILVERBEES"]["date"] = DAY
+    (root / "state" / "pricegap.json").write_text(json.dumps(obj))
+    assert list(report.build_day(DAY, root)["pricegap_view"]["gaps"]) == ["SILVERBEES"]
+    obj["gaps"]["SILVERBEES"]["stale"] = True
+    (root / "state" / "pricegap.json").write_text(json.dumps(obj))
+    assert "pricegap_view" not in report.build_day(DAY, root)
+    obj["gaps"]["GOLDBEES"]["date"] = DAY
+    obj["gaps"]["GOLDBEES"]["stale"] = False
+    (root / "state" / "pricegap.json").write_text(json.dumps(obj))
+    assert list(report.build_day(DAY, root)["pricegap_view"]["gaps"]) == ["GOLDBEES"]
 
 
 def test_pricegap_chip_tones(root, on):
@@ -387,3 +406,79 @@ def test_view_builders_unit():
     assert RB.sp(8.24) == "+8.2" and RB.sp(-3.14) == "−3.1" and RB.sp(-0.04) == "0.0" and RB.sp(0) == "0.0"
     assert RB._clamp_notes([{"rule": "a", "sym": "GOLDBEES", "from": 0.1, "to": 0.5}, {"rule": "b", "sym": None}, {"rule": "c", "from": 0.5, "to": 0.4}], 2) == ["a Gold 10→50%", "c 50→40%"]
     assert RB.twins_view(Path("/nonexistent")) is None and RB.alloc_view(DAY, Path("/nonexistent")) is None
+
+
+# ------------------------------------------------------------------ twins: the real state/twins.json of PR #78 (books) and its summary keys
+def book(tid, start=100000.0, value=100500.0, max_dd=-0.012, **kw):
+    """The shape simgold/twins.py `_new_book` + run_day produce (see origin/feat/shadow-twins)."""
+    return {"id": tid, "start_day": "2026-11-23", "start_value": start, "real_start_value": start, "cash": 120.5, "units": {"GOLDBEES": 900},
+            "peak": max(start, value), "max_dd": max_dd, "days": 5, "days_green": 3, "value": value, "costs": 41.3, "traded": 0.4,
+            "brake": None, "latched": False, "bought": True, **kw}
+
+
+def books_state(**over):
+    st = {"schema": 1, "created": "2026-11-23", "start_day": "2026-11-23", "last_day": "2026-11-27", "days": 5, "px": {"GOLDBEES": 107.0},
+          "nifty": {"last_day": "2026-11-27", "missing_days": 0, "status": "ok"}, "notes": [],
+          "books": {"T0": book("T0", value=100328.0, max_dd=-0.0), "T1": book("T1", value=101234.5, max_dd=-0.034), "T2": book("T2", value=99000.0, max_dd=-0.05),
+                    "T3": book("T3", value=100100.0, max_dd=-0.02), "T4": book("T4", value=100900.0, max_dd=-0.021), "T5": book("T5", value=101500.0, max_dd=-0.04),
+                    "T6": book("T6", value=100050.0, max_dd=-0.015)}}
+    st.update(over)
+    return st
+
+
+def test_twins_from_the_raw_books_structure(root, on):
+    w_twins(root, books_state())
+    v = report.build_day(DAY, root)["twins_view"]
+    assert [r["name"] for r in v["rows"]] == ["Real book", "Always-invested default", "Gold+NIFTY sink", "No silver rule", "Gold–silver ratio tilt", "Buy&hold gold", "Buy&hold gold+NIFTY"]
+    assert len(v["rows"]) == 7 == RB.MAX_TWINS
+    t1 = v["rows"][1]
+    assert t1["value"] == 101234.5 and t1["ret_pct"] == pytest.approx(1.2345) and t1["dd_pct"] == pytest.approx(-3.4)
+    assert v["rows"][0]["dd_pct"] == 0.0 or v["rows"][0]["dd_pct"] == -0.0
+    assert v["since"] == "2026-11-23" and v["asof"] == "2026-11-27"
+    _, h, t = render(root)
+    for x in (visible(h), t):
+        assert "PAPER TWINS · since 2026-11-23 · as of 2026-11-27" in x and "Buy&hold gold+NIFTY" in x and "Always-invested default" in x
+        assert "₹1,01,235" in x and "+1.2%" in x and "−3.4%" in x
+    assert "Buy&amp;hold gold" in h and "Gold–silver ratio tilt" in h
+    rules_ok(h, t)
+
+
+def test_twins_books_robust_to_bad_books(root, on):
+    st = books_state()
+    st["books"]["T1"]["start_value"] = 0                       # no division by zero: the return is just unknown
+    st["books"]["T2"] = "junk"
+    st["books"]["T3"]["value"] = None
+    st["books"]["T4"]["max_dd"] = "x"
+    st["books"]["T9"] = book("T9")                             # an unknown id is shown by its id, after the known ones
+    w_twins(root, st)
+    rows = report.build_day(DAY, root)["twins_view"]["rows"]
+    assert [r["name"] for r in rows] == ["Real book", "Always-invested default", "Gold–silver ratio tilt", "Buy&hold gold", "Buy&hold gold+NIFTY", "T9"]
+    assert rows[1]["ret_pct"] is None and rows[2]["dd_pct"] is None
+
+
+def test_twins_summary_keys_are_preferred_over_the_books(root, on):
+    st = books_state(since="2026-11-23", asof="2026-11-26", twins={
+        "T1": {"value": 111111.0, "return_pct": 11.1, "max_dd_pct": 2.0, "days": 4, "label": "ignored: the id map wins"},
+        "T5": {"value": 99999.0, "return_pct": -0.001, "max_dd_pct": 1.0, "days": 4, "label": "x"},
+        "Tx": {"value": 5.0, "return_pct": 0.0, "max_dd_pct": 0.0, "label": "Custom <b>label</b>"}})
+    w_twins(root, st)
+    v = report.build_day(DAY, root)["twins_view"]
+    assert [r["name"] for r in v["rows"]] == ["Always-invested default", "Buy&hold gold", "Custom blabel/b"]
+    assert v["rows"][0]["value"] == 111111.0 and v["rows"][0]["dd_pct"] == -2.0 and v["asof"] == "2026-11-26"
+
+
+def test_twins_summary_unusable_falls_back_to_the_books(root, on):
+    w_twins(root, books_state(twins={"T1": "junk", "T2": {"label": "no numbers"}}))
+    assert len(report.build_day(DAY, root)["twins_view"]["rows"]) == 7
+
+
+def test_twins_view_reads_the_real_twins_module_output(root, on):
+    tw = pytest.importorskip("simgold.twins", reason="simgold/twins.py is PR #78")
+    st = tw.new_state("2026-11-23")
+    st["books"]["T0"] = tw._new_book("T0", "2026-11-23", 100000.0, 100000.0)
+    st["books"]["T5"] = tw._new_book("T5", "2026-11-23", 100000.0, 100000.0)
+    st["books"]["T5"]["value"] = 100800.0
+    st["last_day"] = "2026-11-24"
+    w_twins(root, st)
+    rows = report.build_day(DAY, root)["twins_view"]["rows"]
+    assert [r["name"] for r in rows] == ["Real book", "Buy&hold gold"] and rows[1]["ret_pct"] == pytest.approx(0.8)

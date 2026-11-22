@@ -409,7 +409,7 @@ try{
     return esc(k)+' '+sgn(g.premium_pct)+'%'+(g.median20_pct==null?'':' (20d median '+sgn(g.median20_pct)+'%)')+(g.warn?' – above the '+pg.warn_pct+'% band':'')}).join(' · ')+'</p>';
   const av=D.alloc_view;
   if(av&&av.weights){const w=av.weights,f=(c,s)=>w[c]&&w[c][s]!=null?w[c][s]+'%':'–';
-    h+='<p class="cash" style="border:0;margin:0 0 8px;padding:0"><b>Default vs AI vs executed</b> (phase '+esc(av.phase)+(av.conf!=null?', AI confidence '+av.conf.toFixed(2):'')+')</p>'+
+    h+='<p class="cash" style="border:0;margin:0 0 8px;padding:0"><b>Default vs AI vs engine target</b> (phase '+esc(av.phase)+(av.conf!=null?', AI confidence '+av.conf.toFixed(2):'')+')</p>'+
     '<dl class="hold">'+['GOLDBEES','SILVERBEES','HINDCOPPER'].map(s=>'<div><dt>'+esc(s)+'</dt><dd>'+f('default',s)+' / '+f('ai',s)+' / '+f('executed',s)+'</dd></div>').join('')+'</dl>'+
     (av.clamps&&av.clamps.length?'<p class="cash" style="border:0;margin:0 0 8px;padding:0">Clamp changed: '+av.clamps.map(esc).join('; ')+'</p>':'');}
   const tw=D.twins_view;

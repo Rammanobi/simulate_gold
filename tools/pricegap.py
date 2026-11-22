@@ -26,7 +26,7 @@ def _fmt(obj: dict, source: str) -> list[str]:
         w = g.get("world_premium_pct")
         L.append(f"  {sym}: premium {g['premium_pct']:+.2f}% over parity"
                  + ("" if w is None else f" ({w:+.2f}% over the bare world price)") + f" | 20d median {med} | z {z} | n {g.get('n', '?')}"
-                 + (" | ABOVE BAND" if g.get("warn") else ""))
+                 + (" | ABOVE BAND" if g.get("warn") else "") + (" | STALE (not today's reading)" if g.get("stale") else ""))
     w = obj.get("world") or {}
     if w:
         L.append("  world: " + ", ".join(f"{k} {v}" for k, v in sorted(w.items())))

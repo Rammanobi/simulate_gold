@@ -2454,7 +2454,7 @@ def _grid_html(head: list[str], rows: list[tuple]) -> str:
 
 def _alloc_html(b: dict) -> str:
     foot = "".join(f'<div style="font-size:14px;line-height:21px;color:#374151;padding-top:4px;font-family:{FONT};">{esc(x)}</div>' for x in b["footer"])
-    return _block(_wrapt(_section_title(b["title"])) + '<div style="padding-top:6px;">' + _grid_html(["", "Default", "AI", "Executed"], b["rows"]) + "</div>" + foot)
+    return _block(_wrapt(_section_title(b["title"])) + '<div style="padding-top:6px;">' + _grid_html(["", "Default", "AI", "Engine target"], b["rows"]) + "</div>" + foot)
 
 
 def _twins_html(b: dict) -> str:
@@ -2506,8 +2506,8 @@ def render_compact_email(day: dict, report_url: str | None = None, sample: bool 
 
 # ---------------------------------------------------------------- plain text
 def _alloc_text(b: dict) -> list[str]:
-    L = ["", b["title"], "          Default   AI   Executed"]
-    L += [f"{n:<8} {d:>8} {a:>6} {e:>9}" for n, d, a, e in b["rows"]]
+    L = ["", b["title"], "          Default   AI   Engine target"]
+    L += [f"{n:<8} {d:>8} {a:>6} {e:>13}" for n, d, a, e in b["rows"]]
     return L + list(b["footer"])
 
 
@@ -2565,7 +2565,7 @@ def render_compact_text(day: dict, report_url: str | None = None, sample: bool =
     L.append(m["next_event"])
     try:
         if m.get("pricegap"):
-            L += ["", "INDIA PRICE GAP · " + m["pricegap"]["note"]] + [t for t, _ in m["pricegap"]["chips"]]
+            L += ["", "INDIA PRICE GAP · " + m["pricegap"]["note"]] + reportblocks.chips_text(m["pricegap"]["chips"])
     except Exception:  # noqa: BLE001
         pass
     if m["link"]:

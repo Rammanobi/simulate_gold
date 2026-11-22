@@ -28,13 +28,19 @@ Constants (every one an ESTIMATE; override with `pricegap.gold_g_per_unit` / `si
   0.00870 per gold unit and 1.03 per silver unit, i.e. +6% over these constants, the statutory duty. That agreement is partly
   by construction (the gold TER_AVG sits inside its plausible 0.79-1.0% range and was chosen so it lines up), so the ABSOLUTE
   level is good to about +-3 points; the trend, the 20-day median and the z-score do not depend on it.
-  Timing noise: GC=F / SI=F settle on the US clock, the NSE closes 15:30 IST, so a daily pair can be 1-2% off on a big
-  US-session day. The 15:10 reading uses the live (partial) bar of every ticker, which lines up in time; older rows do not.
-  The 20-day median damps this.
+  Timing noise: GC=F / SI=F settle on the US clock (13:30 ET), the NSE closes 15:30 IST, so a daily pair mixes two different
+  moments. On a big US-session day this inflates (or deflates) the premium by about 2-4 points (measured: GOLDBEES read about
+  +9.5% against +11.5% on 20 Nov 2026, the day gold fell 4.6% after the NSE had closed). The 15:10 reading uses the live (partial)
+  bar of every ticker, which lines up in time; older rows do not. The 20-day median damps this, which is why the alert needs
+  the median over the band as well as today's premium. GC=F / SI=F are the continuous FRONT-MONTH futures: roll days jump by the
+  carry between contracts and the futures carry a small premium over spot, neither of which is modelled.
+
+Alert: LOW `price_gap` only when today's premium AND the 20-day median are both at or above `warn_pct` (one noisy print is not a gap).
 
 Window statistics: median20 = median of the last `median_window` (20) premiums including today; z = (today - mean) / sd over the
 `z_window` (60) sessions BEFORE today (sd floored at 0.25 points so a quiet history cannot blow z up). Fewer than `min_obs` (10)
-sessions -> no median / z and no alert.
+sessions -> no median / z and no alert. A symbol whose last row is not today's date is marked `stale` (kept for the record,
+never alerted, never shown in the report).
 """
 from __future__ import annotations
 
@@ -187,8 +193,8 @@ def rows_from_frame(frame, sym: str) -> list[dict]:
         d = str(ix)[:10]
         if date.fromisoformat(d).weekday() >= 5:
             continue                    # data.daily_history forward-fills: a weekend row is only a stale copy
-        if out and out[-1]["etf"] == float(a) and out[-1]["fut"] == float(b):
-            continue                    # a holiday on either exchange forward-filled the previous bar: not a new observation
+        if out and (out[-1]["etf"] == float(a) or out[-1]["fut"] == float(b)):
+            continue                    # a holiday on EITHER exchange forward-filled one price: the pair is not a new observation
         out.append({"date": d, "etf": float(a), "fut": float(b), "fx": float(c)})
     return out
 
@@ -207,11 +213,13 @@ def compute(frame, cfg: dict | None = None, now: datetime | None = None) -> dict
         last = rows[-1]
         d = date.fromisoformat(ser[-1][0])
         wser = series_from_rows(sym, rows[-1:], cfg, duty=False)
-        gaps[sym] = {"date": ser[-1][0], "price": round(last["etf"], 4), "implied": round(implied_unit_price(sym, last["fut"], last["fx"], d, cfg), 4),
+        stale = ser[-1][0] != now.date().isoformat()          # the last row is not today's: a stale reading is recorded but never alerted
+        gaps[sym] = {"date": ser[-1][0], "stale": stale, "price": round(last["etf"], 4), "implied": round(implied_unit_price(sym, last["fut"], last["fx"], d, cfg), 4),
                      "premium_pct": round(st["premium_pct"], 2), "world_premium_pct": round(wser[-1][1], 2) if wser else None,
                      "median20_pct": None if st["median20_pct"] is None else round(st["median20_pct"], 2),
                      "z": None if st["z"] is None else round(st["z"], 2), "n": st["n"],
-                     "content_g": round(content_g(sym, d, cfg), 6), "warn": bool(st["median20_pct"] is not None and st["premium_pct"] >= cfg["warn_pct"])}
+                     "content_g": round(content_g(sym, d, cfg), 6), "warn": bool(not stale and st["median20_pct"] is not None and st["premium_pct"] >= cfg["warn_pct"]
+                                  and st["median20_pct"] >= cfg["warn_pct"])}
         world[PRODUCTS[sym]["metal"].lower() + "_inr_g"] = round(world_inr_per_g(last["fut"], last["fx"]), 2)
         world["usdinr"] = round(last["fx"], 4)
         hist[sym] = [round(v, 2) for _, v in ser[-cfg["history_keep"]:]]
@@ -261,7 +269,8 @@ def load(state_dir) -> dict | None:
                 continue
             gaps[sym] = {"premium_pct": _f(g["premium_pct"]), "world_premium_pct": _f(g.get("world_premium_pct")),
                          "median20_pct": _f(g.get("median20_pct")), "z": _f(g.get("z")), "n": int(_f(g.get("n")) or 0),
-                         "price": _f(g.get("price")), "implied": _f(g.get("implied")), "warn": g.get("warn") is True,
+                         "price": _f(g.get("price")), "implied": _f(g.get("implied")), "warn": g.get("warn") is True and g.get("stale") is not True,
+                         "stale": g.get("stale") is True,
                          "date": str(g.get("date") or raw["date"])[:10]}
         if not gaps:
             return None
@@ -279,7 +288,7 @@ def alert_detail(obj: dict) -> str:
         g = obj["gaps"][sym]
         z = f", z {g['z']:+.1f}" if g.get("z") is not None else ""
         bits.append(f"{sym} {g['premium_pct']:+.1f}% over India parity (20-day median {g['median20_pct']:+.1f}%{z})")
-    return ("India price gap at or above the %.0f%% band: " % obj.get("warn_pct", 0)) + "; ".join(bits) + \
+    return ("India price gap at or above the %.0f%% band (today and the 20-day median): " % obj.get("warn_pct", 0)) + "; ".join(bits) + \
            ". Information only: nothing is blocked or changed. Constants are estimates; cause not verified."
 
 
@@ -354,13 +363,20 @@ def run_daily(state_dir, params: dict | None = None, now: datetime | None = None
         return None
 
 
-def run_daily_bounded(state_dir, params: dict | None = None, now: datetime | None = None, fetch=None, timeout: float = 30.0) -> None:
-    """run_daily in a daemon thread joined for at most `timeout` seconds, so a hung download can never stall a tick."""
+_worker: threading.Thread | None = None
+
+
+def run_daily_bounded(state_dir, params: dict | None = None, now: datetime | None = None, fetch=None, timeout: float = 15.0) -> None:
+    """run_daily in a daemon thread joined for at most `timeout` seconds, so a hung download can never stall a tick. The thread is
+    kept in a module global: while a timed-out one is still running no second one is started. Never raises."""
+    global _worker
     try:
         if not settings(params)["enabled"]:
             return
-        t = threading.Thread(target=run_daily, args=(state_dir, params, now, fetch), daemon=True, name="pricegap")
-        t.start()
-        t.join(timeout)
+        if _worker is not None and _worker.is_alive():
+            return
+        _worker = threading.Thread(target=run_daily, args=(state_dir, params, now, fetch), daemon=True, name="pricegap")
+        _worker.start()
+        _worker.join(timeout)
     except Exception:  # noqa: BLE001
         log.exception("pricegap: could not start the daily job")
