@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-23T12:17:55+05:30",
+ "updated": "2026-11-23T14:16:38+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "[fallback: DeepSeek] No clear event or sharp shock justifies a block, and moves are too mixed to favour any metal. | CEILING: downgraded GOLD neutral->block: DEFENSIVE_SHOCK; downgraded SILVER neutral->block: DEFENSIVE_SHOCK; downgraded COPPER neutral->block: DEFENSIVE",
+ "note": "GOLD[DEFENSIVE_SHOCK]: ceiling block, GOLDBEES +0.7% vs prev close, no new news. SILVER[DEFENSIVE_SHOCK]: ceiling block, -0.4%. COPPER[DEFENSIVE]: ceiling block, -1.7%. Kept block; NSE holiday tomorrow.",
  "prices_at_update": {
-  "GOLDBEES": 103.46,
-  "SILVERBEES": 147.1,
-  "HINDCOPPER": 414.35
+  "GOLDBEES": 102.97,
+  "SILVERBEES": 146.22,
+  "HINDCOPPER": 411.9
  },
  "alignment": {
   "GOLD": "DEFENSIVE_SHOCK",
