@@ -159,6 +159,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "32b46523",
+   "text": "A +1.53% GOLDBEES move at 12:48 (trigger 1.5%) fired a block; the day closed +0.68% with no trade, so edge-of-threshold blocks cost little on quiet days",
+   "status": "candidate",
+   "first_seen": "2026-11-23",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-11-23",
+     "text": "12:48 BLOCK GOLDBEES at 103.77, close 102.91, 0 trades"
+    }
+   ],
+   "contradict": []
   }
  ]
 }

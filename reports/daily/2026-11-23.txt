@@ -1,0 +1,57 @@
+METALS DAYBOOK · Mon 23 Nov · close
+Action: check the open alert (Fail the run so the incident pipeline alerts (pytest failed on main)) and acknowledge it
+
+Total value ₹94,524
+Overall loss ↓ −₹5,477 (−5.48%)   |   Today's gain ↑ +₹585 (+0.62%)
+Invested ₹49,406   Cash ₹49,574   Booked ↓ −₹1,166
+open −₹4,457 + booked −₹1,166 + interest +₹147 = overall −₹5,477
+Gold 48% · Cash 52%
+GOLDBEES 437 × ₹113.00: ↓ −₹4,457 (−9.02%) · LTP ₹102.91 ↑ +0.68% today
+  437 shares × ₹102.91 = ₹44,972 · ₹44,949 after selling cost
+Cash ₹49,574 (idle, earns nothing)
+
+WHY CASH? TREND CHECK 15:10
+GOLDBEES OFF ₹103.02 / ₹123.54 · needs +19.9% · if ON alone 63% · now 48% / target 50%
+SILVERBEES OFF ₹146.28 / ₹226.40 · needs +54.8% · if ON alone 41% · now 0% / target 0%
+HINDCOPPER OFF ₹411.50 / ₹542.94 · needs +31.9% · if ON alone 35% · now 0% / target 0%
+Rules: min 50% in gold · gold if ON = min(1, 0.14/σ60) · silver cap 70% · copper cap 35% · trades only if gap > 5 pts
+Gold is held at the 50% floor; silver and copper wait for a 55-day breakout.
+
+TODAY: 0 buys · 0 sells · 1 blocked
+12:48  blocked GOLDBEES · price shock +1.53%
+15:10  No trades · check kept gold at 50%
+
+YOU VS GOLD · since 13 Oct: 9.5 pts ahead
+You ↓ −5.5%   Gold B&H ↓ −14.9%
+
+DEFAULT VS AI VS ENGINE TARGET · phase shadow
+          Default   AI   Engine target
+Gold         100%      –           50%
+Silver         0%      –            0%
+Copper         0%      –            0%
+AI proposal: none (default kept)
+Clamp changed: no_add Gold 100→48%; provisional ALL; ramp_in ALL
+
+PAPER TWINS · since 2026-11-23 · as of 2026-11-23 (value, return, max drawdown)
+Real book  ₹94,594  0.0%  0.0%
+Always-invested default  ₹94,571  0.0%  0.0%
+Gold+NIFTY sink  ₹94,572  0.0%  0.0%
+No silver rule  ₹94,571  0.0%  0.0%
+Gold–silver ratio tilt  ₹94,572  0.0%  0.0%
+Buy&hold gold  ₹94,505  −0.1%  −0.1%
+Buy&hold gold+NIFTY  ₹94,495  −0.1%  −0.1%
+
+SAFETY · now ₹94,524 · peak ₹1,01,198
+₹19,524 above stop · 6.6% under peak · brake 0
+
+Gold ₹102.91 ↑ +0.68% today   Silver ₹146.54 ↓ −0.16% today   Copper ₹411.05 ↓ −1.91% today
+Next event: JOBS Fri 4 Dec 19:00
+
+INDIA PRICE GAP · over India parity (world price in rupees plus 6% duty); alert band 8%; information only, not a trade signal; estimate (US vs NSE close timing can move it 2–4 pts), cause not verified
+Gold +9.6% · 20d median +8.5% · z +1.2 (above band)
+Silver +11.3% · 20d median +9.0% · z +1.3 (above band)
+
+Open dashboard: https://claude.ai/artifact/1YVZ1m6rDxCwccPzQtCz73#2026-11-23
+Open in Daybook Inbox: accept or reject: https://claude.ai/artifact/23b6gaJRa2bT4wNyQCKMvh#daily-2026-11-23
+
+Paper trading · no real money · engine 368 checks · thrift

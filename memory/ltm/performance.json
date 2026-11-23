@@ -1,5 +1,5 @@
 {
- "updated": "2026-11-21T09:51:41+05:30",
+ "updated": "2026-11-23T15:47:14+05:30",
  "months": [
   {
    "month": "2026-10",
@@ -22,13 +22,13 @@
   {
    "month": "2026-11",
    "start": 98980.67,
-   "end": 93938.21,
-   "pct": -5.094,
+   "end": 94523.5,
+   "pct": -4.503,
    "green": false,
-   "bh_goldbees_pct": -11.755,
-   "bh_gold_silver_pct": -13.805,
+   "bh_goldbees_pct": -10.591,
+   "bh_gold_silver_pct": -13.021,
    "liquidbees_pct": null,
-   "excess_vs_goldbees": 6.661,
+   "excess_vs_goldbees": 6.088,
    "max_dd_rs": 7224.37,
    "trades": 1,
    "win_rate": null,
@@ -40,9 +40,46 @@
  ],
  "trial": {
   "start": 100000.0,
-  "end": 93938.21,
-  "pct": -6.062,
+  "end": 94523.5,
+  "pct": -5.476,
   "green": false,
-  "bh_goldbees_pct": -15.252
+  "bh_goldbees_pct": -14.134
+ },
+ "desk_brier": {
+  "synthesis": {
+   "n": 0,
+   "last20": null
+  },
+  "macro": {
+   "n": 0,
+   "last20": null
+  },
+  "gold": {
+   "n": 0,
+   "last20": null
+  },
+  "silver": {
+   "n": 0,
+   "last20": null
+  },
+  "copper": {
+   "n": 0,
+   "last20": null
+  },
+  "risk": {
+   "n": 0,
+   "last20": null
+  },
+  "desks_all": {
+   "n": 0,
+   "last20": null
+  }
+ },
+ "ai_vs_default": {
+  "n": 0,
+  "d20_pp": null,
+  "m3_pp": null,
+  "by_month_pp": {},
+  "month_rs": {}
  }
 }
