@@ -1,0 +1,29 @@
+{
+ "for_date": "2026-11-23",
+ "written": "2026-11-23T08:51:57+05:30",
+ "by": "premarket",
+ "phase": "provisional",
+ "weights": "default",
+ "confidence": 0.0,
+ "invalidate": [],
+ "desks": {
+  "macro": "missing",
+  "gold": "missing",
+  "silver": "missing",
+  "copper": "missing",
+  "risk": "missing",
+  "memory": "ok"
+ },
+ "default_at_write": {
+  "GOLDBEES": 1.0,
+  "SILVERBEES": 0.0,
+  "HINDCOPPER": 0.0
+ },
+ "prices_at_update": {
+  "GOLDBEES": 101.57,
+  "SILVERBEES": 145.84,
+  "HINDCOPPER": 418.5
+ },
+ "budget": "THRIFT",
+ "note": "no overnight data found; all 3 metals LTM DOWN, default 100/0/0"
+}
