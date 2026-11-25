@@ -1,4 +1,4 @@
-# Brief 2026-11-25 09:02 IST (Wed) | NSE CLOSED (pre-open); opens 09:15
+# Brief 2026-11-25 09:08 IST (Wed) | NSE CLOSED (pre-open); opens 09:15
 
 ## Portfolio
 value ₹94,523 | account stop ₹75,000 | drawdown from peak -6.6% (peak ₹101,198) | brake level 0 (-15% halves, -25% flat) | best profit ₹1,560 | day P&L n/a
@@ -18,7 +18,7 @@ HINDCOPPER 411.05 (as of 15:29) | vs prev close -1.91% | since last brief +0.00%
 none
 
 ## Guidance
-GOLD=block, SILVER=block, COPPER=block | 42.8 h old STALE for the engine
+GOLD=block, SILVER=block, COPPER=block | 42.9 h old STALE for the engine
 note: GOLD[DEFENSIVE_SHOCK]: ceiling block, GOLDBEES +0.7% vs prev close, no new news. SILVER[DEFENSIVE_SHOCK]: cei…
 
 ## Fast-lane requests today
