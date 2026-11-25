@@ -173,6 +173,20 @@
     }
    ],
    "contradict": []
+  },
+  {
+   "id": "3d7c7088",
+   "text": "GOLDBEES fell -2.98% on 25 Nov after a -1.42% gap, second large down day in a week; the held 437 units lost Rs 5,737 unrealised at a 47% gold weight",
+   "status": "candidate",
+   "first_seen": "2026-11-25",
+   "source": "daily",
+   "support": [
+    {
+     "date": "2026-11-25",
+     "text": "GOLDBEES day -2.98%, unreal -5,737, account -1,280; 2026-11-20 account -2.16%"
+    }
+   ],
+   "contradict": []
   }
  ]
 }
