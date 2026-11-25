@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-23T14:16:38+05:30",
+ "updated": "2026-11-25T12:17:46+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[DEFENSIVE_SHOCK]: ceiling block, GOLDBEES +0.7% vs prev close, no new news. SILVER[DEFENSIVE_SHOCK]: ceiling block, -0.4%. COPPER[DEFENSIVE]: ceiling block, -1.7%. Kept block; NSE holiday tomorrow.",
+ "note": "[fallback: DeepSeek] Sharp price drops in gold and silver, together with a bearish copper supply-demand outlook and event risk, justify blocking all three.",
  "prices_at_update": {
-  "GOLDBEES": 102.97,
-  "SILVERBEES": 146.22,
-  "HINDCOPPER": 411.9
+  "GOLDBEES": 100.09,
+  "SILVERBEES": 138.65,
+  "HINDCOPPER": 400.95
  },
  "alignment": {
-  "GOLD": "DEFENSIVE_SHOCK",
-  "SILVER": "DEFENSIVE_SHOCK",
+  "GOLD": "DEFENSIVE",
+  "SILVER": "DEFENSIVE",
   "COPPER": "DEFENSIVE"
  }
 }
