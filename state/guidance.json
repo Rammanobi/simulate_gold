@@ -1,15 +1,15 @@
 {
- "updated": "2026-11-25T12:17:46+05:30",
+ "updated": "2026-11-25T14:16:53+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "[fallback: DeepSeek] Sharp price drops in gold and silver, together with a bearish copper supply-demand outlook and event risk, justify blocking all three.",
+ "note": "GOLD[DEFENSIVE]: -2.5% on day, LTM and STM down, hold block. SILVER[DEFENSIVE]: -5.2% on day, hold block. COPPER[DEFENSIVE]: -2.9% on day, hold block. No fresh research (thrift).",
  "prices_at_update": {
-  "GOLDBEES": 100.09,
-  "SILVERBEES": 138.65,
-  "HINDCOPPER": 400.95
+  "GOLDBEES": 100.49,
+  "SILVERBEES": 138.75,
+  "HINDCOPPER": 399.2
  },
  "alignment": {
   "GOLD": "DEFENSIVE",
