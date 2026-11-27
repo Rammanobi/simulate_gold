@@ -36,9 +36,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1795686013.8658662,
+   "resolved_at": 1795772462.1957889,
    "resolved_emailed": false,
    "severity": "low",
-   "status": "open",
+   "status": "resolved",
    "step": "price-gap"
   },
   "engine|tick|runtimeerror": {
@@ -279,8 +280,6 @@
   ]
  },
  "last_high_fire": 1795762047.0691426,
- "pending": [
-  "engine|price gap|"
- ],
+ "pending": [],
  "version": 1
 }
