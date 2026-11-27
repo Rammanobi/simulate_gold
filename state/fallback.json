@@ -1,10 +1,9 @@
 {
- "used_at": "2026-11-27T12:17:51+05:30",
- "model": "",
- "ok": false,
- "note": "all thinking models failed (last: deepseek-v4-pro: empty reply)",
+ "used_at": "2026-11-27T17:17:15+05:30",
+ "model": "deepseek-flash",
+ "ok": true,
+ "note": "fallback daily report for 2026-11-27",
  "dates": [
-  "2026-11-06",
   "2026-11-11",
   "2026-11-13",
   "2026-11-16",
@@ -13,6 +12,7 @@
   "2026-11-20",
   "2026-11-23",
   "2026-11-25",
-  "2026-11-26"
+  "2026-11-26",
+  "2026-11-27"
  ]
 }
