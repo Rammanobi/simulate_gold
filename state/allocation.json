@@ -1,6 +1,6 @@
 {
- "for_date": "2026-11-25",
- "written": "2026-11-25T08:51:33+05:30",
+ "for_date": "2026-11-27",
+ "written": "2026-11-27T08:51:07+05:30",
  "by": "premarket",
  "phase": "provisional",
  "weights": "default",
@@ -20,10 +20,10 @@
   "HINDCOPPER": 0.0
  },
  "prices_at_update": {
-  "GOLDBEES": 102.91,
-  "SILVERBEES": 146.54,
-  "HINDCOPPER": 411.05
+  "GOLDBEES": 100.83,
+  "SILVERBEES": 141.13,
+  "HINDCOPPER": 411.0
  },
  "budget": "THRIFT",
- "note": "no verified overnight data; all 3 metals DOWN regime, default 100/0/0 kept"
+ "note": "no overnight data gathered in thrift run; all three metals DOWN/DEFENSIVE, default 100/0/0"
 }
