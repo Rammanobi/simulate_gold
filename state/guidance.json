@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-25T14:16:53+05:30",
+ "updated": "2026-11-27T14:16:27+05:30",
  "bias": {
   "GOLD": "block",
   "SILVER": "block",
   "COPPER": "block"
  },
- "note": "GOLD[DEFENSIVE]: -2.5% on day, LTM and STM down, hold block. SILVER[DEFENSIVE]: -5.2% on day, hold block. COPPER[DEFENSIVE]: -2.9% on day, hold block. No fresh research (thrift).",
+ "note": "GOLD[DEFENSIVE]: +3.2% rebound since 25 Nov, LTM down, hold block. SILVER[SHORT_SQUEEZE]: +6.1% squeeze, mixed evidence after big move, hold block. COPPER[DOWNTREND]: +5.0% bounce, LTM down, hold block. No fresh research (thrift).",
  "prices_at_update": {
-  "GOLDBEES": 100.49,
-  "SILVERBEES": 138.75,
-  "HINDCOPPER": 399.2
+  "GOLDBEES": 103.7,
+  "SILVERBEES": 147.25,
+  "HINDCOPPER": 419.2
  },
  "alignment": {
   "GOLD": "DEFENSIVE",
-  "SILVER": "DEFENSIVE",
-  "COPPER": "DEFENSIVE"
+  "SILVER": "SHORT_SQUEEZE",
+  "COPPER": "DOWNTREND"
  }
 }
