@@ -327,10 +327,10 @@ def _pc(m) -> str:
     return "n/a" if not m else "/".join(f"{m[s] * 100:.0f}" for s in ("GOLDBEES", "SILVERBEES", "HINDCOPPER"))
 
 
-def _s_alloc_state(root, now, p):
+def _s_alloc_state(root, now, p, fetch=False):
     import alloc_ctx
     import guidance
-    sn = alloc_ctx.snapshot(root, now, p, fetch=False)
+    sn = alloc_ctx.snapshot(root, now, p, fetch=fetch)       # fetch=True only from `tools/pack.py --refresh` (in memory, nothing written)
     cfg = sn["cfg"]
     mode = p["strategy"]["mode"]
     live = mode == "v3_alloc" and not cfg["shadow"] and cfg["phase"] == "live" and cfg["ai_trust"] > 0
