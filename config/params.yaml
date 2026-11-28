@@ -326,6 +326,17 @@ routines:
   context_max_bytes: 25000
   context_daily_notes: 3
 
+# ---- one-call data pack for the routines (tools/pack.py; read only, no trading effect) ----
+pack:
+  bytes_per_token: 3.5               # estimate used for the budgets (numbers-heavy text)
+  budgets:                           # hard token budget per routine; the least important blocks are shortened first and the footer says what was cut
+    premarket: 4000
+    allocation: 3400
+    hourly: 2200
+    daily: 2600
+    fastlane: 1500
+    weekly: 5000
+
 # ---- alert policy (simgold/alerts.py) ----------------------------------------------------
 alerts:
   max_fires_per_day: 6               # routine wake-ups per IST day across all sources (HIGH included)
