@@ -59,7 +59,7 @@ jobs:
           num=$(gh api "repos/$GH_REPO/issues?state=open&labels=routines-silent&per_page=1" --jq '.[0].number // empty' 2>/dev/null)
           if grep -q '"check": *"routines_silent"' "$RUNNER_TEMP/problems.txt"; then
             detail=$(grep '"check": *"routines_silent"' "$RUNNER_TEMP/problems.txt" | head -1 | jq -r '.detail // ""')
-            body="The watchdog found: ${detail}. Check claude.ai usage limits and cloud-session credits. Trading is not affected (the engine uses fixed rules); the DeepSeek fallback (fallback.yml) covers guidance and the daily report if DEEPSEEK_API_KEY is set. Checked $(date '+%F %H:%M') IST."
+            body="The watchdog found: ${detail}. Check claude.ai usage limits and cloud-session credits. Trading is not affected (the engine uses fixed rules); the DeepSeek fallback (fallback.yml) writes the daily report if DEEPSEEK_API_KEY is set (its bias brain is off: DeepSeek never sets the guidance). Checked $(date '+%F %H:%M') IST."
             if [ -z "$num" ]; then
               gh api -X POST "repos/$GH_REPO/issues" -f title="$TITLE" -f body="$body" -f 'labels[]=routines-silent' >/dev/null \
                 && echo "opened routines-silent issue" >> "$GITHUB_STEP_SUMMARY"

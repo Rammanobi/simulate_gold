@@ -388,3 +388,7 @@ fallback:
   retries: 2
   max_tokens: {thinking: 2000, fast: 600}
   min_minutes_between_brain_runs: 55
+  # Owner decision 29 Nov 2026: the DeepSeek BIAS BRAIN (tools/fallback_brain.py, 12:17 and 14:17 IST when Claude is silent) is OFF.
+  # DeepSeek is a backup/helper only and never sets what the engine may buy. The fallback DAILY REPORT is unaffected.
+  # Rollback: brain_enabled: true.
+  brain_enabled: false
