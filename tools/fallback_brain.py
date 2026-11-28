@@ -93,13 +93,19 @@ def apply_guidance(root: Path, bias: dict, note: str) -> None:
         raise FallbackError("guidance.py refused: " + (r.stderr or r.stdout).strip()[:200])
 
 
-def run(root: Path, environ, now, force: bool = False, client: Client | None = None, ctx_fn=context_text) -> tuple[int, str]:
+def run(root: Path, environ, now, force: bool = False, client: Client | None = None, ctx_fn=context_text,
+        enabled: bool | None = None) -> tuple[int, str]:
     root = Path(root)
     envfile.load_env(root / ".env", environ)
     key = environ.get("DEEPSEEK_API_KEY", "")
+    cfg = load_cfg(config.load_params())
+    on = cfg.get("brain_enabled", True) if enabled is None else enabled
+    if on is not True:
+        # Owner decision (29 Nov 2026): DeepSeek is a backup and helper only, never a decision maker. The bias brain changed what
+        # the engine may buy (it set GOLD=block on 10 of 14 runs and failed on 4 of 18), so it is off. Rollback: brain_enabled: true.
+        return 0, "DeepSeek bias brain is switched off (fallback.brain_enabled: false): guidance left alone"
     if not key:
         return 0, "DEEPSEEK_API_KEY is not set: fallback does nothing"
-    cfg = load_cfg(config.load_params())
     if not force:
         try:
             last = json.loads((root / "state" / "fallback.json").read_text(encoding="utf-8")).get("used_at", "")

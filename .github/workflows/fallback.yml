@@ -2,7 +2,8 @@ name: fallback
 
 # DeepSeek fallback for when the Claude routines cannot run (usage limit / credits used up). It does nothing unless
 # the watchdog says so. Two jobs of work:
-#   before 16:30 IST  tools/fallback_brain.py   sets a conservative bias in state/guidance.json (via tools/guidance.py)
+#   before 16:30 IST  tools/fallback_brain.py   SWITCHED OFF (owner decision 29 Nov 2026, fallback.brain_enabled: false in params.yaml):
+#                                               it prints 'switched off' and changes nothing; DeepSeek never sets a bias
 #   after 16:30 IST   tools/fallback_report.py  builds the daily report and opens/updates a GitHub issue (GitHub emails
 #                                               the owner); optional SMTP email when the SMTP_* secrets exist
 # Triggers: watchdog.yml dispatches this when routines_silent is detected; 16:50 IST on weekdays as a catch-all.

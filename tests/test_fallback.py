@@ -188,14 +188,14 @@ def good_client(text):
 
 def test_no_key_is_a_noop(tmp_path):
     root = brain_root(tmp_path)
-    code, msg = FB.run(root, {}, NOW)
+    code, msg = FB.run(root, {}, NOW, enabled=True)
     assert code == 0 and "not set" in msg and not (root / "state" / "fallback.json").exists() and not (root / "state" / "guidance.json").exists()
 
 
 def test_brain_applies_only_through_guidance_tool(tmp_path):
     root = brain_root(tmp_path)
     c = good_client(json.dumps({"bias": {"GOLD": "favour", "SILVER": "neutral", "COPPER": "block"}, "note": "Calm."}))
-    code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx")
+    code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx", enabled=True)
     g = json.loads((root / "state" / "guidance.json").read_text())
     assert g["bias"] == {"GOLDBEES": "favour", "SILVERBEES": "neutral", "HINDCOPPER": "block"} or set(g["bias"].values()) <= {"favour", "neutral", "block"}
     assert g["note"].startswith("[fallback: DeepSeek] Calm.")
@@ -212,7 +212,7 @@ def test_brain_downgrades_favour_with_event_tomorrow(tmp_path):
     root = brain_root(tmp_path)
     (root / "state" / "events.json").write_text(json.dumps([{"date": "2026-10-14", "type": "CPI"}]))
     c = good_client(json.dumps({"bias": {"GOLD": "favour", "SILVER": "favour", "COPPER": "favour"}, "note": "x"}))
-    FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx")
+    FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx", enabled=True)
     assert "favour" not in json.loads((root / "state" / "guidance.json").read_text())["bias"].values()
 
 
@@ -222,7 +222,7 @@ def test_brain_failure_leaves_guidance_alone_and_hides_key(tmp_path, caplog):
     before = (root / "state" / "guidance.json").read_text()
     c = Client(KEY, CFG, Fake({("GET", "/models"): [models("some-other")]}))
     with caplog.at_level(logging.DEBUG):
-        code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx")
+        code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=c, ctx_fn=lambda r: "ctx", enabled=True)
     assert code == 0 and "failed" in msg
     assert (root / "state" / "guidance.json").read_text() == before
     st = json.loads((root / "state" / "fallback.json").read_text())
@@ -232,13 +232,13 @@ def test_brain_failure_leaves_guidance_alone_and_hides_key(tmp_path, caplog):
 def test_brain_rate_limited(tmp_path):
     root = brain_root(tmp_path)
     (root / "state" / "fallback.json").write_text(json.dumps({"used_at": "2026-10-13T11:30:00+05:30", "ok": True}))
-    code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=good_client("{}"))
+    code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=good_client("{}"), enabled=True)
     assert "skipping" in msg
 
 
 def test_key_in_context_output_is_not_logged(tmp_path, capsys):
     root = brain_root(tmp_path)
-    FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=good_client("{}"), ctx_fn=lambda r: "ctx")
+    FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, client=good_client("{}"), ctx_fn=lambda r: "ctx", enabled=True)
     out = capsys.readouterr()
     assert KEY not in out.out + out.err
 
@@ -367,3 +367,26 @@ def test_fallback_workflow_shape():
     assert "secrets.DEEPSEEK_API_KEY" in text and "secrets.SMTP_PASS" in text and "git pull --rebase --autostash" in text
     assert doc["permissions"] == {"contents": "write", "issues": "write", "actions": "write"}   # actions: tools/ensure_engine.py restart source
     assert "DEEPSEEK_API_KEY=" not in text.replace("DEEPSEEK_API_KEY: ${{", "")
+
+
+# ---------------------------------------------------------------- owner decision 29 Nov 2026: the bias brain is OFF
+def test_shipped_config_has_the_bias_brain_off():
+    assert load_cfg(__import__("simgold.config", fromlist=["x"]).load_params()).get("brain_enabled") is False
+
+
+def test_brain_off_does_nothing_even_with_a_key_and_a_working_model(tmp_path):
+    root = brain_root(tmp_path)
+    (root / "state" / "guidance.json").write_text('{"updated": "x", "bias": {}}')
+    before = (root / "state" / "guidance.json").read_text()
+    c = good_client(json.dumps({"bias": {"GOLD": "block", "SILVER": "block", "COPPER": "block"}, "note": "x"}))
+    code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, force=True, client=c, ctx_fn=lambda r: "ctx")
+    assert code == 0 and "switched off" in msg
+    assert (root / "state" / "guidance.json").read_text() == before and not (root / "state" / "fallback.json").exists()
+    assert c._request.calls == []                                  # DeepSeek was never called
+
+
+def test_brain_off_is_the_default_unless_explicitly_true(tmp_path):
+    root = brain_root(tmp_path)
+    for flag in (False, "yes", 1, "true"):                           # only the real boolean True switches it on
+        code, msg = FB.run(root, {"DEEPSEEK_API_KEY": KEY}, NOW, force=True, client=good_client("{}"), ctx_fn=lambda r: "c", enabled=flag)
+        assert code == 0 and "switched off" in msg
