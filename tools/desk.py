@@ -253,7 +253,13 @@ def cmd_write(a, root: Path, now: datetime, p: dict) -> str:
     memstore.write_atomic(desk_file(root, day, a.desk), json.dumps(clean, ensure_ascii=False, separators=(",", ":")) + "\n")
     msg = [f"desk {a.desk} {day} written ({len(clean['facts'])} facts, {'abstain' if clean['abstain'] else 'view ' + '/'.join(clean['view'])})",
            "calibration: nothing to record here (the ledger is derived from the committed desk files when it scores)"]
-    return "\n".join(msg + [f"WARNING: {w}" for w in warn])
+    try:                                                   # advice only: a misquoted number is a WARNING, never a refusal
+        from simgold import factcheck
+        fc = factcheck.check_desk(root, now.date().isoformat(), a.desk, clean)
+        warn_fc = factcheck.warning_lines(fc)
+    except Exception:                                      # noqa: BLE001
+        warn_fc = []
+    return "\n".join(msg + [f"WARNING: {w}" for w in warn] + warn_fc)
 
 
 # ------------------------------------------------------------------ list, quorum
