@@ -249,6 +249,16 @@ allocation:
   provisional_conf_mult: 0.8
   desks: {fanout: compact, quorum: 2}   # D8 (read by the routines, not the engine)
 
+# ---- AI trust RECOMMENDATION (simgold/trust.py, tools/trust.py): thresholds only; it recommends, it never sets allocation.ai_trust ----
+trust:
+  min_days: [20, 40, 60, 120]    # scored days needed for ai_trust 0.25 / 0.5 / 0.75 / 1.0
+  min_validity: 0.95             # share of proposals the engine accepted
+  max_mismatch: 0.05             # share of desk/proposal files with a misquoted number (tools/factcheck.py)
+  step_down_month_pp: -2.0       # a calendar month with the full-trust tilt losing more than this (pp of the book) -> recommend 0
+  step_down_breaches: 5          # invalid proposals in 31 days -> recommend 0
+  # Also fixed in code (docs/v3/TRUST.md): from ai_trust 0.5 upward the Brier-skill CI lower bound must be > 0 (0.25 needs only skill > 0);
+  # hold-default days are not scored days; bootstrap blocks are max(5, n // 5) and intervals are advisory below 25 dates.
+
 # ---- India price gap (simgold/pricegap.py): information only, never trades or blocks anything ----------------
 # GOLDBEES / SILVERBEES against the world price in rupees (COMEX x USDINR x estimated metal content per unit, plus the import duty).
 # Once a day from 15:10 IST -> state/pricegap.json, a LOW `price_gap` alert (exempt from safe mode) and a chip row in the report.

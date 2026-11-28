@@ -50,7 +50,8 @@ FILE = "calibration.json"
 MAX_BYTES = 40_000
 KEEP_SETS = 46
 KEEP_PAIRS = 130
-KEEP_SCORES = 40
+KEEP_SCORES = 40                     # per desk; the synthesis keeps KEEP_SYNTH dates so tools/trust.py can reach its 120-day level
+KEEP_SYNTH = 140
 KEEP_OPEN_DAYS = 45
 HARVEST_DAYS = 60                    # desk files older than this many calendar days are never taken up (they would have expired anyway)
 KEEP_DK_DAYS = 75                    # `dk` (desk files already taken up) is kept this long: longer than HARVEST_DAYS, so no file is taken twice
@@ -124,6 +125,14 @@ def _good_score(k, r) -> bool:
     return isinstance(r, list) and len(r) == 3 and _isday(r[0]) and r[1] in METALS and _isnum(r[2])
 
 
+def _oc(led: dict, d: str, m: str, outcome: str) -> None:
+    """Remember the 5-day outcome (u/f/d) of a metal for a for_date, so tools/trust.py can build the base-rate forecaster later.
+    Stored as a 3-character string per date (GOLD, SILVER, COPPER; '-' = unknown). Additive: the key exists only once something was scored."""
+    cur = list((led.setdefault("oc", {}).get(d) or "---")[:3].ljust(3, "-"))
+    cur[METALS.index(m)] = _DC[outcome]
+    led["oc"][d] = "".join(cur)
+
+
 def _stamp(now: datetime | None) -> str:
     return (now or datetime.now()).strftime("%Y%m%dT%H%M%S")
 
@@ -174,6 +183,9 @@ def load(root, repair: bool = False, now: datetime | None = None) -> dict:
             continue
         led[k] = [r for r in rows if ok(r)]
         bad += [{k: r} for r in rows if not ok(r)]
+    oc = d.get("oc")
+    if isinstance(oc, dict):
+        led["oc"] = {k: v for k, v in oc.items() if _isday(k) and isinstance(v, str) and len(v) == 3 and set(v) <= set("ufd-")}
     sc = d.get("scores", {})
     if isinstance(sc, dict):
         for k, rows in sc.items():
@@ -213,8 +225,10 @@ def save(root, obj: dict, now: datetime) -> None:
     while len(scored) > KEEP_SETS:
         obj["sets"].remove(scored.pop(0))
     obj["pairs"] = obj["pairs"][-KEEP_PAIRS:]
+    if obj.get("oc"):
+        obj["oc"] = dict(sorted(obj["oc"].items())[-KEEP_PAIRS:])
     for k, rows in list(obj["scores"].items()):
-        obj["scores"][k] = rows[-KEEP_SCORES:]
+        obj["scores"][k] = rows[-(KEEP_SYNTH if k == "synthesis" else KEEP_SCORES):]
     while len(_text(obj).encode()) > MAX_BYTES:
         if obj["calls"] and len(obj["calls"]) > 30:
             obj["calls"] = obj["calls"][len(obj["calls"]) // 4:]
@@ -246,6 +260,12 @@ def record_proposal(root, now: datetime, clean: dict) -> str:
            "dw": _trip(clean.get("default_at_write")), "px": _trip(clean.get("prices_at_update")),
            "h": int(clean["horizon_days"]) if isinstance(clean.get("horizon_days"), (int, float)) and not isinstance(
                clean.get("horizon_days"), bool) else 5, "sc": sc, "st": "o"}
+    try:                                                 # fact-check result of the stated numbers: [ok 0/1, n_mismatch] (numbers only)
+        from simgold import factcheck
+        fc = factcheck.check_proposal(root, now.date().isoformat(), clean)["factcheck"]
+        row["fc"] = [1 if fc["ok"] else 0, int(fc["n_mismatch"])]
+    except Exception:                                    # noqa: BLE001
+        pass
     led = load(root, repair=True, now=now)
     warn = led.get("_warn") or []
     led["sets"] = [s for s in led["sets"] if not (s["d"] == row["d"] and s["ph"] == row["ph"])] + [row]
@@ -283,10 +303,19 @@ def harvest_desks(root, led: dict, today: date) -> int:
             if st != "ok" or not clean:
                 continue
             led["calls"] = [c for c in led["calls"] if not (c["d"] == day and c["k"] == k)]
+            try:
+                from simgold import factcheck
+                fcr = factcheck.check_desk(root, day, k, clean)["factcheck"]
+                fc = [1 if fcr["ok"] else 0, int(fcr["n_mismatch"])]
+            except Exception:                           # noqa: BLE001
+                fc = None
             for m, v in (clean.get("view") or {}).items():
                 if m in METALS and v.get("dir_5d") in _DC:
-                    led["calls"].append({"d": day, "k": k, "m": m, "o": _DC[v["dir_5d"]],
-                                         "u": round(float(v["p_up"]), 4), "n": round(float(v["p_down"]), 4)})
+                    row = {"d": day, "k": k, "m": m, "o": _DC[v["dir_5d"]],
+                           "u": round(float(v["p_up"]), 4), "n": round(float(v["p_down"]), 4)}
+                    if fc is not None:
+                        row["fc"] = fc
+                    led["calls"].append(row)
                     n += 1
         if done:
             led["dk"][day] = done
@@ -441,6 +470,8 @@ def score(root, now: datetime, closes=None, write: bool = True, p: dict | None =
                 if wr is None:
                     ok = False
                     break
+                if r["h"] == 5:
+                    _oc(led, r["d"], m, outcome_of(*wr))
                 if probs:
                     bs.append(brier(probs[m][0], probs[m][1], outcome_of(*wr)))
             if not ok:
@@ -469,6 +500,7 @@ def score(root, now: datetime, closes=None, write: bool = True, p: dict | None =
             if market.add_trading_days(date.fromisoformat(c["d"]), 35) >= today:
                 keep.append(c)
             continue
+        _oc(led, c["d"], c["m"], outcome_of(*wr))
         led["scores"].setdefault(c["k"], []).append([c["d"], c["m"], round(brier(c["u"], c["n"], outcome_of(*wr)), 4)])
         res["scored_calls"] += 1
     led["calls"] = keep
@@ -606,14 +638,25 @@ def week_stats(root, week: str, now: datetime | None = None, closes=None) -> dic
     pf = brief.load_json(Path(root) / "state" / "portfolio.json", {})
     pairs = [x for x in led["pairs"] if days[0].isoformat() <= x["d"] <= days[-1].isoformat()]
     s = summary(root, now)
-    return {"week": week.upper(), "days": out_days, "held_now": None if not isinstance(pf, dict) else {
+    return _with_trust(root, week, now, {"week": week.upper(), "days": out_days, "held_now": None if not isinstance(pf, dict) else {
         "positions": {k: v.get("qty") for k, v in (pf.get("positions") or {}).items() if isinstance(v, dict)}},
             "turnover_used": round(used, 4), "turnover_budget_week": cfg["max_turnover_week"],
             "clamp_counts": clamps, "ai_vs_default_pairs": pairs,
             "ai_vs_default_week_pp": round(sum(x["pp"] for x in pairs), 4) if pairs else None,
             "desk_brier": s["desk_brier"] if s else None, "ai_vs_default": s["ai_vs_default"] if s else None,
             "notes": ["there is no per-day `held` record: only the current positions (held_now) are shown",
-                      "D5 (v2) and GOLDBEES buy-and-hold P&L are not in this report: take them from `python tools/evaluate.py --month` (scorecard)"]}
+                      "D5 (v2) and GOLDBEES buy-and-hold P&L are not in this report: take them from `python tools/evaluate.py --month` (scorecard)"]})
+
+
+def _with_trust(root, week: str, now, w: dict) -> dict:
+    """Additive: `trust_line` only when a ledger file exists (no ledger -> the output is exactly what it was before)."""
+    if path(root).exists():
+        try:
+            from simgold import trust
+            w["trust_line"] = trust.summary_line(trust.compute(root, now, week))
+        except Exception:                                # noqa: BLE001 - a bonus line, never an error
+            pass
+    return w
 
 
 def week_md(w: dict) -> str:
@@ -626,6 +669,8 @@ def week_md(w: dict) -> str:
     L.append(f"AI vs default this week: {w['ai_vs_default_week_pp']} pp over {len(w['ai_vs_default_pairs'])} day(s)")
     if w["desk_brier"]:
         L += brier_text({"desk_brier": w["desk_brier"], "ai_vs_default": w["ai_vs_default"]})
+    if w.get("trust_line"):
+        L.append(w["trust_line"])
     return "\n".join(L)
 
 

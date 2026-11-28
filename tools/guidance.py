@@ -661,6 +661,11 @@ def cmd_allocation(a, root: Path, now: datetime, p: dict) -> str:
         out.append(f"ledger not updated ({type(e).__name__})")
     if clean["weights"] != "default":
         out += _preview_lines(snap, clean, now, p)
+        try:                                    # advice only: misquoted numbers are a WARNING, never a refusal
+            from simgold import factcheck
+            warns += factcheck.warning_lines(factcheck.check_proposal(root, now.date().isoformat(), clean))
+        except Exception:                       # noqa: BLE001
+            pass
     return "\n".join(out + warns)
 
 
