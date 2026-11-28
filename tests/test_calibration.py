@@ -212,3 +212,30 @@ def test_cli_show_score_week(root, capsys):
     assert cal.main(["--root", str(root), "--now", NOW.isoformat(), "score"]) == 0 and "not written" in capsys.readouterr().out
     assert cal.main(["--root", str(root), "--now", NOW.isoformat(), "week", "--week", "2026-W47", "--format", "md"]) == 0
     assert cal.main(["--root", str(root), "--now", NOW.isoformat(), "week", "--week", "nope"]) == 2
+
+
+def test_a_full_retention_ledger_saves_with_no_rows_lost(tmp_path):
+    """46 sets, 130 pairs, 130 synthesis rows, 130 oc dates, 40 scores x 5 desks, 63 open desk calls and every `dk` day (75 calendar days of taken-up desk files)
+    must all survive save() (before, ~130 trading days in, save() silently dropped open desk calls at 40 KB)."""
+    days = [d.date().isoformat() for d in pd.bdate_range(end="2026-12-04", periods=130)]
+    sets = [{"d": d, "ph": "f", "t": d + "T08:00:00", "c": 0.6123, "w": [0.7, 0.2, 0.1], "dw": [0.98, 0.0, 0.02], "px": [107.91, 155.86, 419.35],
+             "h": 5, "sc": [[0.5, "f", "f", "d"], [0.25, "u", "u", "f"], [0.25, "d", "d", "d"]], "st": "s", "b": 0.1234, "fc": [1, 0]}
+            for d in days[-46:]]
+    pairs = [{"d": d, "f": "f", "pp": 0.1234, "ai": 0.5678, "df": 0.4444, "rs": 12.34} for d in days]
+    scores = {"synthesis": [[d, 0.1234] for d in days]}
+    for k in cal.DESKS:
+        scores[k] = [[d, "GOLD", 0.1234] for d in days[-40:]]
+    calls = [{"d": d, "k": k, "m": "GOLD", "o": "u", "u": 0.55, "n": 0.2, "fc": [1, 0]} for d in days[-13:] for k in cal.DESKS][:63]
+    led = {"v": 1, "sets": sets, "calls": calls, "pairs": pairs, "scores": scores, "oc": {d: "udf" for d in days},
+           "dk": {d: list(cal.DESKS) for d in days if d >= "2026-09-20"}}   # everything dk keeps (KEEP_DK_DAYS = 75 calendar days)
+    now = datetime(2026, 12, 4, 16, 0, tzinfo=IST)
+    cal.save(tmp_path, led, now)
+    got = cal.load(tmp_path)
+    assert len(got["sets"]) == 46 and len(got["pairs"]) == 130 and len(got["calls"]) == 63 and len(got["oc"]) == 130
+    assert len(got["scores"]["synthesis"]) == 130 and all(len(got["scores"][k]) == 40 for k in cal.DESKS)
+    assert len(got["dk"]) == len(led["dk"]) >= 54 and not got["_warn"]
+    assert len(cal.path(tmp_path).read_bytes()) <= cal.MAX_BYTES
+
+
+def test_retention_of_synthesis_pairs_and_outcomes_is_consistent():
+    assert cal.KEEP_SYNTH == cal.KEEP_PAIRS >= 120 and cal.MAX_BYTES == 48_000

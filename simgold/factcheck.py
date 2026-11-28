@@ -49,7 +49,7 @@ _WORDS = (r"\b(?:closed|closes|close|settled|ended|finished|at|last|price|ltp|tr
 _CLAIM = re.compile(
     rf"\b(?P<sym>{_SYM})\b(?P<gap>(?:[\s:=@~,(]|₹|\bRs\.?|\bINR\b|{_WORDS})*?)(?<![\w.])(?P<num>{_NUM})"
     rf"(?:\s*[\u2013\u2014-]\s*(?P<num2>{_NUM}))?"
-    rf"(?P<tail>\s*(?:%|\bpct\b|\bpercent\b|\bpp\b|\bbps\b|\bpts?\b|\bpoints?\b|\$|\busd\b|/oz)?)"
+    rf"(?P<tail>\s*(?:%|\bpct\b|\bper cent\b|\bpercent\b|\bpp\b|\bbps\b|\bpts?\b|\bpoints?\b|\$|\busd\b|/oz)?)"
     rf"(?![\w]|[-/]\w|\.\d)",
     re.I)
 _INVALIDATE = re.compile(rf"\bclose_below:(?P<sym>{_SYM}):(?P<num>\d+(?:\.\d+)?)\b")
@@ -71,7 +71,8 @@ _REL = re.compile(r"\b(above|below|over|under)\b", re.I)
 _NDAY = re.compile(r"\b(\d{1,3})\s*-?\s*(?:d|day|days|session|sessions|td)\b", re.I)
 _DAYW = re.compile(r"(?<![\w/])(?:on the day|today|intraday|d/d|1d|daily|yesterday|overnight|day|session)(?![\w/])", re.I)
 _YEARW = re.compile(r"(?<![\w/])y/y(?![\w/])", re.I)
-_HYPO = re.compile(r"(?i:\b(?:if|could|would|might|case|should)\b|\bwas hit\b)|\bmay\b")
+_HYPO = re.compile(r"(?i:\b(?:if|could|would|might|case|should|needs?|requires?|unless|until|breakout|bull|bear)\b|\bwas hit\b|\b(?:upside|downside)\s*:)|\bmay\b")
+_COLON = re.compile(rf"\b(?P<sym>{_SYM})\s+(?P<n>\d{{1,3}})\s*-?\s*(?P<u>d|day|days|w|wk|week|weeks)?\s*:\s*(?P<num>{_NUM})\s*(?:%|pct|per cent|percent)(?!\w)", re.I)
 _BADNEXT = re.compile(r"\s*(?:d|day|days|sessions?|td|w|weeks?|x|times|bars?|trading|yrs?|years?|months?|m|h|hrs?|min|lots?|units?|shares?|qty)\b", re.I)
 _WEEKW = re.compile(r"(?<![\w/])(?:week|weekly|w/w)(?![\w/])", re.I)
 _SPLIT = re.compile(r"[;\n]+|(?<!\bRs)(?<!approx)\.\s+|\.$")
@@ -307,13 +308,17 @@ def extract(text, label: str, day: str) -> list[dict]:
             found.append({"kind": "donchian", "sym": sm[1].upper() if sm else None, "n": int(m["n"]), "value": num(m["num"]),
                           "text": f"{m['n']}-day high {m['num']}"})
         taken = [(m.start("num"), m.end("num")) for m in _SMA.finditer(chunk)] + [(m.start("num"), m.end("num")) for m in _HIGH.finditer(chunk)]
+        for m in _COLON.finditer(chunk):
+            if not hypo:
+                n = int(m["n"]) * (5 if (m["u"] or "d").lower().startswith("w") else 1)
+                found.append({"kind": "pct", "sym": m["sym"].upper(), "value": num(m["num"]), "hz": n, "text": _clip(m[0])})
         for m in _CLAIM.finditer(chunk):
             if any(a <= m.start("num") < b for a, b in taken) or chunk[max(0, m.start() - 12):m.start()] == "close_below:":
                 continue
             c = _classify(chunk, m, chunk_dates)
             if c and hypo:
                 continue                                                   # "bull case: above 110 if CPI is soft" is not a statement of fact
-            if c and c["kind"] in ("relation", "level") and "scenario[" in label:
+            if c and c["kind"] in ("relation", "level") and ("scenario[" in label or ".risks[" in label):
                 continue
             if c:
                 found.append(c)
@@ -333,14 +338,14 @@ def _classify(chunk: str, m: re.Match, chunk_dates) -> dict | None:
         return None
     ctx = chunk[max(0, m.start() - 30):m.end("gap")]
     snippet = _clip(chunk[m.start():m.end()])
-    if tail in ("pp", "bps", "$", "usd", "/oz") or (m["num2"] and tail in ("%", "pct", "percent")):
+    if tail in ("pp", "bps", "$", "usd", "/oz") or (m["num2"] and tail in ("%", "pct", "percent", "per cent")):
         return None
     after = chunk[m.end("num"):]
     if not tail and after.lstrip().startswith("%"):
         return None                                                        # a percentage the pattern could not take: never a price
     if not tail and _BADNEXT.match(after):
         return None                                                        # "5 days", "3 lots": a count, not a price
-    if tail in ("%", "pct", "percent"):
+    if tail in ("%", "pct", "percent", "per cent"):
         if v > 0 and _DOWNW.search(gap) and not _UPW.search(gap):
             v = -v
         return {"kind": "pct", "sym": sym, "value": v, "hz": _horizon(chunk, m.end()), "text": snippet}
@@ -427,6 +432,8 @@ def evaluate(c: dict, ref: Ref) -> tuple[str, str]:
     if c.get("force"):
         return UNVERIFIABLE, c["force"]
     if k == "price" and not 0.5 * p0 <= c["value"] <= 2 * p0 and not 0.5 * p0 <= c.get("value2", c["value"]) <= 2 * p0:
+        if c["close"] and 0.1 * p0 <= c["value"] <= 20 * p0:
+            return MISMATCH, f"{sym} close {d0} {_px(p0)}; {_px(c['value'])} is far off (a slipped decimal or unit?)"
         return UNVERIFIABLE, f"{_px(c['value'])} is outside 0.5x-2x of the latest {sym} close {_px(p0)}: probably not a price"
     if k == "price" and "value2" in c:
         lo, hi = sorted((c["value"], c["value2"]))
