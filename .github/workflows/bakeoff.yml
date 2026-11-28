@@ -1,0 +1,80 @@
+name: bakeoff
+
+# DeepSeek bake-off (owner-started, paper trading only). workflow_dispatch ONLY: no push, schedule or other trigger.
+# Builds nothing the engine reads: it checks the frozen inputs under reports/bakeoff/inputs (hashes + privacy scan), calls
+# DeepSeek for the chosen tasks (hard cost cap $3 from the usage fields), scores the results with code, and commits ONLY
+# reports/bakeoff/**. The only secret is DEEPSEEK_API_KEY; no SMTP, no REPORT_EMAIL. The key is never printed or stored.
+# Claude-side answers and the Opus judging run in an owner-started Claude Code session (tools/bakeoff/claude_side_README.md).
+on:
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: "Tasks (names or codes, comma separated)"
+        type: string
+        default: "report_paragraph,weekly_rollup,manifest"
+      runs:
+        description: "Runs per input (stability needs 3)"
+        type: string
+        default: "3"
+      max_cost_usd:
+        description: "Cost cap in USD (code never allows more than 3)"
+        type: string
+        default: "3"
+      off_peak_only:
+        description: "Do nothing during DeepSeek peak hours (half price off-peak)"
+        type: boolean
+        default: false
+      run_id:
+        description: "Result folder name under reports/bakeoff (empty = today, UTC)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bakeoff
+  cancel-in-progress: false
+
+jobs:
+  bakeoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Verify the frozen inputs and run the privacy scan (before any API call)
+        run: |
+          python tools/bakeoff/inputs.py verify
+          python tools/bakeoff/privacy.py
+      - name: Run DeepSeek and score
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TASKS: ${{ inputs.tasks }}
+          RUNS: ${{ inputs.runs }}
+          MAX_COST: ${{ inputs.max_cost_usd }}
+          OFF_PEAK: ${{ inputs.off_peak_only }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -o pipefail
+          echo "::add-mask::$DEEPSEEK_API_KEY"
+          RID="${RUN_ID:-$(date -u +%F)}"
+          ARGS=(--run-id "$RID" --tasks "$TASKS" --runs "$RUNS" --max-cost "$MAX_COST")
+          if [ "$OFF_PEAK" = "true" ]; then ARGS+=(--off-peak-only); fi
+          python tools/bakeoff/run_deepseek.py "${ARGS[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          python tools/bakeoff/score.py --run-id "$RID" --sides deepseek --write | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Commit results (reports/bakeoff only)
+        if: ${{ always() }}
+        run: |
+          set +e
+          git config user.name "simgold-bakeoff"; git config user.email "actions@users.noreply.github.com"
+          git add -A -- reports/bakeoff
+          git diff --cached --quiet || git commit -qm "bakeoff: DeepSeek results $(date -u +%F)"
+          for i in 1 2 3; do git pull --rebase --autostash -X theirs -q || git rebase --abort; git push -q && break; sleep 5; done
+          exit 0
