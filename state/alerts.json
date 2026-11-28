@@ -78,9 +78,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1794918586.650684,
+   "resolved_at": 1795879142.1255608,
    "resolved_emailed": false,
    "severity": "high",
-   "status": "open",
+   "status": "resolved",
    "step": "Fail the run so the incident pipeline alerts (pytest failed on main)"
   },
   "market hours paper trading|unknown|": {
@@ -98,9 +99,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1793791169.3115966,
+   "resolved_at": 1795879142.1273227,
    "resolved_emailed": false,
    "severity": "medium",
-   "status": "open",
+   "status": "resolved",
    "step": "unknown"
   },
   "system|safe mode|": {
@@ -139,9 +141,10 @@
    "issue": null,
    "issue_url": "",
    "last_seen": 1794935721.0682461,
+   "resolved_at": 1795879142.1281428,
    "resolved_emailed": false,
    "severity": "medium",
-   "status": "open",
+   "status": "resolved",
    "step": "Run python -m pytest -q"
   },
   "watchdog|engine_run_missing|": {
