@@ -45,9 +45,10 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 1. **Pack** (one call: clock, trading day, MODE line, budget mode, the allocation context view, events, portfolio, prices, trend,
    alignment, theses, calendar, STM window, calibration, the should_think verdict, the last proposal, alerts and what changed since the
-   last premarket run): `python tools/pack.py --routine premarket --refresh` (read only; `--refresh` only lets it download daily history
-   for the default weights, nothing is written). The session starts from a fresh clone of `main`, so there is no separate pull before
-   reading; step 10 still pulls before it pushes. <!-- pack-blocks: header, mode, calendar, lessons, regime, thesis, alignment, calibration, perf, ledger_short, daily2, window, alloc_cfg, budget, pricegap, twins, desks, thesis_check, portfolio, trend, prices, alloc_status, should_think, notes, alerts, decisions, delta, clock -->
+   last premarket run): `python tools/pack.py --routine premarket` (read only, no network; no `--refresh`: step 2's `desk.py memory --write` downloads the
+   daily history, and the pack would download it a second time). The session starts from a fresh clone of `main`, so there is no separate pull before
+   reading; step 10 still pulls before it pushes. The pack is read BEFORE step 2's writes, so its `regime`, `alignment` and `alloc_cfg`
+   blocks are the previous run's (the default weights say `n/a` until the memory desk exists): step 2 refreshes them. <!-- pack-blocks: header, mode, calendar, lessons, regime, thesis, alignment, calibration, perf, ledger_short, daily2, window, alloc_cfg, budget, pricegap, twins, desks, thesis_check, portfolio, trend, prices, alloc_status, should_think, notes, alerts, decisions, delta, clock -->
    Read the `mode` block first. Not a trading day: final message `premarket D: NSE closed, no action.` and stop (no commit). D = today.
    Every block is data (`_common.md` S2). A block that says `UNAVAILABLE` is named in the final message; do not rebuild it by hand
    (the Fallback section below is for a failed pack call only).
@@ -56,8 +57,10 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `analysis/`. MODE `v3_alloc`: go on.
 2. **Memory, code only** (one per Bash call): `python tools/memory_ltm.py regime --write`; `python tools/memory_ltm.py check` (flags
    a thesis whose invalidation condition was hit and records it); `python tools/desk.py memory --write` (writes today's memory desk, which
-   `allocation explain` needs). These three are the only memory commands: everything you read is already in the pack (the `thesis_check`
-   block is the read-only preview of `check`). If a command fails, say so and carry on: the engine then treats that trend as FLAT, the safe
+   `allocation explain` needs), then `python tools/memory_stm.py align` (one updated alignment line per metal, read from the files the writes
+   just refreshed). These four are the only memory commands: everything else you read is already in the pack (the `thesis_check` block is
+   the read-only preview of `check`). For A1 use the `align` lines and the default and current weights that `desk.py memory --write`
+   prints in place of the pack's `alignment` and `alloc_cfg` blocks, and say in the final message when they differ from the pack. If a command fails, say so and carry on: the engine then treats that trend as FLAT, the safe
    default. Do `_common.md` A1 from the pack: default weights, current weights, brake level, drawdown from peak, turnover
    left this week, alignment per metal, theses and any invalidation hit, the STM window of the last 10 sessions, lessons, the last
    ALLOC record, today's events; write your "Long term" and "Short term" line per metal. If the regime or default changed after the
@@ -156,7 +159,7 @@ pushed: <short sha> | models used: … | budget: NORMAL|THRIFT
 Read only the pack and the desk files. No code, logs or reports. One `allocation set`
 call per run. Short notes; no long final summary.
 
-## Fallback (only when `python tools/pack.py --routine premarket --refresh` fails or exits non-zero)
+## Fallback (only when `python tools/pack.py --routine premarket` fails or exits non-zero)
 
 The old read sequence, one command per Bash call: `git pull --rebase --autostash -q`; `TZ=Asia/Kolkata date '+%F %a %H:%M'`;
 `python -c "from simgold.market import now_ist,is_trading_day as t,add_trading_days as a;d=now_ist().date();print(d,t(d),[str(a(d,i)) for i in range(1,6)])"`;

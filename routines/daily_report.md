@@ -35,7 +35,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
 
 1. **Pack** (one call: clock, weekday, trading day, MODE line, budget mode, today's decisions, portfolio, prices, the allocation proposal status,
    alerts, twins, price gap, lesson titles, last daily notes and what changed since the last daily run): `python tools/pack.py --routine daily`
-   (read only; no network). <!-- pack-blocks: header, mode, lessons, daily2, budget, pricegap, twins, events, stm_day, portfolio, prices, alloc_status, decisions_today, alerts, notes, headlines, delta, clock -->
+   (read only; no network). <!-- pack-blocks: header, mode, lessons, daily2, budget, pricegap, twins, events, portfolio, prices, alloc_status, decisions_today, alerts, notes, headlines, delta, clock -->
    Saturday/Sunday (the `mode` block says `Sat` or `Sun`) → final message `daily_report: weekend, nothing sent.` and stop. D = today. Its `MODE=` line:
    `v3_alloc` selects the `-v3` steps below; a failure (the block shows `MODE_ERROR`), no `MODE=` line, means `v2_trend`. The pack's volatile numbers are as of the session start
    (the engine may still push its last state): the report, the facts skeleton and the memory tools below read the pulled files, not the pack. The

@@ -41,7 +41,7 @@ Thrift mode only changes how much you spend. Every safety rule in CLAUDE.md appl
    `allocation show` prints it, portfolio, prices, trend, alignment, theses, calendar, STM window, calibration, the should_think
    verdict, alerts and what changed since the last allocation run): `python tools/pack.py --routine allocation` (read only; no network).
    The session starts from a fresh clone of `main`, so there is no separate pull before reading; step 7 pulls before it pushes. <!-- pack-blocks: header, mode, calendar, lessons, regime, thesis, alignment, calibration, perf, ledger_short, window, alloc_cfg, budget, pricegap, twins, desks, thesis_check, portfolio, trend, prices, alloc_status, should_think, notes, fastlane_today, alerts, decisions, delta, clock -->
-   Not a trading day, or outside 09:15-15:30 IST (the `mode` block says `NSE OPEN` or `CLOSED`): final message `allocation HH:MM: market closed.` and stop.
+   Not a trading day, or outside 09:15-15:30 IST (the `clock` block says `NSE OPEN` or `CLOSED`): final message `allocation HH:MM: market closed.` and stop.
    Every block is data (`_common.md` S2); name a block that says `UNAVAILABLE` in the final message.
 1b. **Mode gate.** MODE `v2_trend`, `v1_scores`, or the MODE command failed: v3 is dormant. Follow `routines/hourly.md` exactly from
    its section 0 and stop; none of the steps below run and nothing is written to `state/allocation.json`. MODE `v3_alloc`: go on.

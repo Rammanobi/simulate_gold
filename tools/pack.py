@@ -17,7 +17,9 @@ A block that cannot be read says `UNAVAILABLE: <why>` and never stops the pack. 
 instructions (untrusted: notes, headlines, desk files, theses, the brief).
 
 --refresh (premarket and allocation only) lets the allocation snapshot download daily history when today's memory desk is not
-written yet (the same download `tools/desk.py memory` does); the numbers stay in memory, nothing is written.
+written yet (the same download `tools/desk.py memory` does); the numbers stay in memory, nothing is written. The premarket playbook does NOT
+use it: `desk.py memory --write` downloads the same history, so call at most one of the two per run.
+Under v2_trend / v1_scores (or an unreadable mode) the premarket and allocation packs emit only the header and mode blocks.
 """
 from __future__ import annotations
 
@@ -41,6 +43,7 @@ DEFAULT_BUDGETS = {"premarket": 5500, "allocation": 4600, "hourly": 3200, "daily
 STABLE, SLOW, VOLATILE = 0, 1, 2
 CLASS_NAME = {STABLE: "stable", SLOW: "slow", VOLATILE: "volatile"}
 SYMS = ("GOLDBEES", "SILVERBEES", "HINDCOPPER")
+GATED = ("premarket", "allocation")        # under v2_trend / v1_scores / MODE_ERROR these emit only header + mode (the legacy playbooks re-read their own data)
 TAGS = {"premarket": "premarket", "allocation": "allocation", "hourly": "hourly", "daily": "daily_report",
         "fastlane": "fastlane", "weekly": "weekly"}
 PLAYBOOK = {"premarket": "premarket.md", "allocation": "allocation.md", "hourly": "hourly.md", "daily": "daily_report.md",
@@ -110,7 +113,7 @@ def b_mode(c):
     d = c["now"].date()
     tr = market.is_trading_day(d)
     nxt = [str(market.add_trading_days(d, i)) for i in range(1, 6)]
-    return f"{line}\ntoday {d} {d:%a} trading_day={tr} | next 5 trading days {','.join(nxt)} | NSE {brief.market_status(c['now'])}"
+    return f"{line}\ntoday {d} {d:%a} trading_day={tr} | next 5 trading days {','.join(nxt)}"
 
 
 def b_budget(c):
@@ -349,7 +352,18 @@ def b_fastlane_today(c):
 
 
 def b_notes(c):
-    return _sec("notes_today")(c) or NO_NOTE
+    """Today's routine notes (same line format as context.py), every field cut and flattened to one line (untrusted text)."""
+    import context
+    out = []
+    for ln in context._read(memstore.stm_path(c["root"], "today.jsonl")).splitlines():                 # noqa: SLF001
+        try:
+            n = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(n, dict) and n.get("date") == c["now"].date().isoformat():
+            out.append(f"{_cut(n.get('t'), 8)} {_cut(n.get('who'), 20)}/{_cut(n.get('metal'), 12)}: {_cut(n.get('text'), 200)}"
+                       + (f" ({_cut(n['source'], 40)})" if n.get("source") else ""))
+    return "\n".join(out) or NO_NOTE
 
 
 def b_headlines(c):
@@ -402,7 +416,7 @@ def b_alerts(c):
     if not rows:
         return "no open alerts"
     order = {"high": 0, "medium": 1, "low": 2}
-    rows.sort(key=lambda a: (order.get(a.get("severity"), 3), str(a.get("category"))))
+    rows.sort(key=lambda a: (order.get(a.get("severity"), 3), _cut(a.get("category"), 40)))
     out = [f"{len(rows)} open alert(s)"]
     for a in rows[:6]:
         age = ""
@@ -410,8 +424,8 @@ def b_alerts(c):
             age = f" since {brief.age_text((c['now'].timestamp() - float(a['first_seen'])) / 60)} ago"
         except (KeyError, TypeError, ValueError):
             pass
-        out.append(f"{a.get('severity')} {a.get('category')} [{a.get('component')}]{' acked' if a.get('acked') else ''}: "
-                   f"{_cut(a.get('detail'), 70)}{age}")
+        out.append(f"{_cut(a.get('severity'), 8)} {_cut(a.get('category'), 40)} [{_cut(a.get('component'), 30)}]"
+                   f"{' acked' if a.get('acked') else ''}: {_cut(a.get('detail'), 70)}{age}")
     return "\n".join(out)
 
 
@@ -424,87 +438,98 @@ def _git(root, *args, timeout=6):
     return r.stdout if r.returncode == 0 else None
 
 
-def _value_of(pf, prices) -> float | None:
+def _net_value(pf, p) -> float | None:
+    """Account value the way the portfolio block counts it (net of half the exit cost, at each position's last price)."""
     try:
         v = float(pf.get("cash") or 0) + float(pf.get("liquidbees") or 0)
-        for s, q in (pf.get("positions") or {}).items():
-            px = (prices.get(s) or {}).get("price") if isinstance(prices.get(s), dict) else None
-            v += float(q.get("qty") or 0) * float(px or q.get("last_price") or q.get("avg_cost") or 0)
+        for sym, q in (pf.get("positions") or {}).items():
+            px = float(q.get("last_price") or q.get("avg_cost") or 0)
+            cost = ((p.get("instruments") or {}).get(sym) or {}).get("cost", 0.001)
+            v += float(q.get("qty") or 0) * px * (1 - cost / 2)
         return v
     except (AttributeError, TypeError, ValueError):
         return None
 
 
+def _moves(then: dict, now_px: dict) -> str:
+    mv = []
+    for s_ in SYMS:
+        a = then.get(s_)
+        b = (now_px.get(s_) or {}).get("price") if isinstance(now_px.get(s_), dict) else None
+        if isinstance(a, (int, float)) and b:
+            mv.append(f"{s_} {a} -> {b} ({brief._pct(b, a)})")                                          # noqa: SLF001
+    return " | ".join(mv)
+
+
+def _ist(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso.strip()).astimezone(market.IST).strftime("%Y-%m-%d %H:%M IST")
+    except ValueError:
+        return "time n/a"
+
+
 def b_delta(c):
+    """Timestamps are the primary path (always there); the git comparison is added when the routine's last commit is in this clone
+    (a depth-50 clone almost never holds it: the engine makes 70+ commits a day)."""
     root, tag = Path(c["root"]), TAGS[c["routine"]]
-    sha = (_git(root, "log", "-1", "--format=%H", "-E", "--grep", rf"^routine\({tag}[):]") or "").strip()
     now_pf, now_px = _load(root, "state", "portfolio.json"), _load(root, "state", "last_prices.json")
     now_px = now_px if isinstance(now_px, dict) else {}
-    out = []
-    if sha:
-        when = (_git(root, "log", "-1", "--format=%cI", sha) or "").strip()
-        out.append(f"since this routine's last commit ({when[:16].replace('T', ' ')}):")
+    g = brief.guidance_view(root, c["now"])
+    out = ["by timestamps (primary; the stored write times, not git):",
+           "guidance " + ("missing" if not g["exists"] else f"updated {brief.age_text(g['age_min'])} ago" if g["age_min"] is not None else "has no timestamp")]
+    al = _load(root, "state", "allocation.json")
+    if isinstance(al, dict):
+        out.append(f"allocation proposal written {al.get('written') or 'n/a'} by {_cut(al.get('by'), 20)}")
+    for label, then in (("guidance", g["prices"] if g["exists"] else {}), ("the allocation proposal", (al or {}).get("prices_at_update") if isinstance(al, dict) else {})):
+        m = _moves(then if isinstance(then, dict) else {}, now_px)
+        if m:
+            out.append(f"prices since {label}: {m}")
+    sha = (_git(root, "log", "-1", "--format=%H", "-E", "--grep", rf"^routine\({tag}[):]") or "").strip()
+    if not sha:
+        out.append("git: this routine's last commit is not in this clone (shallow clones usually lack it)")
+        return "\n".join(out)
+    out.append(f"git: this routine's last commit {_ist(_git(root, 'log', '-1', '--format=%cI', sha) or '')}:")
 
-        def old(rel):
-            try:
-                v = json.loads(_git(root, "show", f"{sha}:{rel}") or "")
-                return v if isinstance(v, dict) else {}
-            except ValueError:
-                return {}
-        old_px, old_pf = old("state/last_prices.json"), old("state/portfolio.json")
-        mv = []
-        for s in SYMS:
-            a = (old_px.get(s) or {}).get("price") if isinstance(old_px.get(s), dict) else None
-            b = (now_px.get(s) or {}).get("price") if isinstance(now_px.get(s), dict) else None
-            if a and b:
-                mv.append(f"{s} {a} -> {b} ({brief._pct(b, a)})")                                      # noqa: SLF001
-        out.append("prices: " + (" | ".join(mv) if mv else "n/a"))
-        va, vb = _value_of(old_pf, old_px), _value_of(now_pf if isinstance(now_pf, dict) else {}, now_px)
-        if va and vb:
-            out.append(f"account value {va:,.0f} -> {vb:,.0f} ({vb - va:+,.0f})")
-        po = set((old_pf.get("positions") or {}))
-        pn = set(((now_pf or {}).get("positions") or {})) if isinstance(now_pf, dict) else set()
-        if po != pn:
-            out.append(f"positions: {','.join(sorted(po)) or 'none'} -> {','.join(sorted(pn)) or 'none'}")
-        files = (_git(root, "diff", "--name-only", sha, "HEAD", "--", "state/guidance.json", "state/allocation.json",
-                      "state/fastlane.json", "state/events.json", "state/market_today.json", "analysis", "memory/ltm") or "").split()
-        added = 0
-        num = _git(root, "diff", "--numstat", sha, "HEAD", "--", f"logs/decisions-{c['day']}.jsonl") or ""
-        for ln in num.splitlines():
-            p3 = ln.split("\t")
-            if p3 and p3[0].isdigit():
-                added += int(p3[0])
-        out.append(f"routine-owned files changed by others: {', '.join(files) or 'none'} | new decision lines today: {added}")
-        n = (_git(root, "rev-list", "--count", f"{sha}..HEAD") or "?").strip()
-        out.append(f"commits on this checkout since: {n}")
-    else:
-        out.append("no earlier commit by this routine on this checkout; by timestamps:")
-        g = brief.guidance_view(root, c["now"])
-        out.append("guidance " + ("missing" if not g["exists"] else f"updated {brief.age_text(g['age_min'])} ago" if g["age_min"] is not None else "has no timestamp"))
-        al = _load(root, "state", "allocation.json")
-        w = al.get("written") if isinstance(al, dict) else None
-        out.append(f"allocation proposal written {w or 'n/a'}")
-        if g["exists"] and g["prices"]:
-            mv = []
-            for s in SYMS:
-                a = g["prices"].get(s)
-                b = (now_px.get(s) or {}).get("price") if isinstance(now_px.get(s), dict) else None
-                if a and b:
-                    mv.append(f"{s} {a} -> {b} ({brief._pct(b, a)})")                                  # noqa: SLF001
-            if mv:
-                out.append("prices since the last guidance: " + " | ".join(mv))
+    def old(rel):
+        try:
+            v = json.loads(_git(root, "show", f"{sha}:{rel}") or "")
+            return v if isinstance(v, dict) else {}
+        except ValueError:
+            return {}
+    old_px, old_pf = old("state/last_prices.json"), old("state/portfolio.json")
+    out.append("prices: " + (_moves({k: (v or {}).get("price") for k, v in old_px.items() if isinstance(v, dict)}, now_px) or "n/a"))
+    va, vb = _net_value(old_pf, c["p"]), None
+    try:
+        vb = _portfolio(c)[0]["value"]                                    # the portfolio block's own number: one pack, one value
+    except Unavailable:
+        pass
+    if va and vb:
+        out.append(f"account value (net) {va:,.0f} -> {vb:,.0f} ({vb - va:+,.0f})")
+    po = set((old_pf.get("positions") or {}))
+    pn = set(((now_pf or {}).get("positions") or {})) if isinstance(now_pf, dict) else set()
+    if po != pn:
+        out.append(f"positions: {','.join(sorted(po)) or 'none'} -> {','.join(sorted(pn)) or 'none'}")
+    files = (_git(root, "diff", "--name-only", sha, "HEAD", "--", "state/guidance.json", "state/allocation.json",
+                  "state/fastlane.json", "state/events.json", "state/market_today.json", "analysis", "memory/ltm") or "").split()
+    added = 0
+    for ln in (_git(root, "diff", "--numstat", sha, "HEAD", "--", f"logs/decisions-{c['day']}.jsonl") or "").splitlines():
+        p3 = ln.split("\t")
+        if p3 and p3[0].isdigit():
+            added += int(p3[0])
+    out.append(f"routine-owned files changed by others: {', '.join(files) or 'none'} | new decision lines today: {added}")
+    out.append(f"commits on this checkout since: {(_git(root, 'rev-list', '--count', f'{sha}..HEAD') or '?').strip()}")
     return "\n".join(out)
 
 
 def b_clock(c):
-    return f"IST {c['now']:%Y-%m-%d %a %H:%M}"
+    return f"IST {c['now']:%Y-%m-%d %a %H:%M} | NSE {brief.market_status(c['now'])}"
 
 
 # ------------------------------------------------------------------ catalogue
 # name -> (function, title, class, per-block cap in bytes)
 BLOCKS = {
     "header": (b_header, "pack", STABLE, 600),
-    "mode": (b_mode, "mode, clock and trading day", STABLE, 700),
+    "mode": (b_mode, "mode and trading day", STABLE, 700),
     "budget": (b_budget, "budget mode", SLOW, 200),
     "calendar": (b_calendar, "calendar next 14 days (LTM)", STABLE, 900),
     "calendar8": (b_calendar8, "calendar next 8 weeks (LTM)", STABLE, 3000),
@@ -545,7 +570,7 @@ BLOCKS = {
     "notes": (b_notes, "today's routine notes", VOLATILE, 1000),
     "headlines": (b_headlines, "new headlines", VOLATILE, 1000),
     "delta": (b_delta, "what changed since the last session", VOLATILE, 900),
-    "clock": (b_clock, "clock", VOLATILE, 60),
+    "clock": (b_clock, "clock and market status", VOLATILE, 160),
 }
 
 # routine -> [(block, priority)] in display order. Priority 0 = never cut; a LARGER number is cut EARLIER.
@@ -565,7 +590,7 @@ ROUTINES = {
                ("should_think", 1), ("notes", 5), ("headlines", 6), ("fastlane_today", 8), ("alerts", 4), ("decisions", 9),
                ("delta", 3), ("clock", 0)],
     "daily": [("header", 0), ("mode", 0), ("lessons", 6), ("daily2", 5), ("budget", 0), ("pricegap", 8), ("twins", 7), ("events", 3),
-              ("stm_day", 2), ("portfolio", 0), ("prices", 0), ("alloc_status", 4), ("decisions_today", 1), ("alerts", 3),
+              ("portfolio", 0), ("prices", 0), ("alloc_status", 4), ("decisions_today", 1), ("alerts", 3),
               ("notes", 4), ("headlines", 9), ("delta", 5), ("clock", 0)],
     "fastlane": [("header", 0), ("mode", 0), ("budget", 0), ("alignment", 4), ("thesis", 3), ("portfolio", 0), ("trend", 5),
                  ("prices", 0), ("guidance", 2), ("alloc_status", 2), ("fastlane_today", 5), ("notes", 3), ("headlines", 6),
@@ -584,10 +609,10 @@ FIELDS = {
     "prices": [r"prev close"],
     "should_think": [r"^(THINK|SKIP):"],
     "guidance": [r"bias |MISSING"],
-    "delta": [r"since|no earlier commit"],
+    "delta": [r"by timestamps"],
     "alloc_cfg": [r"default D5-FI G/S/C %"],
     "trend": [r"trend (GOLD|SILVER|COPPER)"],
-    "clock": [r"IST "],
+    "clock": [r"IST ", r"NSE (OPEN|CLOSED)"],
 }
 
 
@@ -598,6 +623,18 @@ def budget_for(p, routine: str) -> int:
         return int(conf.get(routine, DEFAULT_BUDGETS[routine]))
     except (TypeError, ValueError):
         return DEFAULT_BUDGETS[routine]
+
+
+FAKE_STARTS = ("##", "MODE=", "PACK v", "-- pack end")
+
+
+def neutralise(text: str) -> str:
+    """Untrusted text must never forge the pack's own structure: every line that starts (even after spaces) with a block header, a
+    MODE= line, the pack header or the footer is indented four spaces, and odd line separators become plain newlines."""
+    out = []
+    for ln in text.replace("\x00", "").splitlines():
+        out.append("    " + ln if ln.lstrip().startswith(FAKE_STARTS) else ln)
+    return "\n".join(out)
 
 
 def _body(name, c):
@@ -611,6 +648,8 @@ def _body(name, c):
     except Exception as e:                                           # noqa: BLE001  a broken file must never break a routine
         text, unavailable = f"UNAVAILABLE: {type(e).__name__} reading this block", True
     text = text.strip()
+    if name not in ("header", "mode"):
+        text = neutralise(text)
     capped = 0
     if len(text.encode("utf-8")) > cap:
         text, capped = _trim(text, cap)
@@ -646,7 +685,7 @@ def render_md(blocks: list[dict], footer: str) -> str:
 
 
 def build_pack(root, routine: str, now: datetime | None = None, p: dict | None = None, fetch: bool = False,
-               fmt: str = "md", budget: int | None = None) -> str:
+               fmt: str = "md", budget: int | None = None, gate: bool = True) -> str:
     """The pack text (or a JSON document). Never raises for a missing or corrupt input; never writes."""
     root = Path(root)
     now = now or parse_now(None)
@@ -659,7 +698,15 @@ def build_pack(root, routine: str, now: datetime | None = None, p: dict | None =
     limit = int(budget if budget is not None else budget_for(p, routine))
     ctx = {"root": root, "now": now, "p": p or {}, "day": now.date().isoformat(), "routine": routine,
            "fetch": bool(fetch) and routine in ("premarket", "allocation")}
-    order = ROUTINES[routine]
+    order, note = ROUTINES[routine], ""
+    if gate and routine in GATED:
+        import mode
+        try:
+            eff = mode.effective_mode(p or {})
+        except Exception:                                            # noqa: BLE001  unreadable config: legacy playbooks
+            eff = None
+        if eff != "v3_alloc":
+            order, note = [("header", 0), ("mode", 0)], " | MODE is not v3_alloc: the legacy playbook reads its own data, nothing else emitted"
     blocks = [_body(n, ctx) for n, _ in order]
     prio = {n: pr for n, pr in order}
 
@@ -684,7 +731,7 @@ def build_pack(root, routine: str, now: datetime | None = None, p: dict | None =
     for b in blocks:
         if b["cut"]:
             cuts.append(f"{b['name']}({'all' if b['cut_all'] else 'part'})")
-    footer = _footer(blocks, limit, bpt, cuts)
+    footer = _footer(blocks, limit, bpt, cuts, note)
     if fmt == "json":
         return json.dumps({"pack": VERSION, "routine": routine, "date": ctx["day"], "budget_tokens": limit,
                            "tokens": tokens(render_md(blocks, footer), bpt), "cut": cuts,
@@ -693,13 +740,13 @@ def build_pack(root, routine: str, now: datetime | None = None, p: dict | None =
     return render_md(blocks, footer)
 
 
-def _footer(blocks, limit, bpt, cuts) -> str:
+def _footer(blocks, limit, bpt, cuts, note: str = "") -> str:
     base = render_md(blocks, "")
     n = tokens(base, bpt)
     bad = [b["name"] for b in blocks if b["unavailable"]]
     return (f"-- pack end | about {n} tokens of {limit} | cut: {', '.join(cuts) if cuts else 'nothing'}"
             + (" | OVER BUDGET (uncuttable blocks)" if n > limit else "")
-            + (f" | unavailable: {', '.join(bad)}" if bad else ""))
+            + (f" | unavailable: {', '.join(bad)}" if bad else "") + note)
 
 
 # ------------------------------------------------------------------ --check
@@ -730,8 +777,8 @@ def check(root, routine: str, now: datetime | None = None, p: dict | None = None
     for n in declared:
         if n not in defined:
             errs.append(f"{routine}: playbook reads block `{n}` which the {routine} pack does not have")
-    text = build_pack(root, routine, now, p)
-    doc = json.loads(build_pack(root, routine, now, p, fmt="json"))
+    text = build_pack(root, routine, now, p, gate=False)
+    doc = json.loads(build_pack(root, routine, now, p, fmt="json", gate=False))
     byname = {b["name"]: b for b in doc["blocks"]}
     for n in declared:
         if n not in byname:
