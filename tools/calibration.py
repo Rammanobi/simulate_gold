@@ -50,7 +50,8 @@ FILE = "calibration.json"
 MAX_BYTES = 40_000
 KEEP_SETS = 46
 KEEP_PAIRS = 130
-KEEP_SCORES = 40
+KEEP_SCORES = 40                     # per desk; the synthesis keeps KEEP_SYNTH dates so tools/trust.py can reach its 120-day level
+KEEP_SYNTH = 140
 KEEP_OPEN_DAYS = 45
 HARVEST_DAYS = 60                    # desk files older than this many calendar days are never taken up (they would have expired anyway)
 KEEP_DK_DAYS = 75                    # `dk` (desk files already taken up) is kept this long: longer than HARVEST_DAYS, so no file is taken twice
@@ -227,7 +228,7 @@ def save(root, obj: dict, now: datetime) -> None:
     if obj.get("oc"):
         obj["oc"] = dict(sorted(obj["oc"].items())[-KEEP_PAIRS:])
     for k, rows in list(obj["scores"].items()):
-        obj["scores"][k] = rows[-KEEP_SCORES:]
+        obj["scores"][k] = rows[-(KEEP_SYNTH if k == "synthesis" else KEEP_SCORES):]
     while len(_text(obj).encode()) > MAX_BYTES:
         if obj["calls"] and len(obj["calls"]) > 30:
             obj["calls"] = obj["calls"][len(obj["calls"]) // 4:]

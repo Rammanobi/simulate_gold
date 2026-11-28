@@ -35,7 +35,7 @@ def ledger(root, n, pp_mean=0.2, pp_sd=0.1, skill=0.3, brier_noise=0.0, fc_bad=0
         pp = pp_mean + rng.gauss(0, pp_sd)
         if last_pp is not None and i >= n - 20:
             pp = last_pp
-        pairs.append({"d": d, "f": "f", "pp": round(pp, 4), "ai": 0.0, "df": 0.0, "rs": 0.0})
+        pairs.append({"d": d, "f": "f", "pp": round(pp, 4), "ai": round(0.3 + pp, 4), "df": 0.3, "rs": 0.0})
         bs = [base(d, j) for j in range(3)]
         syn.append([d, round(max(0.0, (1 - skill) * sum(bs) / 3 + rng.gauss(0, brier_noise)), 4)])
         if desks:
@@ -156,7 +156,7 @@ def test_math_is_transparent_and_deterministic(root):
     assert p["mean_pp"] == 2.5 and p["std_pp"] == pytest.approx(1.291, abs=1e-3) and p["t"] == pytest.approx(3.873, abs=1e-3)
     assert tr.paired([1.0, 2.0, 3.0, 4.0], 200, 7) == p
     s = tr.skill([("a", 0.1, 0.2), ("b", 0.1, 0.2), ("c", 0.1, 0.2)], 100, 1)
-    assert s["skill"] == 0.5 and tr.block_len(130) == 5 and tr.block_len(12) == 2 and tr.block_len(3) == 1
+    assert s["skill"] == 0.5 and tr.block_len(130) == 26 and tr.block_len(12) == 5 and tr.block_len(3) == 3 and tr.block_len(0) == 1
     assert tr._brier(0.5, 0.5, "up"[0]) == 0.25
 
 
@@ -196,3 +196,35 @@ def test_scoring_records_outcomes_for_the_base_rate(tmp_path, monkeypatch):
     led = cal.load(r)
     assert led["oc"] == {"2026-11-02": "udf"}
     assert tr.compute(r, NOW, params={}, validity=GOOD_VAL)["brier_skill"]["synthesis"]["n_obs"] == 1
+
+
+def test_hold_default_days_are_not_scored_days(root):
+    led = ledger(root, 25)
+    for r in led["pairs"][:10]:
+        r.update(pp=0.0, ai=0.0, df=0.0)
+    (Path(root) / "memory/ltm/calibration.json").write_text(json.dumps(led))
+    t = rec(root)
+    assert t["paired"]["n"] == 15 and t["paired"]["n_hold_default_excluded"] == 10 and t["recommended"] == 0.0     # 15 < 20 scored days
+
+
+def test_corrupt_ledger_is_reported_as_corrupt_not_missing(root):
+    f = Path(root) / "memory" / "ltm" / "calibration.json"
+    f.parent.mkdir(parents=True)
+    f.write_text("{not json")
+    t = tr.compute(root, NOW, params={})
+    assert "ledger corrupt" in tr.summary_line(t) and "no calibration ledger" not in tr.summary_line(t)
+    f.write_text(json.dumps({"pairs": 5, "scores": []}))
+    assert "ledger corrupt" in tr.summary_line(tr.compute(root, NOW, params={}))
+
+
+def test_short_samples_are_marked_advisory_and_the_synthesis_window_reaches_120(root):
+    ledger(root, 22)
+    t = rec(root)
+    assert t["paired"]["advisory"] and any("advisory" in r for r in t["reasons"])
+    assert cal.KEEP_SYNTH >= 130 and cal.KEEP_SCORES == 40
+    from datetime import datetime as D
+    led = {"sets": [], "calls": [], "pairs": [], "scores": {"synthesis": [["2026-01-%02d" % (i % 28 + 1), 0.2] for i in range(150)],
+                                                           "gold": [["2026-01-02", "GOLD", 0.2]] * 60}, "dk": {}}
+    cal.save(root, dict(led, _warn=[]), D(2026, 12, 4, tzinfo=IST))
+    sc = cal.load(root)["scores"]
+    assert len(sc["synthesis"]) == cal.KEEP_SYNTH and len(sc["gold"]) == 40

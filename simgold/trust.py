@@ -10,7 +10,7 @@ Evidence (all numbers are plain arithmetic on the ledger; the resampling is seed
       outcomes of that metal in the ledger (in-sample, which flatters the baseline, so the test is conservative). Per date we average
       the model's B and the baseline's B over that date's observations; skill = 1 - sum(model B) / sum(baseline B). Groups: each
       desk, `synthesis` (the proposal's scenario set) and `overall` (all of them pooled per date). The interval is a moving-block
-      bootstrap over dates (block length min(5, n // 5), at least 1; 2000 resamples; 2.5 and 97.5 percent; seed 20261128).
+      bootstrap over dates (block length max(5, n // 5), so a block covers the 5-day overlap of the windows; below 25 dates the interval is advisory only; 2000 resamples; 2.5 and 97.5 percent; seed 20261128).
   (b) Paired AI-vs-default: per scored day pp = (what the full-trust tilt earned) - (what the default earned), percentage points of
       the book. mean, sample std, t = mean / (std / sqrt(n)), the same block bootstrap for the mean.
   (c) Validity rate = days whose proposal the engine accepted / days with a proposal it read at all (ALLOC clamp rule
@@ -24,6 +24,8 @@ Table (config `trust:` may override; defaults here). A level needs ALL of its ro
   0.75    >= 60         > 0               > 0 and CI low > 0                        >= 95%     <= 5%
   1.00    >= 120        > 0               > 0 and CI low > 0                        >= 95%     <= 5%
 
+A hold-default day (the AI weights equal the default) is not a scored day. The synthesis scores are kept for 140 dates, desk scores for 40
+per desk (KEEP_SCORES), so a per-desk skill is over its last 40 calls; the gate uses the synthesis (or `overall` when there is none).
 Unknown evidence (no ALLOC records, no `fc` field yet) is NOT counted as passing. Step-down: the tilt lost more than 2 pp in the latest or the
 previous calendar month with data, or there were 5 or more invalid proposals in the last 31 days -> recommend 0 whatever else is true.
 """
@@ -76,8 +78,12 @@ def _std(x):
     return math.sqrt(sum((v - m) ** 2 for v in x) / (n - 1))
 
 
+ADVISORY_BELOW = 25          # below this many dates a bootstrap interval is advisory only (blocks are as long as the 5-day overlap)
+
+
 def block_len(n: int) -> int:
-    return max(1, min(5, n // 5))
+    """Block length = max(5, n // 5): a block spans at least the 5-day overlap of consecutive outcome windows; never longer than n."""
+    return max(1, min(n, max(5, n // 5)))
 
 
 def bootstrap(series: list[tuple], stat, B: int, seed: int):
@@ -107,7 +113,7 @@ def paired(pp: list[float], B: int, seed: int) -> dict:
     sd = _std(pp)
     mean = _mean(pp) if n else None
     ci = bootstrap([(v,) for v in pp], lambda s: _mean([x[0] for x in s]), B, seed) if n else None
-    return {"n": n, "mean_pp": None if mean is None else round(mean, 4), "std_pp": None if sd is None else round(sd, 4),
+    return {"n": n, "advisory": n < ADVISORY_BELOW, "mean_pp": None if mean is None else round(mean, 4), "std_pp": None if sd is None else round(sd, 4),
             "t": None if not sd or n < 2 else round(mean / (sd / math.sqrt(n)), 3),
             "ci95": None if ci is None else [round(ci[0], 4), round(ci[1], 4)]}
 
@@ -125,7 +131,7 @@ def skill(rows: list[tuple[str, float, float]], B: int, seed: int) -> dict:
     f = lambda s: (None if sum(x[1] for x in s) <= 0 else 1 - sum(x[0] for x in s) / sum(x[1] for x in s))        # noqa: E731
     sk = f(ser) if ser else None
     ci = bootstrap(ser, f, B, seed) if ser else None
-    return {"n": len(ser), "n_obs": len(rows), "skill": None if sk is None else round(sk, 4),
+    return {"n": len(ser), "advisory": len(ser) < ADVISORY_BELOW, "n_obs": len(rows), "skill": None if sk is None else round(sk, 4),
             "ci95": None if ci is None else [round(ci[0], 4), round(ci[1], 4)],
             "brier": None if not ser else round(_mean([x[0] for x in ser]), 4), "base": None if not ser else round(_mean([x[1] for x in ser]), 4)}
 
@@ -143,15 +149,16 @@ def _isday(x) -> bool:
         return False
 
 
-def read_ledger(root) -> dict | None:
+def read_ledger(root):
+    """The ledger dict; None when there is no ledger file; the string "corrupt" when the file cannot be read as a ledger."""
     f = memstore.ltm_path(root, "calibration.json")
     if not Path(f).exists():
         return None
     try:
         d = json.loads(Path(f).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
-        return None
-    return d if isinstance(d, dict) else None
+        return "corrupt"
+    return d if isinstance(d, dict) and isinstance(d.get("pairs", []), list) and isinstance(d.get("scores", {}), dict) else "corrupt"
 
 
 def alloc_validity(root, since: str, until: str) -> dict:
@@ -215,8 +222,8 @@ def compute(root, now: datetime | None = None, week: str | None = None, params: 
     try:
         return _compute(root, now, week, params, validity)
     except (TypeError, ValueError, AttributeError, KeyError, IndexError, OverflowError, RecursionError):
-        return {"asof": None, "week": week, "recommended": 0.0, "table": [], "insufficient": True,
-                "reasons": ["insufficient data, recommend 0: the calibration ledger could not be read"]}
+        return {"asof": None, "week": week, "recommended": 0.0, "table": [], "insufficient": True, "why": "ledger corrupt",
+                "reasons": ["insufficient data, recommend 0: ledger corrupt (wrong shape)"]}
 
 
 def _compute(root, now, week, params, validity) -> dict:
@@ -233,13 +240,16 @@ def _compute(root, now, week, params, validity) -> dict:
     until = until_d.isoformat()
     led = read_ledger(root)
     out = {"asof": until, "week": week.upper() if week else None, "recommended": 0.0, "reasons": [], "table": [], "config": cfg}
-    if led is None:
-        out["reasons"].append("insufficient data, recommend 0: no calibration ledger")
+    if led is None or led == "corrupt":
+        out["why"] = "no calibration ledger" if led is None else "ledger corrupt"
+        out["reasons"].append(f"insufficient data, recommend 0: {out['why']}")
         out["insufficient"] = True
         return out
     B, seed = int(cfg["bootstrap"]), int(cfg["seed"])
-    pairs = sorted(((r["d"], float(r["pp"])) for r in (led.get("pairs") or [])
-                    if isinstance(r, dict) and _isday(r.get("d")) and _isnum(r.get("pp")) and r["d"] <= until), key=lambda x: x[0])
+    allp = [r for r in (led.get("pairs") or []) if isinstance(r, dict) and _isday(r.get("d")) and _isnum(r.get("pp")) and r["d"] <= until]
+    # a hold-default day (pp 0 with the AI weights equal to the default's: ai = df = 0) is no forecast: it is not a scored day
+    hold = [r for r in allp if r["pp"] == 0 and r.get("ai") == 0 and r.get("df") == 0]
+    pairs = sorted(((r["d"], float(r["pp"])) for r in allp if r not in hold), key=lambda x: x[0])
     oc = {d: v for d, v in (led.get("oc") or {}).items() if _isday(d) and isinstance(v, str) and len(v) == 3 and d <= until}
     # base rates per metal from the stored outcomes
     base = {}
@@ -269,13 +279,14 @@ def _compute(root, now, week, params, validity) -> dict:
     out["brier_skill"] = {k: skill(v, B, seed) for k, v in groups.items()}
     out["brier_skill"]["overall"] = skill([x for v in groups.values() for x in v], B, seed)
     out["paired"] = paired([v for _, v in pairs], B, seed)
+    out["paired"]["n_hold_default_excluded"] = len(hold)
     since = (until_d - timedelta(days=92)).isoformat()
     out["validity"] = validity if validity is not None else alloc_validity(root, since, until)
     out["factcheck"] = factcheck_rate(led, until)
     n_days = out["paired"]["n"]
     if n_days == 0 and not any(g["n"] for g in out["brier_skill"].values()):
         out["reasons"].append("insufficient data, recommend 0: the ledger has no scored days yet")
-        out["insufficient"] = True
+        out["insufficient"], out["why"] = True, "no scored days yet"
         return out
     # ---- step-down
     months: dict[str, float] = {}
@@ -318,6 +329,8 @@ def _compute(root, now, week, params, validity) -> dict:
             out["reasons"].append(f"{nxt['level']:g} not reached: " + "; ".join(f"{c['test']} ({c['data']})" for c in nxt["checks"] if not c["ok"]))
         else:
             out["reasons"].append("every row of the table passes")
+    if pc["advisory"] or sk["advisory"]:
+        out["reasons"].append(f"intervals are advisory: fewer than {ADVISORY_BELOW} dates (P&L {pc['n']}, Brier {sk['n']})")
     if n_days < 20:
         out["power_note"] = f"{n_days} days too few to rank (need at least {cfg['min_days'][0]} scored days before any trust)"
     elif n_days < cfg["min_days"][-1]:
@@ -334,7 +347,7 @@ def _f(x, nd=2, sign=False):
 def summary_line(t: dict) -> str:
     """One line for the weekly outputs."""
     if t.get("insufficient"):
-        return "trust: insufficient data, recommend 0 (advice only; the owner sets allocation.ai_trust)"
+        return f"trust: insufficient data, recommend 0 ({t.get('why', 'no data')}; advice only, the owner sets allocation.ai_trust)"
     pc, sk = t["paired"], t["brier_skill"][t.get("brier_basis", "overall")]
     ci = pc["ci95"]
     s = (f"trust: recommend {t['recommended']:g} (advice only) | n={pc['n']}d AI-vs-default {_f(pc['mean_pp'], 3, True)} pp/day"
@@ -350,7 +363,7 @@ def text(t: dict) -> str:
     if t.get("insufficient"):
         return "\n".join(L + ["why: " + r for r in t["reasons"]])
     pc = t["paired"]
-    L.append(f"paired AI-vs-default: n={pc['n']} mean {_f(pc['mean_pp'], 4, True)} pp std {_f(pc['std_pp'], 4)} t {_f(pc['t'])} CI95 {pc['ci95']}")
+    L.append(f"paired AI-vs-default (hold-default days excluded: {pc.get('n_hold_default_excluded', 0)}): n={pc['n']} mean {_f(pc['mean_pp'], 4, True)} pp std {_f(pc['std_pp'], 4)} t {_f(pc['t'])} CI95 {pc['ci95']}")
     L.append("Brier skill vs base-rate forecaster (1 = perfect, 0 = no better than base rates):")
     for k, v in t["brier_skill"].items():
         L.append(f"  {k:<10} n={v['n']:<3} obs={v['n_obs']:<3} skill {_f(v['skill'], 3, True)} CI95 {v['ci95']}")

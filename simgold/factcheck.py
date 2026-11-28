@@ -44,12 +44,13 @@ _NUM = r"[-+−]?(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?"
 _SYM = "|".join(SYMS)
 _WORDS = (r"\b(?:closed|closes|close|settled|ended|finished|at|last|price|ltp|trades|traded|trading|opened|open|quoted|near|around|"
           r"is|was|to|a|the|of|day|session|fell|fall|falls|rose|rises|rise|dropped|drops|gained|gains|lost|lose|declined|slid|"
-          r"sank|climbed|jumped|up|down|lower|higher|by|about|roughly|only|just|above|below|over|under|support|resistance|"
+          r"sank|climbed|jumped|slipped|eased|dipped|tumbled|rallied|firmed|surged|up|down|lower|higher|by|about|roughly|only|just|above|below|over|under|support|resistance|weight|weights|share|shares|"
           r"stop|floor|trigger|target|level|cap|ceiling|broke|held|holds|holding|sits|sat|vs)\b")
 _CLAIM = re.compile(
     rf"\b(?P<sym>{_SYM})\b(?P<gap>(?:[\s:=@~,(]|₹|\bRs\.?|\bINR\b|{_WORDS})*?)(?<![\w.])(?P<num>{_NUM})"
+    rf"(?:\s*[\u2013\u2014-]\s*(?P<num2>{_NUM}))?"
     rf"(?P<tail>\s*(?:%|\bpct\b|\bpercent\b|\bpp\b|\bbps\b|\bpts?\b|\bpoints?\b|\$|\busd\b|/oz)?)"
-    rf"(?![\w]|[-/]\w|\.\d|\s*(?:d|day|days|sessions?|td|w|weeks?|x|times|bars?|trading|yrs?|years?|months?|m|h|hrs?|min|lots?|units?|shares?|qty)\b)",
+    rf"(?![\w]|[-/]\w|\.\d)",
     re.I)
 _INVALIDATE = re.compile(rf"\bclose_below:(?P<sym>{_SYM}):(?P<num>\d+(?:\.\d+)?)\b")
 _SMA = re.compile(rf"\bSMA\s?-?(?P<n>\d{{2,3}})\b(?P<gap>(?:[\s:=~]|₹|\bRs\.?|\bINR\b|\b(?:of|at|is|was|near|around|for|{_SYM})\b)*?)"
@@ -64,13 +65,16 @@ _DATEWORD = re.compile(r"\b(?:closed|closes|close|session|settled|traded|trading
 _LVL_BELOW = re.compile(r"\b(?:support|stop|stop-loss|floor|invalidat\w*|trigger)\b", re.I)
 _LVL_ABOVE = re.compile(r"\b(?:resistance|ceiling|target)\b", re.I)
 _CLOSEW = re.compile(r"\b(?:close|closed|closes|settled)\b", re.I)
-_DOWNW = re.compile(r"\b(?:fell|fall|falls|dropped|drops|lost|lose|declined|slid|sank|down|lower)\b", re.I)
-_UPW = re.compile(r"\b(?:rose|rise|rises|gained|gains|climbed|jumped|up|higher)\b", re.I)
+_DOWNW = re.compile(r"\b(?:fell|fall|falls|dropped|drops|lost|lose|declined|slid|slipped|eased|dipped|tumbled|sank|down|lower)\b", re.I)
+_UPW = re.compile(r"\b(?:rose|rise|rises|gained|gains|climbed|jumped|rallied|firmed|surged|up|higher)\b", re.I)
 _REL = re.compile(r"\b(above|below|over|under)\b", re.I)
 _NDAY = re.compile(r"\b(\d{1,3})\s*-?\s*(?:d|day|days|session|sessions|td)\b", re.I)
-_DAYW = re.compile(r"\b(?:on the day|today|intraday|d/d|1d|daily|yesterday|overnight|day|session)\b", re.I)
-_WEEKW = re.compile(r"\b(?:week|weekly|w/w)\b", re.I)
-_SPLIT = re.compile(r"[;\n]+|\.\s+|\.$")
+_DAYW = re.compile(r"(?<![\w/])(?:on the day|today|intraday|d/d|1d|daily|yesterday|overnight|day|session)(?![\w/])", re.I)
+_YEARW = re.compile(r"(?<![\w/])y/y(?![\w/])", re.I)
+_HYPO = re.compile(r"(?i:\b(?:if|could|would|might|case|should)\b|\bwas hit\b)|\bmay\b")
+_BADNEXT = re.compile(r"\s*(?:d|day|days|sessions?|td|w|weeks?|x|times|bars?|trading|yrs?|years?|months?|m|h|hrs?|min|lots?|units?|shares?|qty)\b", re.I)
+_WEEKW = re.compile(r"(?<![\w/])(?:week|weekly|w/w)(?![\w/])", re.I)
+_SPLIT = re.compile(r"[;\n]+|(?<!\bRs)(?<!approx)\.\s+|\.$")
 
 
 def num(s) -> float | None:
@@ -290,6 +294,7 @@ def extract(text, label: str, day: str) -> list[dict]:
         if not chunk.strip():
             continue
         chunk_dates = _dates(chunk, day)
+        hypo = bool(_HYPO.search(chunk))
         found = []
         for m in _INVALIDATE.finditer(chunk):
             found.append({"kind": "level", "sym": m["sym"], "value": float(m["num"]), "side": "below", "text": m[0]})
@@ -306,6 +311,10 @@ def extract(text, label: str, day: str) -> list[dict]:
             if any(a <= m.start("num") < b for a, b in taken) or chunk[max(0, m.start() - 12):m.start()] == "close_below:":
                 continue
             c = _classify(chunk, m, chunk_dates)
+            if c and hypo:
+                continue                                                   # "bull case: above 110 if CPI is soft" is not a statement of fact
+            if c and c["kind"] in ("relation", "level") and "scenario[" in label:
+                continue
             if c:
                 found.append(c)
         if chunk_dates and (found or _DATEWORD.search(chunk)):
@@ -324,21 +333,17 @@ def _classify(chunk: str, m: re.Match, chunk_dates) -> dict | None:
         return None
     ctx = chunk[max(0, m.start() - 30):m.end("gap")]
     snippet = _clip(chunk[m.start():m.end()])
-    if tail in ("pp", "bps", "$", "usd", "/oz"):
+    if tail in ("pp", "bps", "$", "usd", "/oz") or (m["num2"] and tail in ("%", "pct", "percent")):
         return None
+    after = chunk[m.end("num"):]
+    if not tail and after.lstrip().startswith("%"):
+        return None                                                        # a percentage the pattern could not take: never a price
+    if not tail and _BADNEXT.match(after):
+        return None                                                        # "5 days", "3 lots": a count, not a price
     if tail in ("%", "pct", "percent"):
         if v > 0 and _DOWNW.search(gap) and not _UPW.search(gap):
             v = -v
-        n = _NDAY.search(chunk)
-        if n:
-            hz = int(n[1])
-        elif _WEEKW.search(chunk):
-            hz = 5
-        elif _DAYW.search(chunk):
-            hz = 1
-        else:
-            hz = None
-        return {"kind": "pct", "sym": sym, "value": v, "hz": hz, "text": snippet}
+        return {"kind": "pct", "sym": sym, "value": v, "hz": _horizon(chunk, m.end()), "text": snippet}
     if tail in ("pts", "pt", "point", "points"):
         sign = -1 if _DOWNW.search(gap) and not _UPW.search(gap) else (1 if _UPW.search(gap) else 0)
         return {"kind": "pts", "sym": sym, "value": abs(v) * (sign or 1), "signed": bool(sign), "text": snippet}
@@ -356,7 +361,29 @@ def _classify(chunk: str, m: re.Match, chunk_dates) -> dict | None:
                 "text": snippet}
     if not (cur or word or "." in m["num"] or ":" in gap):
         return None                                                        # a bare integer next to a symbol says nothing
-    return {"kind": "price", "sym": sym, "value": v, "close": bool(_CLOSEW.search(ctx)), "text": snippet}
+    c = {"kind": "price", "sym": sym, "value": v, "close": bool(_CLOSEW.search(ctx)), "text": snippet}
+    v2 = num(m["num2"]) if m["num2"] else None
+    if v2 is not None and v2 > 0:
+        c["value2"] = v2
+    if re.search(r"\b(?:weights?|shares?)\b", gap, re.I):
+        c["force"] = "a weight or share, not a price"
+    return c
+
+
+def _horizon(chunk: str, end: int):
+    """Trading sessions a percentage move refers to, from the horizon word NEAREST the number (after it first, then before it)."""
+    best = None
+    for rx, f in ((_NDAY, lambda mm: int(mm[1])), (_WEEKW, lambda mm: 5), (_YEARW, lambda mm: 250), (_DAYW, lambda mm: 1)):
+        mm = rx.search(chunk, end)
+        if mm and (best is None or mm.start() < best[0]):
+            best = (mm.start(), f(mm))
+    if best:
+        return best[1]
+    for rx, f in ((_NDAY, lambda mm: int(mm[1])), (_WEEKW, lambda mm: 5), (_YEARW, lambda mm: 250), (_DAYW, lambda mm: 1)):
+        ms = list(rx.finditer(chunk, 0, end))
+        if ms and (best is None or ms[-1].start() > best[0]):
+            best = (ms[-1].start(), f(ms[-1]))
+    return best[1] if best else None
 
 
 # ------------------------------------------------------------------ evaluation
@@ -397,6 +424,16 @@ def evaluate(c: dict, ref: Ref) -> tuple[str, str]:
         ser = [("live", live)]
     d0, p0 = ser[-1]
     last2 = ser[-2:]
+    if c.get("force"):
+        return UNVERIFIABLE, c["force"]
+    if k == "price" and not 0.5 * p0 <= c["value"] <= 2 * p0 and not 0.5 * p0 <= c.get("value2", c["value"]) <= 2 * p0:
+        return UNVERIFIABLE, f"{_px(c['value'])} is outside 0.5x-2x of the latest {sym} close {_px(p0)}: probably not a price"
+    if k == "price" and "value2" in c:
+        lo, hi = sorted((c["value"], c["value2"]))
+        cands = [p for _, p in last2]
+        rng = ref.day_range(sym)
+        ok = any(lo * (1 - TOL_PRICE) <= p <= hi * (1 + TOL_PRICE) for p in cands) or (rng and lo * (1 - TOL_PRICE) <= rng[1] and rng[0] <= hi * (1 + TOL_PRICE))
+        return (OK if ok else MISMATCH), f"{sym} close {d0} {_px(p0)} (range {_px(lo)}-{_px(hi)})"
     if k == "price":
         if explicit:
             ok = _near(c["value"], p0)
